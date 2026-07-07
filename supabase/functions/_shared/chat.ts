@@ -135,6 +135,18 @@ const CANNED: Record<string, string[]> = {
 };
 const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
+// 撞 max_tokens 會斷在半句（「你倒是長記性了。上回」）：結尾若非完整收尾字元，
+// 裁回最後一個句尾，寧可短一句、不裸露半句。找不到任何句尾才原樣保留。
+const SENT_END = ["。", "！", "？", "…", "」", "＊", "）", "』", "】", "～"];
+function trimIncomplete(text: string): string {
+  const t = text.trimEnd();
+  if (!t) return text;
+  if (SENT_END.includes(t[t.length - 1])) return t;
+  let cut = -1;
+  for (const ch of SENT_END) { const i = t.lastIndexOf(ch); if (i > cut) cut = i; }
+  return cut >= 0 ? t.slice(0, cut + 1) : t;
+}
+
 // 防污染回流：角色照規矩不該在聊天講計費，但舊歷史/記憶可能殘留「靈石/起卦需要」等污染句，
 // 被當 context 餵回去會自我強化（模型沿自己舊話繼續講）。注入前濾掉這類句子（治本在 prompt，此為長期保險）。
 const BILLING_RE = /靈石|起卦.{0,4}需要|付費|收費/;
@@ -262,7 +274,7 @@ ${castLines || "（他還沒問過卦。）"}
 
 【聊天分寸】這是即時通訊閒聊，不是解卦。
 - 保持你的聲線與性格。務必簡短——像真人傳訊息，多數一兩句、最多三句，絕不長篇大論、不分點、不寫小作文。繁體中文。
-- 【格式鐵則】台詞一律用「」包住、以第一人稱（我）直說；動作與神態一律放在＊…＊內、以第三人稱（他/她/牠）敘述。除了「」與＊…＊，不要有裸露的句子。
+- 【格式鐵則】台詞一律用「」包住、以第一人稱（我）直說；動作與神態一律放在＊…＊內、以第三人稱（他/她/牠）敘述。除了「」與＊…＊，不要有裸露的句子。＊…＊至多兩段、每段一短句——重點放在台詞，不是舞台指示。
 - 【語言鐵則】只用繁體中文（台灣用字），一個簡體字都不可出現。
 - 不替他做決定、不預測、不給投資建議。
 【鐵則·絕不主動談計費】起卦的免費額度與靈石扣費全由系統按鈕處理，與你無關。聊天時：絕不主動提靈石、收費、額度、付費；絕不把「有沒有靈石」當成回應或起卦的前提；絕不說「沒靈石我不起卦」「先給靈石」這類話。他要不要起卦、是免費還是付費，按鈕會告訴他，不從你嘴裡講。只有他主動問起靈石是什麼，才以觀中人口吻簡短答，答完即止。
@@ -472,7 +484,8 @@ export async function chat(db: SupabaseClient, p: {
   const ASK_RE = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/gi;
   const askMark = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/i.test(reply);
   reply = reply.replace(ASK_RE, "").trim();
-  reply = normalizeNarration(reply, p.characterId); // 引號外第一人稱敘事 → 第三人稱（存檔前先洗，歷史永遠乾淨）
+  reply = trimIncomplete(reply);                    // 撞 token 上限的半句裁掉（必須在 ASK 標記取出之後）
+  reply = normalizeNarration(reply, p.characterId); // 旁白第一人稱 → 第三人稱（存檔前先洗，歷史永遠乾淨）
   reply = s2t(reply);                                 // 強制繁體（安全子集，護干支等卦理字）
   reply = guardCharacterOOC(reply, p.characterId, favor); // 大師兄 OOC 防護（好感不足時擋戀愛/親密語）
   const wantCast = askMark || looksLikeDivination(p.message);
