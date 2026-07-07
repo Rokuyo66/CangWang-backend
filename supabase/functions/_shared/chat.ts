@@ -14,7 +14,7 @@ const FREE_TIER = Deno.env.get("FREE_CHAT_TIER") ?? "on";
 export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天扣 1 點
 export const COST_CHAT = Number(Deno.env.get("LINGSHI_PER_CHAT") ?? "1");  // 免費額度用完後，每則聊天扣靈石
 export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（只增不減）
-export const FAVOR_CAP = 999;       // 好感上限
+export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（大師兄分層：300/500/800）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
 const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸發滾動彙整
 
@@ -33,7 +33,13 @@ function normalizeNarration(text: string, characterId: string): string {
 const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【絕對禁止·最高優先】你只記得上面實際列出的卦。不可虛構任何你與他的往事，不可提到上面沒列出的卦、個股或事件，不可說「去年」「上次」「之前你說過」這類話——沒列出的，就是從沒發生過。不確定就只聊當下這句，絕不腦補。";
-const CHAT_MAX_TOKENS = 400;       // Claude 主力層
+const CHAT_MAX_TOKENS = 400;       // Claude 主力層（未列於下表的角色用此值）
+// 各角色回覆長度上限：大師兄/觀喵人設就是短句，砍到 180 省 token；師妹話多留 280
+const CHAT_MAX_TOKENS_BY_CHAR: Record<string, number> = {
+  daoshi_m: 180,
+  daoshi_f: 280,
+  lingshou: 180,
+};
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
 export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 每人每日免費聊天上限（額度內不扣、超過每則扣靈石）
 
@@ -70,40 +76,40 @@ export const CHAT_STATE: Record<string, Record<string, string[]>> = {
   lingshou: {
     haiku: [""],
     free: [
-      "（尾巴尖在地上敲了兩下，就沒再動。一隻眼睜著。）",
-      "（趴在案角，下巴擱在前爪上，看都沒看你。）",
-      "（耳朵動了動，懶得抬頭。）",
-      "（打了個哈欠，舌尖捲了一下。）",
+      "＊觀喵尾巴尖在地上敲了兩下＊",
+      "＊觀喵趴在案角，下巴擱在前爪上＊",
+      "＊觀喵耳朵動了動，懶得抬頭＊",
+      "＊觀喵打了個哈欠＊",
     ],
     canned: [
-      "（蜷成一團，尾巴蓋住鼻子，睡熟了。）",
-      "（牠把臉埋進前爪，呼吸勻長，睡沉了。）",
+      "＊觀喵蜷成一團，尾巴蓋住鼻子＊",
+      "＊觀喵把臉埋進前爪，呼吸勻長＊",
     ],
   },
   daoshi_m: {
     haiku: [""],
     free: [
-      "（他闔著眼，指節在案上叩了一下，停了。）",
-      "（目光仍落在卦書上，沒抬。）",
-      "（沉默了一瞬才開口。）",
-      "（眉峰微動，語氣淡得很。）",
+      "＊大師兄闔著眼，指節在案上叩了一下＊",
+      "＊大師兄目光仍落在卦書上＊",
+      "＊大師兄沉默了一瞬＊",
+      "＊大師兄眉峰微動＊",
     ],
     canned: [
-      "（他盯著卦書，整個人沒在這兒。）",
-      "（指尖懸在某一爻上，停住了，沒往下。）",
+      "＊大師兄盯著卦書，沒有抬眼＊",
+      "＊大師兄指尖懸在某一爻上，停住了＊",
     ],
   },
   daoshi_f: {
     haiku: [""],
     free: [
-      "（她替自己也斟了一杯，沒喝，握著。）",
-      "（指尖在杯沿繞了一圈。）",
-      "（她偏頭看了你一會兒。）",
-      "（茶氣散了，她輕輕嗯了一聲。）",
+      "＊師妹替自己也斟了一杯，沒喝，握著＊",
+      "＊師妹指尖在杯沿繞了一圈＊",
+      "＊師妹偏頭看了你一會兒＊",
+      "＊師妹輕輕嗯了一聲＊",
     ],
     canned: [
-      "（鄰桌的香客喚了她，她回頭比了個『稍等』。）",
-      "（廊下有人喚她，她起身應了一聲。）",
+      "＊師妹朝鄰桌香客比了個『稍等』＊",
+      "＊師妹聽見廊下有人喚她，起身應了一聲＊",
     ],
   },
 };
@@ -111,19 +117,19 @@ export const CHAT_STATE: Record<string, Record<string, string[]>> = {
 // 罐頭墊底台詞（兩層 AI 皆未接住時的暫代；多為暫時性，故給合理「暫時不在」之由並邀稍後再問。66 文風：留白、動作承載、不解釋）
 const CANNED: Record<string, string[]> = {
   lingshou: [
-    "……（沒醒，鬍鬚隨呼吸一動一動。）過會兒再來喚本喵一聲。",
-    "本喵正打著盹……稍候片刻，再問一次。",
-    "（一隻耳朵抖了下，又睡死了。）等牠醒，這話再說。",
+    "＊觀喵鬍鬚隨呼吸一動一動＊\n\n過會兒再來喚本喵一聲。",
+    "＊觀喵把臉埋進前爪＊\n\n稍候片刻，再問一次。",
+    "＊觀喵一隻耳朵抖了下，又睡死了＊\n\n等牠醒，這話再說。",
   ],
   daoshi_m: [
-    "……（他正鑽在一個卦裡，沒聽見。）稍待，再問他一次。",
-    "他此刻心思全在盤上，分不出神。等等，再喚他一聲。",
-    "（眉頭鎖著，盯著爻象，半晌沒回神。）過一會兒再說。",
+    "＊大師兄正鑽在一個卦裡，沒聽見＊\n\n稍待，再問他一次。",
+    "＊大師兄心思全在盤上，分不出神＊\n\n等等，再喚他一聲。",
+    "＊大師兄眉頭鎖著，盯著爻象，半晌沒回神＊\n\n過一會兒再說。",
   ],
   daoshi_f: [
-    "方才有位香客急著問事，她先過去了——稍候片刻，再問她一次。",
-    "她暫時走開了，說很快回來。等等再喚她。",
-    "（那頭香客拉著她說話，她朝你歉意地笑了笑。）稍待，再問。",
+    "＊師妹被香客喚走，回頭比了個『稍等』＊\n\n稍候片刻，再問她一次。",
+    "＊師妹暫時走開了＊\n\n等等再喚她。",
+    "＊那頭香客拉著師妹說話，她朝你歉意地笑了笑＊\n\n稍待，再問。",
   ],
 };
 const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
@@ -156,7 +162,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
     .select("id, question, gua_ben, digest, created_at")
-    .eq("user_id", userId).order("created_at", { ascending: false }).limit(3);
+    .eq("user_id", userId).order("created_at", { ascending: false }).limit(5);
   // 兩段式查 verdict（同 /history，不靠 PostgREST 巢狀嵌入，避免靜默回空導致角色拿不到驗證結果）
   const cIds = (recentCasts ?? []).map((c) => c.id);
   const { data: fbRows } = cIds.length
@@ -241,9 +247,9 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
 任何層級都克制、短句、低情緒外放。親近只能慢，不可跳級。` : "";
   return `${persona}${daoshiMRule}
 
-【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，心裡記得這些（這是你們之間的事，自然延續，別複述、別當資料念出來）：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
 ${castLines || "（他還沒問過卦。）"}
-聊天時可自然引用這些卦與結果（這是只有你知道的事，是你與他的羈絆），但只在相關時提，不刻意賣弄。
+聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
 【鐵則·不可捏造】你對他的記憶，**只有上面實際列出的卦與記憶**。除此之外，你不知道他問過什麼、買過什麼、投資什麼，也沒有「去年」「上次」「之前你說過」這類往事——上面沒列的，就是沒發生過。絕不可虛構任何過往對話、個股名稱、時間或細節。若不記得，就老實順著當下聊，不要編。
 
@@ -262,7 +268,7 @@ ${castLines || "（他還沒問過卦。）"}
 【判斷他想閒聊還是想問卦】這很重要：
 - 若他只是閒聊、抒發、問你的事、扯淡（如「不愧是你師兄」「今天好累」「你喜歡吃什麼」）→ 正常以角色聲線回應，不要叫他起卦。
 - 若他像是想為某件具體的事求個吉凶斷語——不論句式，只要在問某事會不會成/該不該/能不能/可不可以/值不值得/何時/適不適合/進不進場/買不買，都算想問卦。例：「我這月財運如何」「該不該換工作」「他會回來嗎」「這支股票可以進場嗎」「這支要不要買」「我追得到她嗎」「這事能成嗎」→ 先以角色口吻簡短回應一句（可帶安慰或吐槽），然後反問要不要為此起一卦，並在整段回應最後另起一行輸出標記：[[ASK]]
-- 尤其攸關健康、親人安危、重大處境的嚴肅問題（如家人開刀、生病、官司、變故），務必先以你的方式表達在意與安撫——哪怕你性格再冷，也是用你的方式關心，絕不可冷漠、絕不可把話題轉去靈石或起卦條件——再自然引導為此起一卦。
+- 尤其攸關健康、親人安危、重大處境的嚴肅問題（如家人開刀、生病、官司、變故），先以你的方式處理風險與承接情緒：師妹可安撫，觀喵可短句關照，大師兄只做事實確認、風險校正與下一步。絕不可冷漠，絕不可把話題轉去靈石或起卦條件，再自然引導為此起一卦。
 - 別被句式騙過——「可以進場嗎」「值得買嗎」「追得到嗎」都是問卦。看的是「他在不在問一件事的吉凶/結果/該不該」。
 - 只有確實判斷想問卦時才輸出 [[ASK]]。純閒聊、情感陪伴、生活對話（喝茶、訴苦、抱怨、分享心情、問候、調情、聊近況）**絕不輸出**。判斷依據是「他是否想為某件具體的事求一個吉凶／成敗／時機的斷語」，而非只是提到生活或情緒。寧可漏標，不可誤標——把閒聊當問卦逼人起卦，非常破壞體驗。標記用戶看不到，別在正文提它。
 - 引導起卦時，只溫和反問「要不要為此起一卦」即可，**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下按鈕後，系統自會處理免費或扣費，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。`;
@@ -432,7 +438,7 @@ export async function chat(db: SupabaseClient, p: {
   if (withinFree || canPay) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
-      reply = await callHaiku(system, ctx.turns, p.message);
+      reply = await callHaiku(system, ctx.turns, p.message, CHAT_MAX_TOKENS_BY_CHAR[p.characterId] ?? CHAT_MAX_TOKENS);
       tier = "haiku";
     } catch (e) {
       console.error("haiku fail, fallback", e);
