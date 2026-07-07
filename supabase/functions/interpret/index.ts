@@ -73,9 +73,50 @@ async function userFromJwt(jwt: string): Promise<string | null> {
   return await ensureWebUser(data.user.id, data.user.email ?? undefined);
 }
 
+// 觀前石牆：公開回評牆＋整體準驗統計（免認證唯讀；只出評語/卦名/暱稱，不含問事原文）
+let wallCache: { t: number; payload: unknown } | null = null;
+async function wallResponse(): Promise<Response> {
+  if (wallCache && Date.now() - wallCache.t < 300_000) return Response.json(wallCache.payload, { headers: CORS });
+  const stats = { hit: 0, part: 0, miss: 0, total: 0 };
+  for (const [k, v] of [["hit", 1], ["part", 2], ["miss", 3]] as const) {
+    const { count } = await db.from("feedback").select("cast_id", { count: "exact", head: true }).eq("verdict", v);
+    stats[k] = count ?? 0;
+  }
+  stats.total = stats.hit + stats.part + stats.miss;
+  const { data: fbs } = await db.from("feedback")
+    .select("cast_id, user_id, verdict, note, answered_at")
+    .eq("is_public", true).not("note", "is", null)
+    .order("answered_at", { ascending: false }).limit(40);
+  const rows = (fbs ?? []).filter((f: { note: string | null }) => String(f.note ?? "").trim());
+  // 兩段式查卦名/暱稱（不靠巢狀嵌入，同卦歷做法）
+  const castIds = rows.map((f: { cast_id: string }) => f.cast_id);
+  const userIds = [...new Set(rows.map((f: { user_id: string }) => f.user_id))];
+  const { data: cs } = castIds.length ? await db.from("casts").select("id, gua_ben").in("id", castIds) : { data: [] };
+  const { data: ps } = userIds.length ? await db.from("profiles").select("id, display_name").in("id", userIds) : { data: [] };
+  const gua = new Map((cs ?? []).map((c: { id: string; gua_ben: string }) => [c.id, c.gua_ben]));
+  const names = new Map((ps ?? []).map((p: { id: string; display_name: string | null }) => [p.id, p.display_name]));
+  const entries = rows.map((f: { cast_id: string; user_id: string; verdict: number; note: string; answered_at: string | null }) => ({
+    note: String(f.note).slice(0, 120),
+    verdict: f.verdict,
+    gua: gua.get(f.cast_id) ?? "",
+    name: names.get(f.user_id) || "護道人",
+    date: String(f.answered_at ?? "").slice(0, 10),
+  }));
+  const payload = { kind: "ok", stats, entries };
+  wallCache = { t: Date.now(), payload };
+  return Response.json(payload, { headers: CORS });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
+
+  // deno-lint-ignore no-explicit-any
+  let body: any;
+  try { body = await req.json(); } catch { return new Response("bad request", { status: 400, headers: CORS }); }
+
+  // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
+  if (body.mode === "wall") return await wallResponse();
 
   // 認證雙軌
   let jwtUserId: string | null = null;
@@ -88,7 +129,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
     // 網頁(JWT)路徑：user_id 一律用 JWT 解出的，忽略前端傳的 body.user_id（安全鐵則）
     const uid = jwtUserId ?? body.user_id;
     if (!uid) return new Response("no user", { status: 400, headers: CORS });
@@ -291,13 +331,15 @@ Deno.serve(async (req) => {
       return Response.json({ kind: "ok", cast: c, followups: fus ?? [] }, { headers: CORS });
     }
 
-    // 應期回評：1準 2部分 3不準（回評後修為+50，紅點消）
+    // 應期回評：1準 2部分 3不準（回評後修為+50，紅點消）＋選填評語（可匿名公開到觀前石牆）
     if (body.mode === "review") {
       const v = Number(body.verdict);
       if (![1, 2, 3].includes(v)) return Response.json({ kind: "err" }, { headers: CORS });
       const { data: c } = await db.from("casts").select("character_id").eq("id", body.cast_id).eq("user_id", uid).maybeSingle();
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
-      await db.from("feedback").upsert({ cast_id: body.cast_id, user_id: uid, verdict: v, answered_at: new Date().toISOString() }, { onConflict: "cast_id" });
+      const note = String(body.note ?? "").trim().slice(0, 120);
+      const isPublic = body.is_public === true && note.length > 0;
+      await db.from("feedback").upsert({ cast_id: body.cast_id, user_id: uid, verdict: v, note: note || null, is_public: isPublic, answered_at: new Date().toISOString() }, { onConflict: "cast_id" });
       const { data: uc } = await db.from("user_character").select("cultivation").eq("user_id", uid).eq("character_id", c.character_id).maybeSingle();
       await db.from("user_character").upsert({ user_id: uid, character_id: c.character_id, cultivation: (uc?.cultivation ?? 0) + 50 }, { onConflict: "user_id,character_id" });
       return Response.json({ kind: "ok" }, { headers: CORS });
