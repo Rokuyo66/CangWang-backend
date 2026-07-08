@@ -315,7 +315,7 @@ Deno.serve(async (req) => {
     // 卦曆列表
     if (body.mode === "history") {
       const { data: casts } = await db.from("casts")
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, feedback(verdict)")
+        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, feedback(verdict, note)")
         .eq("user_id", uid).order("created_at", { ascending: false }).limit(60);
       return Response.json({ kind: "ok", casts: casts ?? [] }, { headers: CORS });
     }
@@ -323,7 +323,7 @@ Deno.serve(async (req) => {
     // 重溫單卦（含追問串）
     if (body.mode === "cast_detail") {
       const { data: c } = await db.from("casts")
-        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, feedback(verdict)")
+        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, feedback(verdict, note)")
         .eq("id", body.cast_id).eq("user_id", uid).maybeSingle();
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
       const { data: fus } = await db.from("followups").select("question, answer, created_at")
@@ -339,10 +339,18 @@ Deno.serve(async (req) => {
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
       const note = String(body.note ?? "").trim().slice(0, 120);
       const isPublic = body.is_public === true && note.length > 0;
+      // 只有「首次回評」才發修為與靈石（防重複送出刷獎）；後續仍可改寫評語但不再發獎
+      const { data: prevFb } = await db.from("feedback").select("verdict").eq("cast_id", body.cast_id).maybeSingle();
+      const firstTime = !(prevFb && prevFb.verdict && prevFb.verdict > 0);
       await db.from("feedback").upsert({ cast_id: body.cast_id, user_id: uid, verdict: v, note: note || null, is_public: isPublic, answered_at: new Date().toISOString() }, { onConflict: "cast_id" });
-      const { data: uc } = await db.from("user_character").select("cultivation").eq("user_id", uid).eq("character_id", c.character_id).maybeSingle();
-      await db.from("user_character").upsert({ user_id: uid, character_id: c.character_id, cultivation: (uc?.cultivation ?? 0) + 50 }, { onConflict: "user_id,character_id" });
-      return Response.json({ kind: "ok" }, { headers: CORS });
+      let lingshi = 0;
+      if (firstTime) {
+        const { data: uc } = await db.from("user_character").select("cultivation").eq("user_id", uid).eq("character_id", c.character_id).maybeSingle();
+        await db.from("user_character").upsert({ user_id: uid, character_id: c.character_id, cultivation: (uc?.cultivation ?? 0) + 50 }, { onConflict: "user_id,character_id" });
+        lingshi = note.length > 0 ? 2 : 1;   // 有留印證評語 +2；只點準不準 +1
+        await db.rpc("apply_lingshi", { p_user: uid, p_action: "feedback", p_amount: lingshi, p_ref: body.cast_id });
+      }
+      return Response.json({ kind: "ok", lingshi }, { headers: CORS });
     }
 
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
