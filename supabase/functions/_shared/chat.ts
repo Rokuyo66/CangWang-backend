@@ -1,6 +1,7 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { logUsage, rateLimited } from "./services.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
@@ -237,7 +238,9 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
 
   let summary = "";
   try {
-    summary = await callHaiku(sys, [], usr, 600);
+    const h = await callHaiku(sys, [], usr, 600);
+    summary = h.text;
+    await logUsage(db, { userId, mode: "chat_memory", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
   } catch (e) {
     console.error("condense fail, skip（不刪明細，下次再試，絕不造成記憶遺失）", e);
     return;
@@ -302,7 +305,14 @@ async function callHaiku(system: string, turns: { role: string; body: string }[]
     });
     if (!res.ok) throw new Error(`haiku ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    return (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
+    const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
+    // usage 以 API 實際值為準；缺欄位以字數估算並標記 estimated
+    const promptChars = system.length + messages.reduce((s, m) => s + m.content.length, 0);
+    return {
+      text,
+      usage: { in: data.usage?.input_tokens ?? Math.ceil(promptChars * 1.2), out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2) },
+      estimated: !data.usage,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -443,6 +453,19 @@ export async function chat(db: SupabaseClient, p: {
   const withinFree = used < FREE_CHAT_PER_DAY;
   const canPay = lingshi >= COST_CHAT;
 
+  // 每分鐘限流：超限直接以角色口吻打發，不呼叫模型、不扣費、不寫記憶
+  if (await rateLimited(db, p.userId)) {
+    const RATE_LINES: Record<string, string> = {
+      daoshi_m: "一句一句來。稍候。",
+      daoshi_f: "別急，一句一句說，我都在。稍歇片刻再繼續吧。",
+      lingshou: "＊觀貓把爪子壓在你手背上＊\n\n吵。一分鐘轟這麼多句，本喵要順毛，等等再說。",
+    };
+    return {
+      reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
+      cost: 0, freeLeft: Math.max(0, FREE_CHAT_PER_DAY - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
+    };
+  }
+
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
   const ctx = await buildContext(db, p.userId, p.characterId);
   const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor);
@@ -452,8 +475,10 @@ export async function chat(db: SupabaseClient, p: {
   if (withinFree || canPay) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
-      reply = await callHaiku(system, ctx.turns, p.message, CHAT_MAX_TOKENS_BY_CHAR[p.characterId] ?? CHAT_MAX_TOKENS);
+      const h = await callHaiku(system, ctx.turns, p.message, CHAT_MAX_TOKENS_BY_CHAR[p.characterId] ?? CHAT_MAX_TOKENS);
+      reply = h.text;
       tier = "haiku";
+      await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
     } catch (e) {
       console.error("haiku fail, fallback", e);
     }

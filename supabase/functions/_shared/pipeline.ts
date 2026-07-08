@@ -2,7 +2,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI } from "./rules.ts";
-import { callInterpret, billCast, billFollowup, COST_DEEPEN, COST_COMMENT } from "./services.ts";
+import { callInterpret, billCast, billFollowup, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -58,8 +58,9 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   yongQin?: string;                    // 前端已取定的用神六親（與盤面一致）
   yongViaShi?: boolean;                // 用神是否取世爻
 }) {
-  // 0. 全站熔斷
+  // 0. 全站熔斷＋個人限流
   if (await globalCapReached(db)) return { kind: "capped" as const };
+  if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 1. 二占
   const dup = await checkDuplicate(db, p.userId, p.question);
@@ -80,6 +81,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   // 4. 解卦
   const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
   const ai = await callInterpret(ch!.persona_prompt, ctext, p.yongQin ? { yong: { qin: p.yongQin, viaShi: p.yongViaShi } } : {});
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
   // 5. 入庫
   const { data: cast } = await db.from("casts").insert({
@@ -124,6 +126,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
     .select("id, character_id, question, chart, reading, lines")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
+  if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   const bill = await billFollowup(db, p.userId, p.castId);
   if (!bill.ok) return { kind: bill.reason === "lingshi" ? "paywall" as const : "not_found" as const };
@@ -133,6 +136,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
     followup: { prevReading: cast.reading ?? "", question: p.question },
   });
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   await db.from("followups").insert({ cast_id: p.castId, question: p.question, answer: ai.reading, paid_lingshi: bill.paid });
   const breakthrough = await addCultivation(db, p.userId, cast.character_id, 10, 2);
   return { kind: "ok" as const, answer: ai.reading, paid: bill.paid, breakthrough };
@@ -171,6 +175,7 @@ export async function commentCast(db: SupabaseClient, p: {
     .select("id, question, chart, reading, character_id")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
+  if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment", p_amount: -COST_COMMENT, p_ref: p.castId });
   if (payErr) return { kind: "paywall" as const, cost: COST_COMMENT };
@@ -182,10 +187,12 @@ export async function commentCast(db: SupabaseClient, p: {
   const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
   });
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   return { kind: "ok" as const, comment: ai.reading, paid: COST_COMMENT };
 }
 
-/** 展開完整卦理（首次生成扣 COST_DEEPEN 靈石；已生成過重看免費） */
+/** 展開完整卦理（首次生成扣 COST_DEEPEN 靈石；已生成過重看免費）
+ *  完整度保證：撞 max_tokens 或結尾斷半句 → 一次 prefill 接續補完；仍不完整 → 退款、不存半成品。 */
 export async function deepenCast(db: SupabaseClient, p: {
   userId: string; castId: string;
 }) {
@@ -193,18 +200,43 @@ export async function deepenCast(db: SupabaseClient, p: {
     .select("id, character_id, question, chart, reading, deep_reading")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
-  // 已生成過則直接回（重看免費，不重複付費）
+  // 已生成過則直接回快照（重看免費、不重呼叫模型——重複請求天然去重）
   if (cast.deep_reading) return { kind: "ok" as const, deep: cast.deep_reading as string, cached: true };
+  if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 首次展開：扣靈石（不足則擋）
   const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen", p_amount: -COST_DEEPEN, p_ref: p.castId });
   if (payErr) return { kind: "paywall" as const, cost: COST_DEEPEN };
 
+  const refund = () => db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen_refund", p_amount: COST_DEEPEN, p_ref: p.castId });
+
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Parameters<typeof chartText>[0];
-  const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
-    deepen: { briefReading: cast.reading ?? "" },
-  });
-  await db.from("casts").update({ deep_reading: ai.reading }).eq("id", p.castId);
-  return { kind: "ok" as const, deep: ai.reading, cached: false, paid: COST_DEEPEN };
+  const ctext = chartText(chart, cast.question ?? "");
+  try {
+    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" } });
+    await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+    let deep = ai.reading;
+    let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
+    if (incomplete) {
+      // 一次接續補完：assistant 預填半成品，模型從斷點續寫剩餘段落（不重解卦）
+      const cont = await callInterpret(ch!.persona_prompt, ctext, {
+        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep,
+      });
+      await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated });
+      deep = deep.replace(/\s+$/, "") + cont.reading;
+      incomplete = cont.stopReason === "max_tokens" || !endsComplete(deep);
+    }
+    if (incomplete) {
+      // 補完仍失敗：退款、回可控錯誤，絕不把半成品當正式結果存檔
+      await refund();
+      return { kind: "incomplete" as const };
+    }
+    await db.from("casts").update({ deep_reading: deep }).eq("id", p.castId);
+    return { kind: "ok" as const, deep, cached: false, paid: COST_DEEPEN };
+  } catch (e) {
+    console.error("deepen failed", e);
+    await refund();
+    return { kind: "incomplete" as const };
+  }
 }

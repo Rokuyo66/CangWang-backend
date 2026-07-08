@@ -44,6 +44,19 @@ const stripUnsupportedTags = (s: string) =>
   s.replace(/<\/?(?:details|summary)(?:\s[^>]*)?>/gi, "").replace(/\n{3,}/g, "\n\n").trim();
 const send = (chatId: number, text: string, extra: Record<string, unknown> = {}) =>
   tg("sendMessage", { chat_id: chatId, text: stripUnsupportedTags(text), parse_mode: "HTML", ...extra });
+// TG 單則上限 4096 字：超長訊息按段落切塊連發（在換行處切，行內 <b>/<i> 標籤不會被腰斬）
+async function sendLong(chatId: number, text: string) {
+  const LIMIT = 3800;
+  if (text.length <= LIMIT) { await send(chatId, text); return; }
+  let rest = text;
+  while (rest.length > 0) {
+    if (rest.length <= LIMIT) { await send(chatId, rest); break; }
+    let cut = rest.lastIndexOf("\n", LIMIT);
+    if (cut < LIMIT / 2) cut = LIMIT; // 找不到合適換行就硬切
+    await send(chatId, rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, "");
+  }
+}
 const typing = (chatId: number) => tg("sendChatAction", { chat_id: chatId, action: "typing" });
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -149,7 +162,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     const CHAR_LABELS2: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
     const ACTION_LABELS: Record<string, string> = {
       register: "註冊", signin: "簽到", followup: "追問", extra_cast: "加卦",
-      deepen: "展開", comment: "換評", breakthrough: "突破", feedback: "回評",
+      deepen: "展開", deepen_refund: "展開退款", comment: "換評", breakthrough: "突破", feedback: "回評",
     };
     let head = "📊 <b>幾知觀後台</b>\n\n";
     if (s) {
@@ -539,6 +552,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await typing(chatId);
     const r = await commentCast(db, { userId, castId: ses.last_cast_id, newCharacterId: newChar });
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
+    if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
     if (r.kind === "paywall") {
       await send(chatId, `換人評卦需 <b>${r.cost} 靈石</b>，你的靈石不足。\n（每日上香 /sign 可得靈石。）`);
       return;
@@ -553,12 +567,17 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await typing(chatId);
     const r = await deepenCast(db, { userId, castId: ses.last_cast_id });
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
+    if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
+    if (r.kind === "incomplete") {
+      await send(chatId, "此次推演未能完整收束，靈石已如數退回。請稍後再展開一次。");
+      return;
+    }
     if (r.kind === "paywall") {
       await send(chatId, `展開完整卦理需 <b>${r.cost} 靈石</b>，你的靈石不足。\n（每日上香 /sign 可得靈石。）`);
       return;
     }
     const paidNote = (!r.cached && r.paid) ? `\n\n<i>（完整卦理，靈石 −${r.paid}）</i>` : r.cached ? "\n\n<i>（此卦已展開過，重看免費）</i>" : "";
-    await send(chatId, "<b>📜 完整卦理</b>\n\n" + mdToTG(r.deep) + paidNote);
+    await sendLong(chatId, "<b>📜 完整卦理</b>\n\n" + mdToTG(r.deep) + paidNote);
     return;
   }
 
@@ -734,6 +753,11 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     await saveSession({ ...ses, state: "idle" });
     return;
   }
+  if (r.kind === "rate_limited") {
+    await send(chatId, "手速太快了，稍歇片刻再占。");
+    await saveSession({ ...ses, state: "idle" });
+    return;
+  }
   if (r.kind === "intercept") {
     await saveSession({ ...ses, state: "idle", last_cast_id: r.prevCastId });
     await send(chatId, esc(r.message), {
@@ -773,6 +797,7 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
   await send(chatId, "推演中……");
   await typing(chatId);
   const r = await followupInterpret(db, { userId, castId, question });
+  if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再問。"); return; }
   if (r.kind === "paywall") {
     await send(chatId, "此卦內含追問已用盡，靈石亦不足。\n（明日簽到可得靈石。）");
     return;

@@ -90,14 +90,30 @@ export function renderChartTG(c: Chart): string {
 
 /* ---------- Anthropic ---------- */
 const API = "https://api.anthropic.com/v1/messages";
-const MODEL = Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
+// 模型分流：預設一律 Haiku（省成本），只有完整卦理（deepen）升 Sonnet。
+// INTERPRET_FORCE_MODEL：管理者測試用，設了則所有 interpret 呼叫強制用該模型。
+const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-haiku-4-5-20251001";
+const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
+const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
+// 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
+const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600 };
+
+// 句尾收束字元（含 markdown 粗體收尾）：結尾不在此清單＝疑似斷半句
+const SENT_END = ["。", "！", "？", "…", "」", "』", "）", "】", "＊", "～", "*", "."];
+export function endsComplete(text: string): boolean {
+  const t = (text ?? "").trimEnd();
+  return !!t && SENT_END.includes(t[t.length - 1]);
+}
 
 export async function callInterpret(persona: string, chartText: string, opts: {
   followup?: { prevReading: string; question: string };
   deepen?: { briefReading: string };
   comment?: { prevReading: string; prevAuthor?: string };
   yong?: { qin: string; viaShi?: boolean };
+  continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
 }) {
+  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : "cast";
+  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : MODEL_LITE);
   const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : RULES;
   const system = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral" } },
@@ -123,6 +139,11 @@ export async function callInterpret(persona: string, chartText: string, opts: {
       }]
     : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。` }];
 
+  // 接續補完：把半成品當 assistant 預填，模型會從斷點直接續寫（不重解、不另起新論）
+  if (opts.continuePartial) {
+    messages.push({ role: "assistant", content: opts.continuePartial.replace(/\s+$/, "") });
+  }
+
   const res = await fetch(API, {
     method: "POST",
     headers: {
@@ -130,13 +151,62 @@ export async function callInterpret(persona: string, chartText: string, opts: {
       "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: MODEL, max_tokens: 1600, system, messages }),
+    body: JSON.stringify({ model, max_tokens: MODE_LIMITS[mode] ?? 1000, system, messages }),
   });
   if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
   const data = await res.json();
   const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
-  const usage = { in: data.usage?.input_tokens ?? 0, out: data.usage?.output_tokens ?? 0 };
-  return { ...(opts.followup || opts.deepen ? { reading: text.trim(), suggested: [], due: null, category: null, digest: null } : parseTagged(text)), usage, model: MODEL };
+  // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
+  const estimated = !data.usage;
+  const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + ruleText.length + persona.length;
+  const usage = {
+    in: data.usage?.input_tokens ?? Math.ceil(promptChars * 1.2),
+    out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2),
+  };
+  // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
+  const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
+  return {
+    ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null } : parseTagged(text)),
+    usage, model, mode, estimated, stopReason: (data.stop_reason ?? null) as string | null,
+  };
+}
+
+/** 每次 Claude 呼叫記一筆用量（失敗不阻斷主流程） */
+export async function logUsage(db: SupabaseClient, p: {
+  userId: string | null; mode: string; model: string;
+  usage: { in: number; out: number }; estimated: boolean;
+}) {
+  try {
+    await db.from("ai_usage").insert({
+      user_id: p.userId, mode: p.mode, model: p.model,
+      tokens_in: p.usage.in, tokens_out: p.usage.out, estimated: p.estimated,
+    });
+  } catch (e) {
+    console.error("logUsage failed", e);
+  }
+}
+
+/* ---------- 每分鐘限流 ---------- */
+export const RATE_PER_MIN = Number(Deno.env.get("RATE_PER_MIN") ?? "6");
+
+/** 同一 user 每分鐘 AI 請求限流（分鐘桶）。回 true＝超限應拒絕。失敗時放行（限流壞了不擋正常服務）。 */
+export async function rateLimited(db: SupabaseClient, userId: string): Promise<boolean> {
+  try {
+    const minute = new Date().toISOString().slice(0, 16);
+    const { data } = await db.from("rate_minute").select("count").eq("user_id", userId).eq("minute", minute).maybeSingle();
+    const n = data?.count ?? 0;
+    if (n >= RATE_PER_MIN) return true;
+    await db.from("rate_minute").upsert({ user_id: userId, minute, count: n + 1 }, { onConflict: "user_id,minute" });
+    // 過期桶順手清（低頻抽樣，避免每請求都掃表）
+    if (Math.random() < 0.02) {
+      const cutoff = new Date(Date.now() - 3600_000).toISOString().slice(0, 16);
+      await db.from("rate_minute").delete().lt("minute", cutoff);
+    }
+    return false;
+  } catch (e) {
+    console.error("rateLimited check failed", e);
+    return false;
+  }
 }
 
 /* ---------- 計費 ---------- */
@@ -144,9 +214,9 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 export const FREE_CASTS_PER_DAY = 3;
 export const FREE_FOLLOWUPS_PER_CAST = 2; // bot 用戶天然已註冊
-export const COST_FOLLOWUP = 5;
+export const COST_FOLLOWUP = 8;
 export const COST_EXTRA_CAST = 10;
-export const COST_DEEPEN = 5;      // 展開完整卦理（首次生成扣，重看免費）
+export const COST_DEEPEN = 15;     // 展開完整卦理（首次生成扣，重看免費；Sonnet 長輸出，中高價位）
 export const COST_COMMENT = 5;     // 換人評卦（另一角色評同卦）
 export const GRANT_REGISTER = 50;
 
