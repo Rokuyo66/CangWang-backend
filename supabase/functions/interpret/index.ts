@@ -27,7 +27,9 @@ const CHAR_REWARDS: Record<string, Record<string, string>> = {
 };
 const PLAYER_REWARDS = ["r07","r08","r09","r10"]; // 玩家池獎勵（其餘 01~06/11~13 屬御三家換裝）
 
-// 收集狀態：distinct gua_ben(＋gua_bian) → 各上卦行進度、已解鎖獎勵
+// 收集狀態：distinct gua_ben(＋gua_bian) → 各上卦行進度、已「達成」獎勵
+// 注意：unlocked 是「集滿達成」（eligible），非「已領取」。集滿後須玩家至卦曆點擊領取
+// （claim_reward）寫入 profiles.claimed_rewards 才算真正解鎖可用。
 async function computeCollection(uid: string) {
   const { data: rows } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid);
   const owned = new Set<string>();
@@ -46,6 +48,12 @@ async function computeCollection(uid: string) {
   for (const c of columns) if (c.done) unlocked.push(...c.rewards);
   if (allDone) unlocked.push("r11", "r12", "r13");
   return { owned, columns, allDone, unlocked };
+}
+
+// 已領取的獎勵頭像 key（真正解鎖可用的集合）
+async function getClaimedRewards(uid: string): Promise<string[]> {
+  const { data } = await db.from("profiles").select("claimed_rewards").eq("id", uid).maybeSingle();
+  return (data?.claimed_rewards ?? []) as string[];
 }
 
 // CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
@@ -135,7 +143,7 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total").eq("id", uid).maybeSingle();
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards").eq("id", uid).maybeSingle();
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -155,7 +163,11 @@ Deno.serve(async (req) => {
       const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
       const chatFreeLeft = Math.max(0, FREE_CHAT_PER_DAY - cused);
       const signedToday = prof?.last_sign_date === cday;
-      return Response.json({ kind: "ok", lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0) }, { headers: CORS });
+      // 收集獎勵待領數（卦曆鈕紅點用）：集滿達成但尚未領取
+      const { unlocked: eligible } = await computeCollection(uid);
+      const claimedArr = (prof?.claimed_rewards ?? []) as string[];
+      const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
+      return Response.json({ kind: "ok", lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -206,11 +218,27 @@ Deno.serve(async (req) => {
       }, { headers: CORS });
     }
 
-    // 圖鑑收集 + 上卦行獎勵解鎖狀態
+    // 圖鑑收集 + 上卦行獎勵狀態（unlocked=已領取；claimable=集滿待領）
     if (body.mode === "collection") {
-      const { columns, allDone, unlocked } = await computeCollection(uid);
+      const { columns, allDone, unlocked: eligible } = await computeCollection(uid);
+      const claimed = new Set(await getClaimedRewards(uid));
       const ownedCount = columns.reduce((s, c) => s + c.count, 0);
-      return Response.json({ kind: "ok", columns, allDone, unlocked, ownedCount }, { headers: CORS });
+      return Response.json({
+        kind: "ok", columns, allDone, ownedCount,
+        unlocked: eligible.filter((k) => claimed.has(k)),
+        claimable: eligible.filter((k) => !claimed.has(k)),
+      }, { headers: CORS });
+    }
+
+    // 領取收集獎勵：集滿不自動解鎖，玩家在卦曆點擊獎勵頭像才領取入袋
+    if (body.mode === "claim_reward") {
+      const key = String(body.reward ?? "");
+      const { unlocked: eligible } = await computeCollection(uid);
+      if (!eligible.includes(key)) return Response.json({ kind: "err", msg: "卦數未齊，尚不可領" }, { headers: CORS });
+      const claimed = await getClaimedRewards(uid);
+      if (claimed.includes(key)) return Response.json({ kind: "err", msg: "此獎已領過" }, { headers: CORS });
+      await db.from("profiles").update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
+      return Response.json({ kind: "ok", reward: key }, { headers: CORS });
     }
 
     // 設定玩家頭像（a~h 依解鎖數；r07~r10 需已解鎖。御三家 01~06/11~13 不屬玩家池）
@@ -221,10 +249,9 @@ Deno.serve(async (req) => {
         const { data: prof } = await db.from("profiles").select("signin_total").eq("id", uid).maybeSingle();
         ok = AH_KEYS.indexOf(key) < ahUnlockedCount(prof?.signin_total ?? 0);
       } else if (PLAYER_REWARDS.includes(key)) {
-        const { unlocked } = await computeCollection(uid);
-        ok = unlocked.includes(key);
+        ok = (await getClaimedRewards(uid)).includes(key);   // 須已領取（非僅集滿）
       }
-      if (!ok) return Response.json({ kind: "err", msg: "頭像未解鎖" }, { headers: CORS });
+      if (!ok) return Response.json({ kind: "err", msg: "頭像未解鎖（集滿後至卦曆領取）" }, { headers: CORS });
       await db.from("profiles").update({ selected_avatar: key }).eq("id", uid);
       return Response.json({ kind: "ok", selected_avatar: key }, { headers: CORS });
     }
@@ -237,8 +264,7 @@ Deno.serve(async (req) => {
       let val: string | null = null;
       if (key) {
         if (!(key in CHAR_REWARDS[cid])) return Response.json({ kind: "err", msg: "此頭像不屬於該角色" }, { headers: CORS });
-        const { unlocked } = await computeCollection(uid);
-        if (!unlocked.includes(key)) return Response.json({ kind: "err", msg: "此頭像尚未解鎖" }, { headers: CORS });
+        if (!(await getClaimedRewards(uid)).includes(key)) return Response.json({ kind: "err", msg: "此頭像尚未領取（集滿後至卦曆領取）" }, { headers: CORS });
         val = key;
       }
       await db.from("user_character").upsert({ user_id: uid, character_id: cid, avatar: val }, { onConflict: "user_id,character_id" });
