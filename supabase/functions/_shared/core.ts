@@ -220,7 +220,7 @@ export function chartText(c: Chart, question: string): string {
     const e = c.ben[i];
     const sy = i + 1 === c.shi ? "世" : i + 1 === c.ying ? "應" : "—";
     const mv = c.moving[i]
-      ? `動（${c.lines[i] === 9 ? "老陽○" : "老陰✕"}）化出 ${c.bian![i].qin}${c.bian![i].gan}${c.bian![i].zhi}${c.bian![i].wx}`
+      ? `動（${c.lines[i] === 9 ? "老陽○" : "老陰✕"}）本爻六親【${e.qin}】→化出變爻六親【${c.bian![i].qin}】${c.bian![i].gan}${c.bian![i].zhi}(${c.bian![i].wx})`
       : "靜";
     rows.push(`${YAO_NAMES[i]} | ${c.beasts[i]} | ${e.qin} | ${e.gan}${e.zhi}(${e.wx}) | ${sy} | ${mv}`);
   }
@@ -234,8 +234,9 @@ export function chartText(c: Chart, question: string): string {
     `干支：${c.ganzhi.year}年 ${c.ganzhi.month}月 ${c.ganzhi.day}日${c.ganzhi.hour ? " " + c.ganzhi.hour + "時" : ""}　旬空：${c.ganzhi.kong}`,
     `卦：本卦《${c.benName}》（${c.palace}宮${c.type}卦，${c.palaceWx}宮，世${c.shi}應${c.ying}）${c.hasMoving ? `之變卦《${c.bianName}》` : "，六爻安靜"}`,
     `沖合格局：${tags}`,
-    `爻位 | 六獸 | 六親 | 干支(五行) | 世/應 | 動靜/變化出`,
+    `爻位 | 六獸 | 六親(本爻) | 干支(五行) | 世/應 | 動靜（本爻六親→化出變爻六親）`,
     ...rows,
     `伏神：${fu}`,
+    `【動爻讀法·硬規】每個動爻有「本爻六親」與「化出變爻六親」兩個不同六親，敘述「動化」時本爻六親一律取上表第3欄的本爻六親，化出六親才是變爻六親，兩者不可混同、更不可用化出的變爻六親覆蓋本爻六親。例：本爻父母化出官鬼，須寫「父母動化官鬼」，嚴禁寫成「官鬼動化官鬼」。`,
   ].join("\n");
 }
