@@ -83,6 +83,14 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   const ai = await callInterpret(ch!.persona_prompt, ctext, p.yongQin ? { yong: { qin: p.yongQin, viaShi: p.yongViaShi } } : {});
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
+  // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
+  // 占期即今日，任何早於占期的 due 都不可能是「應期」，避免曆上出現往回設定的紅點。
+  const castDay = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  if (ai.due && ai.due < castDay) {
+    console.warn(`[due-guard] due before cast date, dropped: due=${ai.due} cast=${castDay}`);
+    ai.due = null;
+  }
+
   // 5. 入庫
   const { data: cast } = await db.from("casts").insert({
     user_id: p.userId, character_id: p.characterId, channel: p.channel,
