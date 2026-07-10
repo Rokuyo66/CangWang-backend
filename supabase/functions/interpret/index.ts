@@ -14,6 +14,16 @@ const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? ""; // 觀主內部 user_
 const POST_DAILY_LIMIT = 5;                 // 每日發文上限（沿用 free_quota）
 const POST_HOT_THRESHOLD = 25;              // 熱門門檻：達此讚數一次性發獎
 const POST_HOT_REWARD = 10;                 // 熱門獎勵靈石（一次性）
+const COMMENT_DAILY_LIMIT = 30;             // 每日回文上限（防灌水）
+const COMMENT_MAX = 300;                    // 回文字數上限
+const CHAT_EXCERPT_MAX = 800;               // 閒聊節錄總字數上限（前端同值提示）
+const CHAT_EXCERPT_MSGS = 30;               // 閒聊節錄最多則數
+// 分享卦快照時剝掉初步解卦結尾的制式引導語（「想看完整卦理依據，點下方展開。」及變體）
+// ——那是站內按鈕的導引，貼到廣場沒有按鈕可點，照搬會很蠢
+function stripReadingGuide(reading: string): string {
+  // 只剝引導語本身（含少量變體），不吃同一行前面的正文
+  return String(reading ?? "").replace(/[想若欲]?看?完整卦理(?:依據)?[，,]?\s*點下方展開[。.]?\s*$/, "").trimEnd();
+}
 const SIGN_REWARDS: [number, number][] = [[10,0],[10,0],[15,5],[15,0],[20,0],[20,0],[50,10]];
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
@@ -119,31 +129,63 @@ async function wallResponse(): Promise<Response> {
   return Response.json(payload, { headers: CORS });
 }
 
-// 觀前廣場列表（免認證唯讀）：作者暱稱兩段式查 profiles（不巢狀嵌入，同石牆做法）
+// 觀前廣場列表（免認證唯讀）：作者暱稱/頭像兩段式查 profiles（不巢狀嵌入，同石牆做法）
+// 討論區形式：列表只回標題列所需（標題/作者/頭像/讚/回文數/有無盤面），全文由 post_detail 取
 const POST_PAGE = 20;
+type PostRow = {
+  id: string; user_id: string; type: string; title: string;
+  cast_snapshot: { chart?: unknown } | null; chat_snapshot: unknown;
+  character_id: string | null; like_count: number; comment_count: number; created_at: string;
+};
+const POST_LIST_COLS = "id, user_id, type, title, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, created_at";
+async function postEntries(rows: PostRow[]) {
+  const userIds = [...new Set(rows.map((p) => p.user_id))];
+  const { data: ps } = userIds.length
+    ? await db.from("profiles").select("id, display_name, selected_avatar").in("id", userIds) : { data: [] };
+  const profs = new Map((ps ?? []).map((p: { id: string; display_name: string | null; selected_avatar: string | null }) => [p.id, p]));
+  return rows.map((p) => ({
+    id: p.id, user_id: p.user_id, type: p.type, title: p.title,
+    character_id: p.character_id, like_count: p.like_count, comment_count: p.comment_count ?? 0,
+    has_chart: !!(p.cast_snapshot && p.cast_snapshot.chart), created_at: p.created_at,
+    name: profs.get(p.user_id)?.display_name || "護道人",
+    avatar: profs.get(p.user_id)?.selected_avatar ?? null,
+  }));
+}
 async function postListResponse(sort: unknown, offset: unknown): Promise<Response> {
   const off = Math.max(0, Number(offset) || 0);
   const hot = sort === "hot";
-  let q = db.from("posts")
-    .select("id, user_id, type, title, body, cast_snapshot, character_id, like_count, created_at");
+  let q = db.from("posts").select(POST_LIST_COLS);
   q = hot
     ? q.order("like_count", { ascending: false }).order("created_at", { ascending: false })
     : q.order("created_at", { ascending: false });
   // 讀失敗要回 err：吞掉錯誤會讓前端把「表不存在／查詢失敗」畫成「尚無貼文」
   const { data: posts, error } = await q.range(off, off + POST_PAGE - 1);
   if (error) return Response.json({ kind: "err", msg: "廣場暫時無法載入" }, { headers: CORS });
-  const rows = posts ?? [];
-  const userIds = [...new Set(rows.map((p: { user_id: string }) => p.user_id))];
-  const { data: ps } = userIds.length
-    ? await db.from("profiles").select("id, display_name").in("id", userIds) : { data: [] };
-  const names = new Map((ps ?? []).map((p: { id: string; display_name: string | null }) => [p.id, p.display_name]));
-  const entries = rows.map((p: { id: string; user_id: string; type: string; title: string; body: string; cast_snapshot: unknown; character_id: string | null; like_count: number; created_at: string }) => ({
-    id: p.id, user_id: p.user_id, type: p.type, title: p.title, body: p.body,
-    cast: p.cast_snapshot ?? null, character_id: p.character_id,
-    like_count: p.like_count, created_at: p.created_at,
-    name: names.get(p.user_id) || "護道人",
-  }));
+  const rows = (posts ?? []) as PostRow[];
+  const entries = await postEntries(rows);
   return Response.json({ kind: "ok", posts: entries, hasMore: rows.length === POST_PAGE }, { headers: CORS });
+}
+
+// 貼文內頁（免認證唯讀）：全文＋快照＋回文串
+async function postDetailResponse(postId: unknown): Promise<Response> {
+  const { data: p, error } = await db.from("posts")
+    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, created_at")
+    .eq("id", String(postId ?? "")).maybeSingle();
+  if (error) return Response.json({ kind: "err", msg: "貼文暫時無法載入" }, { headers: CORS });
+  if (!p) return Response.json({ kind: "not_found" }, { headers: CORS });
+  const { data: cs } = await db.from("post_comments")
+    .select("id, user_id, body, created_at").eq("post_id", p.id)
+    .order("created_at", { ascending: true }).limit(200);
+  const comments = cs ?? [];
+  const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
+  const { data: ps } = await db.from("profiles").select("id, display_name, selected_avatar").in("id", userIds);
+  const profs = new Map((ps ?? []).map((x: { id: string; display_name: string | null; selected_avatar: string | null }) => [x.id, x]));
+  const who = (uid: string) => ({ name: profs.get(uid)?.display_name || "護道人", avatar: profs.get(uid)?.selected_avatar ?? null });
+  return Response.json({
+    kind: "ok",
+    post: { ...p, cast: p.cast_snapshot ?? null, chat: p.chat_snapshot ?? null, ...who(p.user_id) },
+    comments: comments.map((c: { id: string; user_id: string; body: string; created_at: string }) => ({ ...c, ...who(c.user_id) })),
+  }, { headers: CORS });
 }
 
 Deno.serve(async (req) => {
@@ -159,6 +201,9 @@ Deno.serve(async (req) => {
 
   // 觀前廣場列表：免認證唯讀（發文/按讚/刪文仍需登入）。new=最新 hot=熱門，offset 分頁每頁 20
   if (body.mode === "post_list") return await postListResponse(body.sort, body.offset);
+
+  // 貼文內頁：免認證唯讀（全文＋盤面/閒聊快照＋回文串）
+  if (body.mode === "post_detail") return await postDetailResponse(body.post_id);
 
   // 認證雙軌
   let jwtUserId: string | null = null;
@@ -436,19 +481,37 @@ Deno.serve(async (req) => {
       if (pused >= POST_DAILY_LIMIT)
         return Response.json({ kind: "err", msg: `今日發文已達上限（${POST_DAILY_LIMIT} 篇）` }, { headers: CORS });
 
-      let snapshot: unknown = null;
+      let snapshot: Record<string, unknown> | null = null;
+      let chatSnapshot: Record<string, unknown> | null = null;
       let charId: string | null = body.character_id ? String(body.character_id) : null;
       if (type === "cast") {
         // 分享卦：後端讀 casts 快照，驗 cast.user_id 是本人；複製 reading/卦名/角色進 posts，不 live join
         const { data: c } = await db.from("casts")
-          .select("user_id, question, gua_ben, gua_bian, reading, character_id")
+          .select("user_id, question, gua_ben, gua_bian, reading, character_id, chart, yong_qin, yong_via_shi")
           .eq("id", body.cast_id).maybeSingle();
         if (!c || c.user_id !== uid) return Response.json({ kind: "err", msg: "只能分享自己的卦" }, { headers: CORS });
-        snapshot = { question: c.question, gua_ben: c.gua_ben, gua_bian: c.gua_bian, reading: c.reading };
+        snapshot = { question: c.question, gua_ben: c.gua_ben, gua_bian: c.gua_bian, reading: stripReadingGuide(c.reading) };
+        // 勾了「附上盤面」才帶 chart（含用神，內頁重繪盤面用）
+        if (body.with_chart === true && c.chart) {
+          snapshot.chart = c.chart;
+          snapshot.yong_qin = c.yong_qin ?? null;
+          snapshot.yong_via_shi = c.yong_via_shi ?? null;
+        }
         charId = c.character_id;
       }
+      if (type === "chat_story" && Array.isArray(body.chat_excerpt)) {
+        // 閒聊節錄：前端連續勾選的對話框。逐則驗證，總字數硬上限（前端同值先擋，這裡防繞過）
+        const msgs = body.chat_excerpt.slice(0, CHAT_EXCERPT_MSGS)
+          .map((m: { me?: unknown; text?: unknown }) => ({ me: m?.me === true, text: String(m?.text ?? "").trim().slice(0, CHAT_EXCERPT_MAX) }))
+          .filter((m: { text: string }) => m.text);
+        const total = msgs.reduce((n: number, m: { text: string }) => n + m.text.length, 0);
+        if (!msgs.length) return Response.json({ kind: "err", msg: "節錄內容是空的" }, { headers: CORS });
+        if (total > CHAT_EXCERPT_MAX)
+          return Response.json({ kind: "err", msg: `節錄超過可分享字數（${CHAT_EXCERPT_MAX} 字）` }, { headers: CORS });
+        chatSnapshot = { character_id: charId, messages: msgs };
+      }
       const { data: row, error } = await db.from("posts").insert({
-        user_id: uid, type, title, body: bodyText, cast_snapshot: snapshot, character_id: charId,
+        user_id: uid, type, title, body: bodyText, cast_snapshot: snapshot, chat_snapshot: chatSnapshot, character_id: charId,
       }).select("id").single();
       if (error) {
         console.error("post_create insert failed", error);
@@ -484,13 +547,63 @@ Deno.serve(async (req) => {
       return Response.json({ kind: "ok", likeCount, rewarded }, { headers: CORS });
     }
 
-    // 觀前廣場：刪文（本人；或觀主可刪任意）。post_likes 靠 cascade 一併刪除
+    // 觀前廣場：刪文（本人；或觀主可刪任意）。post_likes/post_comments 靠 cascade 一併刪除
     if (body.mode === "post_del") {
       const isAdmin = ADMIN_USER_ID && uid === ADMIN_USER_ID;
       let del = db.from("posts").delete().eq("id", body.post_id);
       if (!isAdmin) del = del.eq("user_id", uid); // 非管理員只能刪自己的
       const { error } = await del;
       return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+    }
+
+    // 觀前廣場：回文（登入即可，含回自己的文；每日上限防灌水）
+    if (body.mode === "post_comment") {
+      const cBody = String(body.body ?? "").trim().slice(0, COMMENT_MAX);
+      if (!cBody) return Response.json({ kind: "err", msg: "回文不可空白" }, { headers: CORS });
+      const { data: p } = await db.from("posts").select("id").eq("id", body.post_id).maybeSingle();
+      if (!p) return Response.json({ kind: "err", msg: "貼文不存在" }, { headers: CORS });
+      const cday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+      const ckey = `commentfree:${uid}:${cday}`;
+      const { data: cq } = await db.from("free_quota").select("used_today, last_reset").eq("key", ckey).maybeSingle();
+      const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
+      if (cused >= COMMENT_DAILY_LIMIT)
+        return Response.json({ kind: "err", msg: "今日回文已達上限" }, { headers: CORS });
+      const { data: row, error } = await db.from("post_comments")
+        .insert({ post_id: body.post_id, user_id: uid, body: cBody }).select("id, created_at").single();
+      if (error) {
+        console.error("post_comment insert failed", error);
+        return Response.json({ kind: "err", msg: "回文失敗" }, { headers: CORS });
+      }
+      await db.from("free_quota").upsert({ key: ckey, used_today: cused + 1, last_reset: cday });
+      const { data: newCount } = await db.rpc("bump_post_comment", { p_post: body.post_id, p_delta: 1 });
+      return Response.json({ kind: "ok", id: row!.id, created_at: row!.created_at, commentCount: (newCount as number | null) ?? 0 }, { headers: CORS });
+    }
+
+    // 觀前廣場：刪回文（本人；或觀主）。先查 post_id 供回文數遞減
+    if (body.mode === "post_comment_del") {
+      const isAdmin = ADMIN_USER_ID && uid === ADMIN_USER_ID;
+      const { data: c } = await db.from("post_comments").select("post_id, user_id").eq("id", body.comment_id).maybeSingle();
+      if (!c) return Response.json({ kind: "err", msg: "回文不存在" }, { headers: CORS });
+      if (!isAdmin && c.user_id !== uid) return Response.json({ kind: "err", msg: "只能刪自己的回文" }, { headers: CORS });
+      const { error } = await db.from("post_comments").delete().eq("id", body.comment_id);
+      if (error) return Response.json({ kind: "err" }, { headers: CORS });
+      await db.rpc("bump_post_comment", { p_post: c.post_id, p_delta: -1 });
+      return Response.json({ kind: "ok" }, { headers: CORS });
+    }
+
+    // 會員頁「廣場」頁籤：我參與的貼文（我發的＋我回過文的），同列表形狀
+    if (body.mode === "my_plaza") {
+      const { data: mine } = await db.from("posts").select("id").eq("user_id", uid)
+        .order("created_at", { ascending: false }).limit(30);
+      const { data: cmts } = await db.from("post_comments").select("post_id").eq("user_id", uid)
+        .order("created_at", { ascending: false }).limit(200);
+      const ids = [...new Set([...(mine ?? []).map((x: { id: string }) => x.id), ...(cmts ?? []).map((x: { post_id: string }) => x.post_id)])].slice(0, 60);
+      if (!ids.length) return Response.json({ kind: "ok", posts: [] }, { headers: CORS });
+      const { data: posts, error } = await db.from("posts").select(POST_LIST_COLS)
+        .in("id", ids).order("created_at", { ascending: false });
+      if (error) return Response.json({ kind: "err", msg: "載入失敗" }, { headers: CORS });
+      const entries = await postEntries((posts ?? []) as PostRow[]);
+      return Response.json({ kind: "ok", posts: entries }, { headers: CORS });
     }
 
     // 三個月鎖：超過 90 天的卦不能再追問/換評（內容仍可回顧）
