@@ -10,6 +10,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const GRANT_REGISTER = 50;
 const COST_MEND = 10;                       // 斷簽補簽費用（靈石），可調
+const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? ""; // 觀主內部 user_id：可刪任意廣場貼文
+const POST_DAILY_LIMIT = 5;                 // 每日發文上限（沿用 free_quota）
+const POST_HOT_THRESHOLD = 25;              // 熱門門檻：達此讚數一次性發獎
+const POST_HOT_REWARD = 10;                 // 熱門獎勵靈石（一次性）
 const SIGN_REWARDS: [number, number][] = [[10,0],[10,0],[15,5],[15,0],[20,0],[20,0],[50,10]];
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
@@ -115,6 +119,31 @@ async function wallResponse(): Promise<Response> {
   return Response.json(payload, { headers: CORS });
 }
 
+// 觀前廣場列表（免認證唯讀）：作者暱稱兩段式查 profiles（不巢狀嵌入，同石牆做法）
+const POST_PAGE = 20;
+async function postListResponse(sort: unknown, offset: unknown): Promise<Response> {
+  const off = Math.max(0, Number(offset) || 0);
+  const hot = sort === "hot";
+  let q = db.from("posts")
+    .select("id, user_id, type, title, body, cast_snapshot, character_id, like_count, created_at");
+  q = hot
+    ? q.order("like_count", { ascending: false }).order("created_at", { ascending: false })
+    : q.order("created_at", { ascending: false });
+  const { data: posts } = await q.range(off, off + POST_PAGE - 1);
+  const rows = posts ?? [];
+  const userIds = [...new Set(rows.map((p: { user_id: string }) => p.user_id))];
+  const { data: ps } = userIds.length
+    ? await db.from("profiles").select("id, display_name").in("id", userIds) : { data: [] };
+  const names = new Map((ps ?? []).map((p: { id: string; display_name: string | null }) => [p.id, p.display_name]));
+  const entries = rows.map((p: { id: string; user_id: string; type: string; title: string; body: string; cast_snapshot: unknown; character_id: string | null; like_count: number; created_at: string }) => ({
+    id: p.id, user_id: p.user_id, type: p.type, title: p.title, body: p.body,
+    cast: p.cast_snapshot ?? null, character_id: p.character_id,
+    like_count: p.like_count, created_at: p.created_at,
+    name: names.get(p.user_id) || "護道人",
+  }));
+  return Response.json({ kind: "ok", posts: entries, hasMore: rows.length === POST_PAGE }, { headers: CORS });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
@@ -125,6 +154,9 @@ Deno.serve(async (req) => {
 
   // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
   if (body.mode === "wall") return await wallResponse();
+
+  // 觀前廣場列表：免認證唯讀（發文/按讚/刪文仍需登入）。new=最新 hot=熱門，offset 分頁每頁 20
+  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset);
 
   // 認證雙軌
   let jwtUserId: string | null = null;
@@ -167,7 +199,7 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
-      return Response.json({ kind: "ok", lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards }, { headers: CORS });
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -383,6 +415,77 @@ Deno.serve(async (req) => {
     if (body.mode === "chat") {
       const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? "") });
       return Response.json({ kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost, freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast }, { headers: CORS });
+    }
+
+    // 觀前廣場：發文（自由心得 thread/chat_story 直存；分享卦 cast 讀快照驗本人）
+    if (body.mode === "post_create") {
+      const type = String(body.type ?? "");
+      if (!["cast", "thread", "chat_story"].includes(type))
+        return Response.json({ kind: "err", msg: "型別不明" }, { headers: CORS });
+      const title = String(body.title ?? "").trim().slice(0, 60);
+      const bodyText = String(body.body ?? "").trim().slice(0, 1000);
+      if (!title) return Response.json({ kind: "err", msg: "標題不可空白" }, { headers: CORS });
+      if (!bodyText) return Response.json({ kind: "err", msg: "內容不可空白" }, { headers: CORS });
+      // 每日發文上限（沿用 free_quota，台北日界）
+      const pday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+      const pkey = `postfree:${uid}:${pday}`;
+      const { data: pq } = await db.from("free_quota").select("used_today, last_reset").eq("key", pkey).maybeSingle();
+      const pused = (pq && pq.last_reset === pday) ? pq.used_today : 0;
+      if (pused >= POST_DAILY_LIMIT)
+        return Response.json({ kind: "err", msg: `今日發文已達上限（${POST_DAILY_LIMIT} 篇）` }, { headers: CORS });
+
+      let snapshot: unknown = null;
+      let charId: string | null = body.character_id ? String(body.character_id) : null;
+      if (type === "cast") {
+        // 分享卦：後端讀 casts 快照，驗 cast.user_id 是本人；複製 reading/卦名/角色進 posts，不 live join
+        const { data: c } = await db.from("casts")
+          .select("user_id, question, gua_ben, gua_bian, reading, character_id")
+          .eq("id", body.cast_id).maybeSingle();
+        if (!c || c.user_id !== uid) return Response.json({ kind: "err", msg: "只能分享自己的卦" }, { headers: CORS });
+        snapshot = { question: c.question, gua_ben: c.gua_ben, gua_bian: c.gua_bian, reading: c.reading };
+        charId = c.character_id;
+      }
+      const { data: row, error } = await db.from("posts").insert({
+        user_id: uid, type, title, body: bodyText, cast_snapshot: snapshot, character_id: charId,
+      }).select("id").single();
+      if (error) return Response.json({ kind: "err", msg: "發文失敗" }, { headers: CORS });
+      await db.from("free_quota").upsert({ key: pkey, used_today: pused + 1, last_reset: pday });
+      return Response.json({ kind: "ok", id: row!.id, postsLeft: POST_DAILY_LIMIT - pused - 1 }, { headers: CORS });
+    }
+
+    // 觀前廣場：按讚（不能讚自己；複合 PK 防重；達門檻一次性發獎）
+    if (body.mode === "post_like") {
+      const { data: p } = await db.from("posts").select("user_id").eq("id", body.post_id).maybeSingle();
+      if (!p) return Response.json({ kind: "err", msg: "貼文不存在" }, { headers: CORS });
+      if (p.user_id === uid) return Response.json({ kind: "err", msg: "不能讚自己的貼文" }, { headers: CORS });
+      // 靠複合 PK 防重複；已讚過（conflict）→ 不加數、不重複發獎
+      const { error: likeErr } = await db.from("post_likes").insert({ post_id: body.post_id, user_id: uid });
+      if (likeErr) return Response.json({ kind: "liked", msg: "已印過此帖" }, { headers: CORS });
+      // like_count + 1（用 RPC 原子自增，避免併發讀後寫丟數），回傳新讚數
+      const { data: newCount } = await db.rpc("bump_post_like", { p_post: body.post_id });
+      const likeCount = (newCount as number | null) ?? 0;
+      // 達門檻且未發過 → 原子搶 rewarded_at，搶到才發獎（一次性、防併發重複）
+      let rewarded = false;
+      if (likeCount >= POST_HOT_THRESHOLD) {
+        const { data: won } = await db.from("posts")
+          .update({ rewarded_at: new Date().toISOString() })
+          .eq("id", body.post_id).gte("like_count", POST_HOT_THRESHOLD).is("rewarded_at", null)
+          .select("id");
+        if (won && won.length > 0) {
+          await db.rpc("apply_lingshi", { p_user: p.user_id, p_action: "post_hot", p_amount: POST_HOT_REWARD, p_ref: body.post_id });
+          rewarded = true;
+        }
+      }
+      return Response.json({ kind: "ok", likeCount, rewarded }, { headers: CORS });
+    }
+
+    // 觀前廣場：刪文（本人；或觀主可刪任意）。post_likes 靠 cascade 一併刪除
+    if (body.mode === "post_del") {
+      const isAdmin = ADMIN_USER_ID && uid === ADMIN_USER_ID;
+      let del = db.from("posts").delete().eq("id", body.post_id);
+      if (!isAdmin) del = del.eq("user_id", uid); // 非管理員只能刪自己的
+      const { error } = await del;
+      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
     }
 
     // 三個月鎖：超過 90 天的卦不能再追問/換評（內容仍可回顧）

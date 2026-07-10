@@ -1,3 +1,11 @@
 supabase/.temp/
 .claude/settings.local.json
 .claude/
+.mcp.json
+.codebase-memory/
+
+# 只留本機、不進 repo
+*webhook*.txt
+CLAUDE.md
+DEPLOY.md
+supabase/migrations/0017_reminders.sql
