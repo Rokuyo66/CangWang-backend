@@ -16,6 +16,8 @@ const POST_HOT_THRESHOLD = 25;              // 熱門門檻：達此讚數一次
 const POST_HOT_REWARD = 10;                 // 熱門獎勵靈石（一次性）
 const COMMENT_DAILY_LIMIT = 30;             // 每日回文上限（防灌水）
 const COMMENT_MAX = 300;                    // 回文字數上限
+const COMMENT_HOT_THRESHOLD = 10;           // 回文熱門門檻：達此讚數一次性發獎
+const COMMENT_HOT_REWARD = 5;               // 回文熱門獎勵靈石（一次性）
 const CHAT_EXCERPT_MAX = 800;               // 閒聊節錄總字數上限（前端同值提示）
 const CHAT_EXCERPT_MSGS = 30;               // 閒聊節錄最多則數
 // 分享卦快照時剝掉初步解卦結尾的制式引導語（「想看完整卦理依據，點下方展開。」及變體）
@@ -173,9 +175,10 @@ async function postDetailResponse(postId: unknown): Promise<Response> {
     .eq("id", String(postId ?? "")).maybeSingle();
   if (error) return Response.json({ kind: "err", msg: "貼文暫時無法載入" }, { headers: CORS });
   if (!p) return Response.json({ kind: "not_found" }, { headers: CORS });
+  // 回文依點讚熱度排序，同熱度先到先排
   const { data: cs } = await db.from("post_comments")
-    .select("id, user_id, body, created_at").eq("post_id", p.id)
-    .order("created_at", { ascending: true }).limit(200);
+    .select("id, user_id, body, like_count, created_at").eq("post_id", p.id)
+    .order("like_count", { ascending: false }).order("created_at", { ascending: true }).limit(200);
   const comments = cs ?? [];
   const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
   const { data: ps } = await db.from("profiles").select("id, display_name, selected_avatar").in("id", userIds);
@@ -589,6 +592,30 @@ Deno.serve(async (req) => {
       if (error) return Response.json({ kind: "err" }, { headers: CORS });
       await db.rpc("bump_post_comment", { p_post: c.post_id, p_delta: -1 });
       return Response.json({ kind: "ok" }, { headers: CORS });
+    }
+
+    // 觀前廣場：回文按讚（不能讚自己；複合 PK 防重；達門檻一次性發獎，設計同貼文讚）
+    if (body.mode === "comment_like") {
+      const { data: c } = await db.from("post_comments").select("user_id").eq("id", body.comment_id).maybeSingle();
+      if (!c) return Response.json({ kind: "err", msg: "回文不存在" }, { headers: CORS });
+      if (c.user_id === uid) return Response.json({ kind: "err", msg: "不能讚自己的回文" }, { headers: CORS });
+      const { error: likeErr } = await db.from("post_comment_likes").insert({ comment_id: body.comment_id, user_id: uid });
+      if (likeErr) return Response.json({ kind: "liked", msg: "已印過此回文" }, { headers: CORS });
+      const { data: newCount } = await db.rpc("bump_comment_like", { p_comment: body.comment_id });
+      const likeCount = (newCount as number | null) ?? 0;
+      let rewarded = false;
+      if (likeCount >= COMMENT_HOT_THRESHOLD) {
+        // 原子搶 rewarded_at，搶到才發獎（一次性、防併發重複）
+        const { data: won } = await db.from("post_comments")
+          .update({ rewarded_at: new Date().toISOString() })
+          .eq("id", body.comment_id).gte("like_count", COMMENT_HOT_THRESHOLD).is("rewarded_at", null)
+          .select("id");
+        if (won && won.length > 0) {
+          await db.rpc("apply_lingshi", { p_user: c.user_id, p_action: "comment_hot", p_amount: COMMENT_HOT_REWARD, p_ref: body.comment_id });
+          rewarded = true;
+        }
+      }
+      return Response.json({ kind: "ok", likeCount, rewarded }, { headers: CORS });
     }
 
     // 會員頁「廣場」頁籤：我參與的貼文（我發的＋我回過文的），同列表形狀
