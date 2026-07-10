@@ -129,7 +129,9 @@ async function postListResponse(sort: unknown, offset: unknown): Promise<Respons
   q = hot
     ? q.order("like_count", { ascending: false }).order("created_at", { ascending: false })
     : q.order("created_at", { ascending: false });
-  const { data: posts } = await q.range(off, off + POST_PAGE - 1);
+  // 讀失敗要回 err：吞掉錯誤會讓前端把「表不存在／查詢失敗」畫成「尚無貼文」
+  const { data: posts, error } = await q.range(off, off + POST_PAGE - 1);
+  if (error) return Response.json({ kind: "err", msg: "廣場暫時無法載入" }, { headers: CORS });
   const rows = posts ?? [];
   const userIds = [...new Set(rows.map((p: { user_id: string }) => p.user_id))];
   const { data: ps } = userIds.length
@@ -448,7 +450,10 @@ Deno.serve(async (req) => {
       const { data: row, error } = await db.from("posts").insert({
         user_id: uid, type, title, body: bodyText, cast_snapshot: snapshot, character_id: charId,
       }).select("id").single();
-      if (error) return Response.json({ kind: "err", msg: "發文失敗" }, { headers: CORS });
+      if (error) {
+        console.error("post_create insert failed", error);
+        return Response.json({ kind: "err", msg: "發文失敗" }, { headers: CORS });
+      }
       await db.from("free_quota").upsert({ key: pkey, used_today: pused + 1, last_reset: pday });
       return Response.json({ kind: "ok", id: row!.id, postsLeft: POST_DAILY_LIMIT - pused - 1 }, { headers: CORS });
     }
