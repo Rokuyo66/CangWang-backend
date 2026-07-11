@@ -1,6 +1,7 @@
 // _shared/pipeline.ts — 解卦主管線（渠道無關）
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { buildChart, castCoins, castByNumbers, chartText, guaName } from "./core.ts";
+import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
+import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI } from "./rules.ts";
 import { callInterpret, billCast, billFollowup, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
 
@@ -78,9 +79,11 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   const chart = buildChart(lines, y, m, d, hour);
   const ctext = chartText(chart, p.question);
 
-  // 4. 解卦
+  // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
   const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
-  const ai = await callInterpret(ch!.persona_prompt, ctext, p.yongQin ? { yong: { qin: p.yongQin, viaShi: p.yongViaShi } } : {});
+  const ai = await callInterpret(ch!.persona_prompt, ctext, p.yongQin
+    ? { yong: { qin: p.yongQin, viaShi: p.yongViaShi, pos: pickUsePos(chart, p.yongQin, p.yongViaShi) } }
+    : {});
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
   // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
@@ -131,7 +134,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   userId: string; castId: string; question: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, lines")
+    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
@@ -140,14 +143,22 @@ export async function followupInterpret(db: SupabaseClient, p: {
   if (!bill.ok) return { kind: bill.reason === "lingshi" ? "paywall" as const : "not_found" as const };
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
-  const chart = cast.chart as Parameters<typeof chartText>[0];
+  const chart = cast.chart as Chart;
   const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
     followup: { prevReading: cast.reading ?? "", question: p.question },
+    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   await db.from("followups").insert({ cast_id: p.castId, question: p.question, answer: ai.reading, paid_lingshi: bill.paid });
   const breakthrough = await addCultivation(db, p.userId, cast.character_id, 10, 2);
   return { kind: "ok" as const, answer: ai.reading, paid: bill.paid, breakthrough };
+}
+
+/** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
+function yongOpts(chart: Chart, yongQin?: string | null, yongViaShi?: boolean | null) {
+  return yongQin
+    ? { yong: { qin: yongQin, viaShi: yongViaShi ?? undefined, pos: pickUsePos(chart, yongQin, yongViaShi ?? undefined) } }
+    : {};
 }
 
 /** 修為累加；跨越閾值回傳突破事件 */
@@ -180,7 +191,7 @@ export async function commentCast(db: SupabaseClient, p: {
   userId: string; castId: string; newCharacterId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, question, chart, reading, character_id")
+    .select("id, question, chart, reading, character_id, yong_qin, yong_via_shi")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
@@ -191,9 +202,10 @@ export async function commentCast(db: SupabaseClient, p: {
   // 取原評卦人稱呼，傳給新角色，避免張冠李戴（如觀貓評的卻說成師妹）
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.newCharacterId).single();
-  const chart = cast.chart as Parameters<typeof chartText>[0];
+  const chart = cast.chart as Chart;
   const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
+    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   return { kind: "ok" as const, comment: ai.reading, paid: COST_COMMENT };
@@ -205,7 +217,7 @@ export async function deepenCast(db: SupabaseClient, p: {
   userId: string; castId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, deep_reading")
+    .select("id, character_id, question, chart, reading, deep_reading, yong_qin, yong_via_shi")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   // 已生成過則直接回快照（重看免費、不重呼叫模型——重複請求天然去重）
@@ -219,17 +231,18 @@ export async function deepenCast(db: SupabaseClient, p: {
   const refund = () => db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen_refund", p_amount: COST_DEEPEN, p_ref: p.castId });
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
-  const chart = cast.chart as Parameters<typeof chartText>[0];
+  const chart = cast.chart as Chart;
   const ctext = chartText(chart, cast.question ?? "");
+  const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi);
   try {
-    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" } });
+    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
     let deep = ai.reading;
     let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
     if (incomplete) {
       // 一次接續補完：assistant 預填半成品，模型從斷點續寫剩餘段落（不重解卦）
       const cont = await callInterpret(ch!.persona_prompt, ctext, {
-        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep,
+        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong,
       });
       await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated });
       deep = deep.replace(/\s+$/, "") + cont.reading;

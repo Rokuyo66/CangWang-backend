@@ -129,6 +129,85 @@ const liuShou = (dGan: number) => {
 };
 export const YAO_NAMES = ["初爻","二爻","三爻","四爻","五爻","上爻"];
 
+// —— 沖合墓進退：引擎出「事實標記」，吉凶判斷留給解卦規則 ——
+const CHONG: Record<string,string> = {子:"午",午:"子",丑:"未",未:"丑",寅:"申",申:"寅",卯:"酉",酉:"卯",辰:"戌",戌:"辰",巳:"亥",亥:"巳"};
+const HE6: Record<string,string> = {子:"丑",丑:"子",寅:"亥",亥:"寅",卯:"戌",戌:"卯",辰:"酉",酉:"辰",巳:"申",申:"巳",午:"未",未:"午"};
+const MU: Record<string,string> = {水:"辰",土:"辰",火:"戌",金:"丑",木:"未"};
+const ZHI_IDX: Record<string,number> = Object.fromEntries(ZHI.map((z, i) => [z, i]));
+/** 化進/化退：僅本爻與變爻同五行才成立（寅卯、巳午、申酉、亥子、丑辰未戌順行為進，逆行為退），異五行不標 */
+export function huaJinTui(fromZhi: string, toZhi: string): string {
+  if (ZHI_WX[fromZhi] !== ZHI_WX[toZhi]) return "";
+  const d = (ZHI_IDX[toZhi] - ZHI_IDX[fromZhi] + 12) % 12;
+  if (d === 1 || d === 3) return "進";
+  if (d === 11 || d === 9) return "退";
+  return "";
+}
+
+/** 用神取爻（前端顯示與後端提示共用同一鎖定）：問己取世；兩現避世、優先應爻、次取近應；不上卦回 null（依伏神論） */
+export function pickUsePos(c: Chart, qin: string, viaShi?: boolean): number | null {
+  if (viaShi) return c.shi - 1;
+  const cand = c.ben.map((e, i) => (e.qin === qin ? i : -1)).filter((i) => i >= 0);
+  if (cand.length <= 1) return cand.length ? cand[0] : null;
+  const shi = c.shi - 1, ying = c.ying - 1;
+  const pool = cand.filter((i) => i !== shi);
+  const use = pool.length ? pool : cand;
+  if (use.includes(ying)) return ying;
+  return use.slice().sort((a, b) => Math.abs(a - ying) - Math.abs(b - ying))[0];
+}
+
+// 三合局：亥卯未木、寅午戌火、巳酉丑金、申子辰水
+const SANHE: [string, string, string, string][] = [
+  ["亥","卯","未","木"], ["寅","午","戌","火"], ["巳","酉","丑","金"], ["申","子","辰","水"],
+];
+/** 三合檢核（確定性判定，AI 直接採用）：
+ *  可能成局的爻動樣式：內卦初三爻動、外卦四上爻動、或三爻以上動；第三字由日建/月建/變爻補。
+ *  成局須局內動爻無化回頭剋、無化回頭沖、日辰不沖局內動爻與變爻、他爻不來沖局（其一成立即破局，破局不再成）。
+ *  局中有旬空/月破者為待填實。回傳檢核文字；不構成條件回 null。 */
+export function sanheCheck(c: Chart): string | null {
+  const mv = c.moving.map((m, i) => (m ? i : -1)).filter((i) => i >= 0);
+  if (mv.length < 2 || !c.bian) return null;
+  const has = (i: number) => mv.includes(i);
+  if (!((has(0) && has(2)) || (has(3) && has(5)) || mv.length >= 3)) return null;
+  const dayZhi = c.ganzhi.day[1], monZhi = c.ganzhi.month[1];
+  const kongSet = new Set(c.ganzhi.kong.split(""));
+  for (const [z1, z2, z3, wx] of SANHE) {
+    const T = [z1, z2, z3];
+    const yaoIn = mv.filter((i) => T.includes(c.ben[i].zhi));
+    const zhiFromYao = new Set(yaoIn.map((i) => c.ben[i].zhi));
+    if (zhiFromYao.size < 2) continue;
+    const inPair = yaoIn.includes(0) && yaoIn.includes(2), outPair = yaoIn.includes(3) && yaoIn.includes(5);
+    if (!(inPair || outPair || yaoIn.length >= 3)) continue;
+    const fillers: string[] = [];
+    let ok = true;
+    for (const z of T.filter((z) => !zhiFromYao.has(z))) {
+      if (dayZhi === z) fillers.push(`日建${z}`);
+      else if (monZhi === z) fillers.push(`月建${z}`);
+      else {
+        const bi = mv.find((i) => c.bian![i].zhi === z);
+        if (bi != null) fillers.push(`${YAO_NAMES[bi]}變爻${z}`);
+        else { ok = false; break; }
+      }
+    }
+    if (!ok) continue;
+    const parts = yaoIn.map((i) => `${YAO_NAMES[i]}${c.ben[i].zhi}動`).concat(fillers).join("＋");
+    const broken: string[] = [];
+    for (const i of yaoIn) {
+      const e = c.ben[i], b = c.bian[i];
+      if (KE[b.wx] === e.wx) broken.push(`${YAO_NAMES[i]}化回頭剋`);
+      if (CHONG[e.zhi] === b.zhi) broken.push(`${YAO_NAMES[i]}化回頭沖`);
+      if (CHONG[dayZhi] === e.zhi || CHONG[dayZhi] === b.zhi) broken.push(`日沖${YAO_NAMES[i]}`);
+    }
+    for (const i of mv) {
+      if (!yaoIn.includes(i) && T.includes(CHONG[c.ben[i].zhi])) broken.push(`${YAO_NAMES[i]}${c.ben[i].zhi}沖局`);
+    }
+    if (broken.length) return `${z1}${z2}${z3}合${wx}局（${parts}）——破局（${[...new Set(broken)].join("、")}），破局不再成，縱得日生扶亦不以成局論`;
+    const wait = T.filter((z) => kongSet.has(z) || CHONG[monZhi] === z);
+    if (wait.length) return `${z1}${z2}${z3}合${wx}局（${parts}）——待填實（${wait.join("、")}逢空破），待填實之月日成局`;
+    return `${z1}${z2}${z3}合${wx}局（${parts}）——成局，成群結黨力量強大，以合化之${wx}論對用神生剋`;
+  }
+  return null;
+}
+
 export interface Chart {
   lines: number[]; benBits: number[]; bianBits: number[]; moving: boolean[]; hasMoving: boolean;
   benName: string; bianName: string | null;
@@ -213,20 +292,48 @@ export function castByNumbers(n1: number, n2: number, n3: number) {
   return { lines, up, down, moveYao };
 }
 
-/** 標準盤面文字（解卦 prompt 用，同 skill 正規化格式） */
+/** 標準盤面文字（解卦 prompt 用，同 skill 正規化格式）。
+ *  【】內為排盤程式判定之事實標記（空/月破/日沖/日合/月合/臨日月建/入墓/化進退/回頭生剋沖合），論斷直接採用不必重推。 */
 export function chartText(c: Chart, question: string): string {
+  const dayZhi = c.ganzhi.day[1], monZhi = c.ganzhi.month[1];
+  const kongSet = new Set(c.ganzhi.kong.split(""));
+  const factTags = (zhi: string, wx: string): string => {
+    const t: string[] = [];
+    if (kongSet.has(zhi)) t.push("空");
+    if (zhi === monZhi) t.push("臨月建");
+    if (zhi === dayZhi) t.push("臨日建");
+    if (CHONG[monZhi] === zhi) t.push("月破");
+    if (CHONG[dayZhi] === zhi) t.push("日沖");
+    if (HE6[monZhi] === zhi) t.push("月合");
+    if (HE6[dayZhi] === zhi) t.push("日合");
+    if (MU[wx] === monZhi) t.push("入月墓");
+    if (MU[wx] === dayZhi) t.push("入日墓");
+    return t.length ? `【${t.join("·")}】` : "";
+  };
   const rows: string[] = [];
   for (let i = 5; i >= 0; i--) {
     const e = c.ben[i];
     const sy = i + 1 === c.shi ? "世" : i + 1 === c.ying ? "應" : "—";
-    const mv = c.moving[i]
-      ? `動（${c.lines[i] === 9 ? "老陽○" : "老陰✕"}）本爻六親【${e.qin}】→化出變爻六親【${c.bian![i].qin}】${c.bian![i].gan}${c.bian![i].zhi}(${c.bian![i].wx})`
-      : "靜";
-    rows.push(`${YAO_NAMES[i]} | ${c.beasts[i]} | ${e.qin} | ${e.gan}${e.zhi}(${e.wx}) | ${sy} | ${mv}`);
+    let mv = "靜";
+    if (c.moving[i]) {
+      const b = c.bian![i];
+      const hua: string[] = [];
+      const jt = huaJinTui(e.zhi, b.zhi);
+      if (jt) hua.push(`化${jt}神`);
+      if (SHENG[b.wx] === e.wx) hua.push("回頭生");
+      if (KE[b.wx] === e.wx) hua.push("回頭剋");
+      if (CHONG[e.zhi] === b.zhi) hua.push("回頭沖");
+      if (HE6[e.zhi] === b.zhi) hua.push("回頭合");
+      if (MU[e.wx] === b.zhi) hua.push("化墓");
+      if (kongSet.has(b.zhi)) hua.push("變爻空");
+      mv = `動（${c.lines[i] === 9 ? "老陽○" : "老陰✕"}）本爻六親【${e.qin}】→化出變爻六親【${b.qin}】${b.gan}${b.zhi}(${b.wx})${hua.length ? `【${hua.join("·")}】` : ""}`;
+    }
+    rows.push(`${YAO_NAMES[i]} | ${c.beasts[i]} | ${e.qin} | ${e.gan}${e.zhi}(${e.wx})${factTags(e.zhi, e.wx)} | ${sy} | ${mv}`);
   }
   const fu = c.fushen.length
-    ? c.fushen.map((f) => `${f.qin}${f.gan}${f.zhi}(${f.wx}) 伏於${YAO_NAMES[f.pos]}（飛神：${c.ben[f.pos].qin}${c.ben[f.pos].zhi}）`).join("；")
+    ? c.fushen.map((f) => `${f.qin}${f.gan}${f.zhi}(${f.wx})${factTags(f.zhi, f.wx)} 伏於${YAO_NAMES[f.pos]}（飛神：${c.ben[f.pos].qin}${c.ben[f.pos].zhi}）`).join("；")
     : "無（六親俱全）";
+  const sanhe = sanheCheck(c);
   const tags = [c.chong && "本卦六沖", c.he && "本卦六合", c.bianChong && "變卦六沖", c.bianHe && "變卦六合"].filter(Boolean).join("、") || "無";
   return [
     `問事：${question || "（未填）"}`,
@@ -234,9 +341,11 @@ export function chartText(c: Chart, question: string): string {
     `干支：${c.ganzhi.year}年 ${c.ganzhi.month}月 ${c.ganzhi.day}日${c.ganzhi.hour ? " " + c.ganzhi.hour + "時" : ""}　旬空：${c.ganzhi.kong}`,
     `卦：本卦《${c.benName}》（${c.palace}宮${c.type}卦，${c.palaceWx}宮，世${c.shi}應${c.ying}）${c.hasMoving ? `之變卦《${c.bianName}》` : "，六爻安靜"}`,
     `沖合格局：${tags}`,
+    `三合檢核：${sanhe ?? "無（不構成三合條件）"}`,
     `爻位 | 六獸 | 六親(本爻) | 干支(五行) | 世/應 | 動靜（本爻六親→化出變爻六親）`,
     ...rows,
     `伏神：${fu}`,
+    `【標記讀法】干支後【】內為排盤程式判定之事實（空／月破／日沖／日合／月合／臨日月建／入日墓／入月墓；動爻另標化進退神／回頭生剋沖合／化墓／變爻空），論斷時直接採用，不必自行重推沖合墓空。`,
     `【動爻讀法·硬規】每個動爻有「本爻六親」與「化出變爻六親」兩個不同六親，敘述「動化」時本爻六親一律取上表第3欄的本爻六親，化出六親才是變爻六親，兩者不可混同、更不可用化出的變爻六親覆蓋本爻六親。例：本爻父母化出官鬼，須寫「父母動化官鬼」，嚴禁寫成「官鬼動化官鬼」。`,
   ].join("\n");
 }
