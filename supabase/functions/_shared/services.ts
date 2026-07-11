@@ -1,5 +1,5 @@
 // _shared/services.ts — 盤面渲染（TG）、Anthropic 呼叫、計費
-import { Chart, YAO_NAMES } from "./core.ts";
+import { Chart, YAO_NAMES, huaJinTui } from "./core.ts";
 import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, parseTagged } from "./rules.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
@@ -42,15 +42,6 @@ export function renderChartTG(c: Chart): string {
     return s + " ".repeat(Math.max(0, n - w));
   };
   const kongSet = new Set((c.ganzhi.kong ?? "").split(""));
-  // 地支順序，判化進化退
-  const ZHI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
-  const jinTui = (from: string, to: string): string => {
-    const a = ZHI.indexOf(from), b = ZHI.indexOf(to);
-    if (a < 0 || b < 0) return "";
-    const diff = (b - a + 12) % 12;
-    if (diff >= 1 && diff <= 6) return "進";   // 順行為化進
-    return "退";                                // 逆行為化退
-  };
 
   L.push(`《${c.benName}》${c.palace}宮${c.type}${c.hasMoving ? ` 之《${c.bianName}》` : "（六爻安靜）"}`);
   const tags = [c.chong && "六沖", c.he && "六合", c.bianChong && "變沖", c.bianHe && "變合"].filter(Boolean).join(" ");
@@ -70,8 +61,9 @@ export function renderChartTG(c: Chart): string {
     let bian = "";
     if (c.moving[i] && c.bian) {
       const b = c.bian[i];
-      const jt = jinTui(e.zhi, b.zhi);
-      bian = ` ➜ ${b.qin}${b.zhi}${b.wx}${jt ? `(化${jt})` : ""}`;
+      const jt = huaJinTui(e.zhi, b.zhi); // 僅同五行相鄰才標進退
+      const bk = kongSet.has(b.zhi) ? "▪空" : "";
+      bian = ` ➜ ${b.qin}${b.zhi}${b.wx}${bk}${jt ? `(化${jt})` : ""}`;
     }
     L.push(`${c.beasts[i]} ${pad(najia, 10)}${bar} ${moveSym}${wy}${bian}`);
   }
@@ -109,7 +101,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   followup?: { prevReading: string; question: string };
   deepen?: { briefReading: string };
   comment?: { prevReading: string; prevAuthor?: string };
-  yong?: { qin: string; viaShi?: boolean };
+  yong?: { qin: string; viaShi?: boolean; pos?: number | null };
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
 }) {
   const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : "cast";
@@ -119,23 +111,26 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     { type: "text", text: ruleText, cache_control: { type: "ephemeral" } },
     { type: "text", text: `【角色聲線】\n${persona}` },
   ];
+  // 用神提示：所有 mode 一體適用——追問/深展/評卦沿用首解已取定之用神，避免中途改取自打嘴巴
   const yongHint = opts.yong
-    ? `\n\n【用神已取定】此卦用神為「${opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.qin}」，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。`
+    ? `\n\n【用神已取定】此卦用神為「${opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.qin}」${
+        opts.yong.pos != null ? `，鎖定於${YAO_NAMES[opts.yong.pos]}` : opts.yong.viaShi ? "" : "（不上卦，依伏神論出伏）"
+      }，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。`
     : "";
   const messages = opts.followup
     ? [{
         role: "user",
-        content: `【盤面】\n${chartText}\n\n【你先前的論斷】\n${opts.followup.prevReading}\n\n【追問】\n${opts.followup.question}`,
+        content: `【盤面】\n${chartText}${yongHint}\n\n【你先前的論斷】\n${opts.followup.prevReading}\n\n【追問】\n${opts.followup.question}`,
       }]
     : opts.deepen
     ? [{
         role: "user",
-        content: `【盤面】\n${chartText}\n\n【你給過的精簡結論】\n${opts.deepen.briefReading}\n\n請給出完整卦理推演。`,
+        content: `【盤面】\n${chartText}${yongHint}\n\n【你給過的精簡結論】\n${opts.deepen.briefReading}\n\n請給出完整卦理推演。`,
       }]
     : opts.comment
     ? [{
         role: "user",
-        content: `【盤面】\n${chartText}\n\n【${opts.comment.prevAuthor ?? "另一位修行者"}已給的解卦結論】\n${opts.comment.prevReading}\n\n以上結論出自「${opts.comment.prevAuthor ?? "另一位修行者"}」，不是你。請以你的視角，就這個結論說幾句你的看法；若提及原評卦人，須正確稱呼為「${opts.comment.prevAuthor ?? "對方"}」，不可張冠李戴成別人。`,
+        content: `【盤面】\n${chartText}${yongHint}\n\n【${opts.comment.prevAuthor ?? "另一位修行者"}已給的解卦結論】\n${opts.comment.prevReading}\n\n以上結論出自「${opts.comment.prevAuthor ?? "另一位修行者"}」，不是你。請以你的視角，就這個結論說幾句你的看法；若提及原評卦人，須正確稱呼為「${opts.comment.prevAuthor ?? "對方"}」，不可張冠李戴成別人。`,
       }]
     : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。` }];
 
