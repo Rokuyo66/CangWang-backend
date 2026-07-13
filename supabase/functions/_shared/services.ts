@@ -82,10 +82,12 @@ export function renderChartTG(c: Chart): string {
 
 /* ---------- Anthropic ---------- */
 const API = "https://api.anthropic.com/v1/messages";
-// 模型分流：預設一律 Haiku（省成本），只有完整卦理（deepen）升 Sonnet。
+// 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨，
+// 錯了追問/深展/評卦全跟著錯；追問/評卦純跟推不重算卦理，留 Haiku 省成本。
 // INTERPRET_FORCE_MODEL：管理者測試用，設了則所有 interpret 呼叫強制用該模型。
 const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-haiku-4-5-20251001";
 const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
+const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
 // 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
 const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600 };
@@ -105,7 +107,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
 }) {
   const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : "cast";
-  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : MODEL_LITE);
+  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : MODEL_LITE);
   const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : RULES;
   const system = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral" } },
