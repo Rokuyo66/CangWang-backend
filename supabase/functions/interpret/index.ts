@@ -423,7 +423,7 @@ Deno.serve(async (req) => {
     // 卦曆列表
     if (body.mode === "history") {
       const { data: casts } = await db.from("casts")
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, feedback(verdict, note)")
+        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, feedback(verdict, note)")
         .eq("user_id", uid).order("created_at", { ascending: false }).limit(60);
       return Response.json({ kind: "ok", casts: casts ?? [] }, { headers: CORS });
     }
