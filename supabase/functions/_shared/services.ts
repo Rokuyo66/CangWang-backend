@@ -115,7 +115,9 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const yongHint = opts.yong
     ? `\n\n【用神已取定】此卦用神為「${opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.qin}」${
         opts.yong.pos != null ? `，鎖定於${YAO_NAMES[opts.yong.pos]}` : opts.yong.viaShi ? "" : "（不上卦，依伏神論出伏）"
-      }，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。`
+      }，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。${
+        mode === "cast" ? "（此提示連同盤面術語僅供你推斷，初步正文中不得出現任何此類字眼。）" : ""
+      }`
     : "";
   const messages = opts.followup
     ? [{
@@ -132,7 +134,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         role: "user",
         content: `【盤面】\n${chartText}${yongHint}\n\n【${opts.comment.prevAuthor ?? "另一位修行者"}已給的解卦結論】\n${opts.comment.prevReading}\n\n以上結論出自「${opts.comment.prevAuthor ?? "另一位修行者"}」，不是你。請以你的視角，就這個結論說幾句你的看法；若提及原評卦人，須正確稱呼為「${opts.comment.prevAuthor ?? "對方"}」，不可張冠李戴成別人。`,
       }]
-    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。` }];
+    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
 
   // 接續補完：把半成品當 assistant 預填，模型會從斷點直接續寫（不重解、不另起新論）
   if (opts.continuePartial) {
