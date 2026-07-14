@@ -35,13 +35,19 @@ function normalizeNarration(text: string, characterId: string): string {
 const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【絕對禁止·最高優先】你只記得上面實際列出的卦。不可虛構任何你與他的往事，不可提到上面沒列出的卦、個股或事件，不可說「去年」「上次」「之前你說過」這類話——沒列出的，就是從沒發生過。不確定就只聊當下這句，絕不腦補。";
-const CHAT_MAX_TOKENS = 400;       // Claude 主力層（未列於下表的角色用此值）
-// 各角色回覆長度上限：大師兄/觀喵人設就是短句，砍到 180 省 token；師妹話多留 280
-const CHAT_MAX_TOKENS_BY_CHAR: Record<string, number> = {
+// 下列數字是「八成目標」——期望的可見回覆長度，不是硬上限。實際 max_tokens = 目標 ÷ 0.8，
+// 多留兩成餘裕：乖乖照人設寫的回覆落在八成、自然收尾永不截斷；小幅超出仍在餘裕內能講完；
+// 只有暴衝才會撞到 ÷0.8 的天花板，交給 trimIncomplete 乾淨收束。天花板只是保險、模型不會去湊滿它，
+// 故抬高上限對「寫短」的回覆不多花一個 token。
+const REPLY_HEADROOM = 0.8;        // 目標佔硬上限的比例（留兩成收尾餘裕）
+const CHAT_TARGET_TOKENS = 400;    // Claude 主力層（未列於下表的角色用此值）
+// 各角色八成目標：大師兄/觀喵人設就是短句，180 省 token；師妹話多留 280
+const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
   daoshi_m: 180,
   daoshi_f: 280,
   lingshou: 180,
 };
+const capOf = (t: number) => Math.round(t / REPLY_HEADROOM);   // 八成目標 → 硬上限
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
 export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 每人每日免費聊天上限（額度內不扣、超過每則扣靈石）
 
@@ -140,8 +146,16 @@ const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 // 裁回最後一個句尾，寧可短一句、不裸露半句。找不到任何句尾才原樣保留。
 const SENT_END = ["。", "！", "？", "…", "」", "＊", "）", "』", "】", "～"];
 function trimIncomplete(text: string): string {
-  const t = text.trimEnd();
+  let t = text.trimEnd();
   if (!t) return text;
+  // 未閉合的旁白：＊ 為奇數 → 最後一顆是「開場＊」（被砍在旁白途中）。連同其後半句一起砍掉，
+  // 否則會殘留孤零零一個＊（撞上限最常見的醜況）。砍完再走下面的句尾收束。
+  if (((t.match(/＊/g) ?? []).length) % 2 === 1) {
+    const cut = t.lastIndexOf("＊");
+    const before = t.slice(0, cut).trimEnd();
+    if (before) t = before;      // 旁白前已有內容 → 保留乾淨部分
+    else return t;               // 整則只有一段未閉合旁白 → 無可收束，原樣回（極罕見）
+  }
   if (SENT_END.includes(t[t.length - 1])) return t;
   let cut = -1;
   for (const ch of SENT_END) { const i = t.lastIndexOf(ch); if (i > cut) cut = i; }
@@ -279,6 +293,7 @@ ${castLines || "（他還沒問過卦。）"}
 - 保持你的聲線與性格。務必簡短——像真人傳訊息，多數一兩句、最多三句，絕不長篇大論、不分點、不寫小作文。繁體中文。
 - 【格式鐵則】台詞一律用「」包住、以第一人稱（我）直說；動作與神態一律放在＊…＊內——旁白裡**你自己**用第三人稱（他/她/牠），**對方（護道人）永遠稱「你」**，絕不可把對方寫成「他」（例：＊牠瞥了你一眼＊，不是＊牠瞥了他一眼＊）。除了「」與＊…＊，不要有裸露的句子。＊…＊至多兩段、每段一短句——重點放在台詞，不是舞台指示。
 - 【語言鐵則】只用繁體中文（台灣用字），一個簡體字都不可出現。
+- 【收尾鐵則】結尾一定要停在完整的一句：最後的「」要收、＊…＊要閉合，絕不停在半句或只開了頭沒收的旁白。寧可少寫一段，也要把話講完再收——短而完整，永遠好過長而被砍。旁白（＊…＊）是配角，至多兩段、每段一短句，別讓它喧賓奪主。
 - 不替他做決定、不預測、不給投資建議。
 【鐵則·絕不主動談計費】起卦的免費額度與靈石扣費，觀中自有定數，與你無關。聊天時：絕不主動提靈石、收費、額度、付費；絕不把「有沒有靈石」當成回應或起卦的前提；絕不說「沒靈石我不起卦」「先給靈石」這類話。他要不要起卦、是白揭還是償香火，自有定數指引，不從你嘴裡講。只有他主動問起靈石是什麼，才以觀中人口吻簡短答，答完即止。
 【鐵則·絕不出戲】絕不可說出「系統」「按鈕」「介面」「頁面」「點擊」「操作」這類今時器物的字眼——這裡是觀中，不是機關工坊。那具替他揭卦、記數的物事喚作「卦印」；要他起卦，就說「按下那道卦印」「揭這一卦」「循著卦印去」，餘下計數償香火之事一律歸於「觀中定數」。
@@ -293,7 +308,7 @@ ${castLines || "（他還沒問過卦。）"}
 }
 
 // --- Claude Haiku ---
-async function callHaiku(system: string, turns: { role: string; body: string }[], message: string, maxTokens = CHAT_MAX_TOKENS) {
+async function callHaiku(system: string, turns: { role: string; body: string }[], message: string, maxTokens = capOf(CHAT_TARGET_TOKENS)) {
   const messages = [...turns.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.body })), { role: "user", content: message }];
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000); // 10 秒硬超時，避免卡住整個 function 被 EarlyDrop
@@ -476,7 +491,7 @@ export async function chat(db: SupabaseClient, p: {
   if (withinFree || canPay) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
-      const h = await callHaiku(system, ctx.turns, p.message, CHAT_MAX_TOKENS_BY_CHAR[p.characterId] ?? CHAT_MAX_TOKENS);
+      const h = await callHaiku(system, ctx.turns, p.message, capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS));
       reply = h.text;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
