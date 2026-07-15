@@ -133,13 +133,15 @@ async function wallResponse(): Promise<Response> {
 
 // 觀前廣場列表（免認證唯讀）：作者暱稱/頭像兩段式查 profiles（不巢狀嵌入，同石牆做法）
 // 討論區形式：列表只回標題列所需（標題/作者/頭像/讚/回文數/有無盤面），全文由 post_detail 取
-const POST_PAGE = 20;
+const POST_PAGE = 10;                        // 每頁貼文數（前端數字分頁一頁 10 篇）
+const POST_TYPES = ["cast", "thread", "chat_story"];
 type PostRow = {
   id: string; user_id: string; type: string; title: string;
   cast_snapshot: { chart?: unknown } | null; chat_snapshot: unknown;
-  character_id: string | null; like_count: number; comment_count: number; created_at: string;
+  character_id: string | null; like_count: number; comment_count: number;
+  pinned_at: string | null; created_at: string;
 };
-const POST_LIST_COLS = "id, user_id, type, title, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, created_at";
+const POST_LIST_COLS = "id, user_id, type, title, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, created_at";
 async function postEntries(rows: PostRow[]) {
   const userIds = [...new Set(rows.map((p) => p.user_id))];
   const { data: ps } = userIds.length
@@ -149,35 +151,41 @@ async function postEntries(rows: PostRow[]) {
     id: p.id, user_id: p.user_id, type: p.type, title: p.title,
     character_id: p.character_id, like_count: p.like_count, comment_count: p.comment_count ?? 0,
     has_chart: !!(p.cast_snapshot && p.cast_snapshot.chart), created_at: p.created_at,
+    pinned: !!p.pinned_at,
     name: profs.get(p.user_id)?.display_name || "護道人",
     avatar: profs.get(p.user_id)?.selected_avatar ?? null,
   }));
 }
-async function postListResponse(sort: unknown, offset: unknown): Promise<Response> {
+// 列表：分類篩選（type=cast/thread/chat_story，其餘視為全部）＋置頂優先＋數字分頁（回 total 供前端算頁數）
+async function postListResponse(sort: unknown, offset: unknown, type: unknown): Promise<Response> {
   const off = Math.max(0, Number(offset) || 0);
   const hot = sort === "hot";
-  let q = db.from("posts").select(POST_LIST_COLS);
+  const typeFilter = POST_TYPES.includes(String(type)) ? String(type) : null;
+  let q = db.from("posts").select(POST_LIST_COLS, { count: "exact" });
+  if (typeFilter) q = q.eq("type", typeFilter);
+  // 置頂永遠優先（不分最新/熱門）；其後才套排序準則
+  q = q.order("pinned_at", { ascending: false, nullsFirst: false });
   q = hot
     ? q.order("like_count", { ascending: false }).order("created_at", { ascending: false })
     : q.order("created_at", { ascending: false });
   // 讀失敗要回 err：吞掉錯誤會讓前端把「表不存在／查詢失敗」畫成「尚無貼文」
-  const { data: posts, error } = await q.range(off, off + POST_PAGE - 1);
+  const { data: posts, error, count } = await q.range(off, off + POST_PAGE - 1);
   if (error) return Response.json({ kind: "err", msg: "廣場暫時無法載入" }, { headers: CORS });
   const rows = (posts ?? []) as PostRow[];
   const entries = await postEntries(rows);
-  return Response.json({ kind: "ok", posts: entries, hasMore: rows.length === POST_PAGE }, { headers: CORS });
+  return Response.json({ kind: "ok", posts: entries, hasMore: rows.length === POST_PAGE, total: count ?? 0, pageSize: POST_PAGE }, { headers: CORS });
 }
 
 // 貼文內頁（免認證唯讀）：全文＋快照＋回文串
 async function postDetailResponse(postId: unknown): Promise<Response> {
   const { data: p, error } = await db.from("posts")
-    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, created_at")
+    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, created_at")
     .eq("id", String(postId ?? "")).maybeSingle();
   if (error) return Response.json({ kind: "err", msg: "貼文暫時無法載入" }, { headers: CORS });
   if (!p) return Response.json({ kind: "not_found" }, { headers: CORS });
   // 回文依點讚熱度排序，同熱度先到先排
   const { data: cs } = await db.from("post_comments")
-    .select("id, user_id, body, like_count, created_at").eq("post_id", p.id)
+    .select("id, user_id, body, like_count, edited_at, created_at").eq("post_id", p.id)
     .order("like_count", { ascending: false }).order("created_at", { ascending: true }).limit(200);
   const comments = cs ?? [];
   const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
@@ -186,8 +194,8 @@ async function postDetailResponse(postId: unknown): Promise<Response> {
   const who = (uid: string) => ({ name: profs.get(uid)?.display_name || "護道人", avatar: profs.get(uid)?.selected_avatar ?? null });
   return Response.json({
     kind: "ok",
-    post: { ...p, cast: p.cast_snapshot ?? null, chat: p.chat_snapshot ?? null, ...who(p.user_id) },
-    comments: comments.map((c: { id: string; user_id: string; body: string; created_at: string }) => ({ ...c, ...who(c.user_id) })),
+    post: { ...p, pinned: !!p.pinned_at, cast: p.cast_snapshot ?? null, chat: p.chat_snapshot ?? null, ...who(p.user_id) },
+    comments: comments.map((c: { id: string; user_id: string; body: string; edited_at: string | null; created_at: string }) => ({ ...c, ...who(c.user_id) })),
   }, { headers: CORS });
 }
 
@@ -203,7 +211,7 @@ Deno.serve(async (req) => {
   if (body.mode === "wall") return await wallResponse();
 
   // 觀前廣場列表：免認證唯讀（發文/按讚/刪文仍需登入）。new=最新 hot=熱門，offset 分頁每頁 20
-  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset);
+  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset, body.type);
 
   // 貼文內頁：免認證唯讀（全文＋盤面/閒聊快照＋回文串）
   if (body.mode === "post_detail") return await postDetailResponse(body.post_id);
@@ -559,6 +567,16 @@ Deno.serve(async (req) => {
       return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
     }
 
+    // 觀前廣場：置頂／取消置頂（僅管理員）。pinned_at 記時點，列表置頂優先
+    if (body.mode === "post_pin") {
+      const isAdmin = ADMIN_USER_ID && uid === ADMIN_USER_ID;
+      if (!isAdmin) return Response.json({ kind: "err", msg: "無置頂權限" }, { headers: CORS });
+      const pinned_at = body.pin === false ? null : new Date().toISOString();
+      const { error } = await db.from("posts").update({ pinned_at }).eq("id", body.post_id);
+      if (error) return Response.json({ kind: "err" }, { headers: CORS });
+      return Response.json({ kind: "ok", pinned: pinned_at !== null }, { headers: CORS });
+    }
+
     // 觀前廣場：回文（登入即可，含回自己的文；每日上限防灌水）
     if (body.mode === "post_comment") {
       const cBody = String(body.body ?? "").trim().slice(0, COMMENT_MAX);
@@ -592,6 +610,19 @@ Deno.serve(async (req) => {
       if (error) return Response.json({ kind: "err" }, { headers: CORS });
       await db.rpc("bump_post_comment", { p_post: c.post_id, p_delta: -1 });
       return Response.json({ kind: "ok" }, { headers: CORS });
+    }
+
+    // 觀前廣場：編輯回文（僅本人）。改內容並記 edited_at，前端顯示「編輯於」
+    if (body.mode === "post_comment_edit") {
+      const cBody = String(body.body ?? "").trim().slice(0, COMMENT_MAX);
+      if (!cBody) return Response.json({ kind: "err", msg: "回文不可空白" }, { headers: CORS });
+      const { data: c } = await db.from("post_comments").select("user_id").eq("id", body.comment_id).maybeSingle();
+      if (!c) return Response.json({ kind: "err", msg: "回文不存在" }, { headers: CORS });
+      if (c.user_id !== uid) return Response.json({ kind: "err", msg: "只能編輯自己的回文" }, { headers: CORS });
+      const edited_at = new Date().toISOString();
+      const { error } = await db.from("post_comments").update({ body: cBody, edited_at }).eq("id", body.comment_id);
+      if (error) return Response.json({ kind: "err", msg: "編輯失敗" }, { headers: CORS });
+      return Response.json({ kind: "ok", body: cBody, edited_at }, { headers: CORS });
     }
 
     // 觀前廣場：回文按讚（不能讚自己；複合 PK 防重；達門檻一次性發獎，設計同貼文讚）
