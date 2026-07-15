@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards").eq("id", uid).maybeSingle();
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread").eq("id", uid).maybeSingle();
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -257,7 +257,7 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards }, { headers: CORS });
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: prof?.plaza_unread ?? 0 }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -589,14 +589,22 @@ Deno.serve(async (req) => {
       const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
       if (cused >= COMMENT_DAILY_LIMIT)
         return Response.json({ kind: "err", msg: "今日回文已達上限" }, { headers: CORS });
+      // 指定回覆：reply_to 指向被回覆的回文。存起來備查，並替被回覆者累加未讀（不通知自己）
+      const replyTo = body.reply_to ? String(body.reply_to) : null;
       const { data: row, error } = await db.from("post_comments")
-        .insert({ post_id: body.post_id, user_id: uid, body: cBody }).select("id, created_at").single();
+        .insert({ post_id: body.post_id, user_id: uid, body: cBody, reply_to: replyTo }).select("id, created_at").single();
       if (error) {
         console.error("post_comment insert failed", error);
         return Response.json({ kind: "err", msg: "回文失敗" }, { headers: CORS });
       }
       await db.from("free_quota").upsert({ key: ckey, used_today: cused + 1, last_reset: cday });
       const { data: newCount } = await db.rpc("bump_post_comment", { p_post: body.post_id, p_delta: 1 });
+      if (replyTo) {
+        const { data: tgt } = await db.from("post_comments").select("user_id").eq("id", replyTo).maybeSingle();
+        if (tgt && tgt.user_id && tgt.user_id !== uid) {
+          await db.rpc("bump_plaza_unread", { p_user: tgt.user_id, p_delta: 1 });
+        }
+      }
       return Response.json({ kind: "ok", id: row!.id, created_at: row!.created_at, commentCount: (newCount as number | null) ?? 0 }, { headers: CORS });
     }
 
@@ -651,6 +659,8 @@ Deno.serve(async (req) => {
 
     // 會員頁「廣場」頁籤：我參與的貼文（我發的＋我回過文的），同列表形狀
     if (body.mode === "my_plaza") {
+      // 進「會員 › 廣場」即視為已看過被回覆通知，未讀清零（紅點消失）
+      await db.from("profiles").update({ plaza_unread: 0 }).eq("id", uid);
       const { data: mine } = await db.from("posts").select("id").eq("user_id", uid)
         .order("created_at", { ascending: false }).limit(30);
       const { data: cmts } = await db.from("post_comments").select("post_id").eq("user_id", uid)
