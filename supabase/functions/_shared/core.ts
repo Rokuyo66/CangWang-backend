@@ -292,6 +292,21 @@ export function castByNumbers(n1: number, n2: number, n3: number) {
   return { lines, up, down, moveYao };
 }
 
+// 卦伏吟：後天八卦對宮互化（乾巽、兌震、坎離、艮坤，洛書對沖各合十）。
+// 世爻所在之卦成伏吟為「內伏吟」、應爻所在之卦為「外伏吟」；主停滯呻吟、身不由己、動彈不得。
+const FUYIN_PAIRS: [string, string][] = [["乾","巽"],["兌","震"],["坎","離"],["艮","坤"]];
+export function fuyinCheck(c: Chart): string | null {
+  if (!c.bian) return null;
+  const isPair = (a: string, b: string) => FUYIN_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+  const benLo = TRIGRAMS[c.benBits.slice(0,3).join("")], bianLo = TRIGRAMS[c.bianBits.slice(0,3).join("")];
+  const benHi = TRIGRAMS[c.benBits.slice(3,6).join("")], bianHi = TRIGRAMS[c.bianBits.slice(3,6).join("")];
+  const shiLo = c.shi <= 3; // 世在下卦
+  const out: string[] = [];
+  if (isPair(benLo, bianLo)) out.push(`${shiLo ? "內" : "外"}伏吟（下卦${benLo}化${bianLo}）`);
+  if (isPair(benHi, bianHi)) out.push(`${shiLo ? "外" : "內"}伏吟（上卦${benHi}化${bianHi}）`);
+  return out.length ? out.join("；") + "——停滯呻吟、身不由己、動彈不得" : null;
+}
+
 /** 標準盤面文字（解卦 prompt 用，同 skill 正規化格式）。
  *  【】內為排盤程式判定之事實標記（空/月破/日沖/日合/月合/臨日月建/入墓/化進退/回頭生剋沖合），論斷直接採用不必重推。 */
 export function chartText(c: Chart, question: string): string {
@@ -334,6 +349,7 @@ export function chartText(c: Chart, question: string): string {
     ? c.fushen.map((f) => `${f.qin}${f.gan}${f.zhi}(${f.wx})${factTags(f.zhi, f.wx)} 伏於${YAO_NAMES[f.pos]}（飛神：${c.ben[f.pos].qin}${c.ben[f.pos].zhi}）`).join("；")
     : "無（六親俱全）";
   const sanhe = sanheCheck(c);
+  const fuyin = fuyinCheck(c);
   const tags = [c.chong && "本卦六沖", c.he && "本卦六合", c.bianChong && "變卦六沖", c.bianHe && "變卦六合"].filter(Boolean).join("、") || "無";
   return [
     `問事：${question || "（未填）"}`,
@@ -342,6 +358,7 @@ export function chartText(c: Chart, question: string): string {
     `卦：本卦《${c.benName}》（${c.palace}宮${c.type}卦，${c.palaceWx}宮，世${c.shi}應${c.ying}）${c.hasMoving ? `之變卦《${c.bianName}》` : "，六爻安靜"}`,
     `沖合格局：${tags}`,
     `三合檢核：${sanhe ?? "無（不構成三合條件）"}`,
+    `伏吟檢核：${fuyin ?? "無"}`,
     `爻位 | 六獸 | 六親(本爻) | 干支(五行) | 世/應 | 動靜（本爻六親→化出變爻六親）`,
     ...rows,
     `伏神：${fu}`,
