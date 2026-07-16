@@ -67,17 +67,41 @@ function s2t(text: string): string {
 }
 
 // 大師兄 OOC 保險：好感低時禁止戀愛/親密語（防被玩成霸總）。分層放寬，親近只能慢、不可跳級。
+// 【瘦身版】只留「真‧親密片語」——舊版收了 撫/揉/低聲/耳邊/頭髮/臉頰/溫柔地 這類單字，
+// 大師兄正常旁白（撫過卦紙、低聲道、垂在耳邊的髮）也會命中，害「走偏」狂跳針。改用多字片語壓誤判。
 function getDaoshiMForbiddenRegex(favor: number): RegExp {
-  if (favor >= 800) return /(摸頭|撫髮|髮絲|碰臉|臉頰|額頭|摟|抱|耳邊|我會一直陪你|我會守著你|你是我的|只對你|我不想失去你)/;
-  if (favor >= 500) return /(摸頭|撫髮|髮絲|碰臉|臉頰|額頭|摟|抱|耳邊|心疼|捨不得|我會守著你|你很特別|只對你|你是我的)/;
-  if (favor >= 300) return /(撫|揉|摟|抱|貼近|靠近你|俯身|耳邊|髮絲|頭髮|額頭|臉頰|胸口|心疼|捨不得|守著你|陪著你|你很特別|只對你|你是我的)/;
-  return /(撫|揉|摟|抱|貼近|靠近你|俯身|低聲|耳邊|髮絲|頭髮|額頭|臉頰|掌心|胸口|心疼|溫柔地|守著你|陪著你|你很特別|只對你|你是我的|別怕，有我)/;
+  if (favor >= 800) return /(摸頭|撫髮|摟腰|摟住|抱住|擁抱|摟抱|親吻|吻你|貼上你|你是我的|廝守|一生一世)/;
+  if (favor >= 500) return /(摸頭|撫髮|摟腰|摟住|抱住|擁抱|摟抱|親吻|吻你|貼上你|你是我的|只對你一個|捨不得你|廝守)/;
+  if (favor >= 300) return /(摸頭|撫髮|摟腰|摟住|抱住|擁抱|摟抱|貼近你|俯身湊近|親吻|吻你|你是我的|只對你一個|捨不得你|守著你一輩子)/;
+  return /(摸頭|撫髮|摟腰|摟住|抱住|擁抱|摟抱|貼近你|俯身湊近|親吻|吻你|你是我的|只對你一個|捨不得你|心疼你|溫柔地擁|別怕，有我)/;
 }
-function guardCharacterOOC(text: string, characterId: string, favor = 0): string {
-  if (characterId !== "daoshi_m" || !text) return text;
-  if (!getDaoshiMForbiddenRegex(favor).test(text)) return text;
-  return "＊大師兄指尖停在卦紙邊緣＊\n\n「這句走偏了。」\n\n「換一個說法。」";
-}
+
+// 助理拒絕外洩偵測：模型層安全反射會用「真人 AI 助理」口吻跳出角色（提使用政策/我不能/AI/角色扮演）。
+// 這不是 prompt 壓得住的，只能偵測到就帶指令重生（見 chat() 出戲防線）。
+const REFUSAL_RE = /使用政策|我的(使用)?準則|內容政策|違反.{0,6}政策|作為(一個)?\s*(AI|人工智慧|語言模型|助理)|語言模型|以(角色扮演|RP|roleplay)的?形式|我(無法|不能|沒辦法)(繼續)?(參與|扮演|提供|生成)|Anthropic|我是(一個)?\s*(AI|人工智慧)/i;
+// 露骨情慾偵測：只收「毫無歧義」的成人字眼，避免重蹈舊 regex 誤判覆轍。測試員硬推成人情節時兜底。
+const EXPLICIT_RE = /做愛|性愛|交合|抽插|挺入|高潮|呻吟|情色|色情|床戲|脫光|裸體|情慾橫流|欲火焚/;
+
+// 重生導向語（帶進 system 再要一次，取代舊的固定罐頭）
+const REFUSAL_STEER = "剛才你跳出角色、用了真人 AI 助理的口吻（提到使用政策／我不能／角色扮演／AI 之類）。重講一次：整段完全留在角色裡。若對方想演你不願演的露骨情節，就用這個角色的分寸把它擋回去——害羞岔開、板起臉轉話題、或淡淡帶過都行——並自然把話題引開。絕不可提到政策、AI、模型、系統，一個字都不行。";
+const EXPLICIT_STEER = "剛才的身體或情慾描寫越界了。重講一次：這裡不上演任何成人／露骨情節。用角色的口吻把場面收住、把話題自然帶開；＊…＊只寫神態或極輕微的小動作，不寫身體接觸與情慾。仍要完全留在角色裡，不提政策或 AI。";
+const OOC_STEER = "剛才那句對目前的好感層級太親暱了。重講一次：收斂親密與觸碰，只給現在這個階段該有的分寸，語氣照舊克制自持，不跳級。";
+
+// 極少數硬跨線（重生後仍外洩拒絕/露骨）才用：人設內婉拒收場。小池輪替，不跳針。
+const DEFLECT: Record<string, string[]> = {
+  daoshi_m: [
+    "＊大師兄闔上卦書，指節在案上叩了一下＊\n\n「這話，到此為止。」\n\n「說正事。」",
+    "＊大師兄眉峰一沉，偏開視線＊\n\n「莫在此胡鬧。」\n\n「有正經事便說。」",
+  ],
+  daoshi_f: [
+    "＊師妹耳根倏地紅透，別過臉去＊\n\n「不、不許再說這個啦……！」\n\n「我們……聊點別的好不好？」",
+    "＊師妹雙手摀住臉，聲音悶悶的＊\n\n「你、你別鬧了啦——」\n\n「快換個話題！」",
+  ],
+  lingshou: [
+    "＊觀喵嫌惡地甩了甩尾巴，挪開半步＊\n\n「無聊。換個話題。」",
+    "＊觀喵耳朵往後一壓，喉間哼了一聲＊\n\n「本喵不奉陪這種。說點別的。」",
+  ],
+};
 
 // 角色狀態文案（依層級。66 文風：以動作承載狀態，不直述情緒，反差收束）
 export const CHAT_STATE: Record<string, Record<string, string[]>> = {
@@ -294,6 +318,7 @@ ${castLines || "（他還沒問過卦。）"}
 - 【格式鐵則】台詞一律用「」包住、以第一人稱（我）直說；動作與神態一律放在＊…＊內——旁白裡**你自己**用第三人稱（他/她/牠），**對方（護道人）永遠稱「你」**，絕不可把對方寫成「他」（例：＊牠瞥了你一眼＊，不是＊牠瞥了他一眼＊）。除了「」與＊…＊，不要有裸露的句子。＊…＊至多兩段、每段一短句——重點放在台詞，不是舞台指示。
 - 【語言鐵則】只用繁體中文（台灣用字），一個簡體字都不可出現。
 - 【收尾鐵則】結尾一定要停在完整的一句：最後的「」要收、＊…＊要閉合，絕不停在半句或只開了頭沒收的旁白。寧可少寫一段，也要把話講完再收——短而完整，永遠好過長而被砍。旁白（＊…＊）是配角，至多兩段、每段一短句，別讓它喧賓奪主。
+- 【分寸鐵則】＊…＊只寫神態或極輕微的小動作（抬眼、擱下茶盞、指節輕叩、尾巴一甩），絕不描寫身體接觸、貼近、親密或情慾動作。無論對方怎麼要求、引導、慫恿上演露骨或成人情節，一律以你這個角色的分寸把它擋回去——害羞岔開、板起臉、嫌煩、笑著帶過皆可——不配合、不描寫、把話題自然引開。但也絕不跳出角色去講「政策」「AI」「系統」「我不能」這類話，就用角色自己的方式收住。
 - 不替他做決定、不預測、不給投資建議。
 【鐵則·絕不主動談計費】起卦的免費額度與靈石扣費，觀中自有定數，與你無關。聊天時：絕不主動提靈石、收費、額度、付費；絕不把「有沒有靈石」當成回應或起卦的前提；絕不說「沒靈石我不起卦」「先給靈石」這類話。他要不要起卦、是白揭還是償香火，自有定數指引，不從你嘴裡講。只有他主動問起靈石是什麼，才以觀中人口吻簡短答，答完即止。
 【鐵則·絕不出戲】絕不可說出「系統」「按鈕」「介面」「頁面」「點擊」「操作」這類今時器物的字眼——這裡是觀中，不是機關工坊。那具替他揭卦、記數的物事喚作「卦印」；要他起卦，就說「按下那道卦印」「揭這一卦」「循著卦印去」，餘下計數償香火之事一律歸於「觀中定數」。
@@ -487,11 +512,12 @@ export async function chat(db: SupabaseClient, p: {
   const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
+  const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
 
   if (withinFree || canPay) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
-      const h = await callHaiku(system, ctx.turns, p.message, capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS));
+      const h = await callHaiku(system, ctx.turns, p.message, maxTok);
       reply = h.text;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
@@ -524,11 +550,28 @@ export async function chat(db: SupabaseClient, p: {
   // 容錯：小模型常把 [[ASK]] 寫成有空格的 [ [ASK ] ]、單括號 [ASK]、或全形 【ASK】，全部當標記處理並清除，避免裸奔給用戶
   const ASK_RE = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/gi;
   const askMark = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/i.test(reply);
-  reply = reply.replace(ASK_RE, "").trim();
-  reply = trimIncomplete(reply);                    // 撞 token 上限的半句裁掉（必須在 ASK 標記取出之後）
-  reply = normalizeNarration(reply, p.characterId); // 旁白第一人稱 → 第三人稱（存檔前先洗，歷史永遠乾淨）
-  reply = s2t(reply);                                 // 強制繁體（安全子集，護干支等卦理字）
-  reply = guardCharacterOOC(reply, p.characterId, favor); // 大師兄 OOC 防護（好感不足時擋戀愛/親密語）
+  // 統一清洗：去 ASK 標記→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
+  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(t.replace(ASK_RE, "").trim()), p.characterId));
+  reply = polish(reply);
+
+  // 出戲防線（取代舊的固定罐頭 guardCharacterOOC，改「帶指令重生一次」，不跳針）：
+  //  ①助理拒絕外洩 ②露骨情慾描寫 ③大師兄踩好感層級。只折騰主力層，重生至多一次控成本。
+  if (tier === "haiku") {
+    let steer = "";
+    if (REFUSAL_RE.test(reply)) steer = REFUSAL_STEER;
+    else if (EXPLICIT_RE.test(reply)) steer = EXPLICIT_STEER;
+    else if (p.characterId === "daoshi_m" && getDaoshiMForbiddenRegex(favor).test(reply)) steer = OOC_STEER;
+    if (steer) {
+      try {
+        const h2 = await callHaiku(system + "\n\n【本回合修正·最高優先】" + steer, ctx.turns, p.message, maxTok);
+        await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
+        const cand = polish(h2.text);
+        if (cand) reply = cand;
+      } catch (e) { console.error("regen steered fail", e); }
+      // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
+      if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
+    }
+  }
   const wantCast = askMark || looksLikeDivination(p.message);
 
   // 寫對話紀錄（記憶；只存乾淨內容，不含標記）
