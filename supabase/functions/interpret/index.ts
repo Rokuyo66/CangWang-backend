@@ -110,7 +110,7 @@ async function wallResponse(): Promise<Response> {
   const { data: fbs } = await db.from("feedback")
     .select("cast_id, user_id, verdict, note, answered_at")
     .eq("is_public", true).not("note", "is", null)
-    .order("answered_at", { ascending: false }).limit(40);
+    .order("answered_at", { ascending: false }).limit(10);
   const rows = (fbs ?? []).filter((f: { note: string | null }) => String(f.note ?? "").trim());
   // 兩段式查卦名/暱稱（不靠巢狀嵌入，同卦歷做法）
   const castIds = rows.map((f: { cast_id: string }) => f.cast_id);
