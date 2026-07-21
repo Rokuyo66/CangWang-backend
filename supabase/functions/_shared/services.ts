@@ -82,10 +82,11 @@ export function renderChartTG(c: Chart): string {
 
 /* ---------- Anthropic ---------- */
 const API = "https://api.anthropic.com/v1/messages";
-// 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨，
-// 錯了追問/深展/評卦全跟著錯；追問/評卦純跟推不重算卦理，留 Haiku 省成本。
+// 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
+// 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
+// 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
 // INTERPRET_FORCE_MODEL：管理者測試用，設了則所有 interpret 呼叫強制用該模型。
-const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-haiku-4-5-20251001";
+const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-sonnet-4-6";
 const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
 const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
