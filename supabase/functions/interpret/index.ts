@@ -26,6 +26,15 @@ function stripReadingGuide(reading: string): string {
   // 只剝引導語本身（含少量變體），不吃同一行前面的正文
   return String(reading ?? "").replace(/[想若欲]?看?完整卦理(?:依據)?[，,]?\s*點下方展開[。.]?\s*$/, "").trimEnd();
 }
+// 手動排盤自填占時：{y,m,d,hour}。任何欄位不合法即回 undefined（後端退回用當下台北時，向後相容）
+function parseCastDate(cd: unknown): { y: number; m: number; d: number; hour: number | null } | undefined {
+  if (!cd || typeof cd !== "object") return undefined;
+  const { y, m, d, hour } = cd as Record<string, unknown>;
+  const okInt = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
+  if (!okInt(y, 1900, 2200) || !okInt(m, 1, 12) || !okInt(d, 1, 31)) return undefined;
+  if (hour != null && !okInt(hour, 0, 23)) return undefined;
+  return { y: y as number, m: m as number, d: d as number, hour: hour == null ? null : (hour as number) };
+}
 const SIGN_REWARDS: [number, number][] = [[10,0],[10,0],[15,5],[15,0],[20,0],[20,0],[50,10]];
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
@@ -705,6 +714,7 @@ Deno.serve(async (req) => {
           question: body.question, channel: body.channel ?? "web",
           numbers: body.numbers, lines: body.lines, // ← 網頁傳已起好的卦
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi,
+          castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
         });
     return Response.json(result, { headers: CORS });
   } catch (e) {

@@ -58,6 +58,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   lines?: number[];                    // 網頁已起好的卦（路二）：6個值6/7/8/9，初→上。有則用此卦不重起
   yongQin?: string;                    // 前端已取定的用神六親（與盤面一致）
   yongViaShi?: boolean;                // 用神是否取世爻
+  castDate?: { y: number; m: number; d: number; hour: number | null }; // 手動排盤自填占時；無則用當下台北時
 }) {
   // 0. 全站熔斷＋個人限流
   if (await globalCapReached(db)) return { kind: "capped" as const };
@@ -72,7 +73,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (!bill.ok) return { kind: "paywall" as const };
 
   // 3. 排盤（網頁傳卦 or 三數 or 模擬擲卦，皆進同一文王卦引擎）
-  const { y, m, d, hour } = nowTaipei();
+  //    手動排盤帶自填占時 castDate，年月日時干支據此推；否則以當下台北時
+  const { y, m, d, hour } = p.castDate ?? nowTaipei();
   const lines = (p.lines && p.lines.length === 6 && p.lines.every((v) => v >= 6 && v <= 9))
     ? p.lines
     : p.numbers ? castByNumbers(...p.numbers).lines : castCoins().lines;
