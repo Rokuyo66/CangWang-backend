@@ -92,6 +92,9 @@ const isKimiModel = (m: string) => /^(kimi|moonshot)/i.test(m);
 const KIMI_THINKING_EXTRA = Number(Deno.env.get("KIMI_THINKING_EXTRA") ?? "2000");
 // 溫度不猜預設：未設 KIMI_TEMPERATURE 就不帶此參數，交給 Moonshot 各模型自己的預設值
 const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
+// KIMI 硬超時：edge→.cn 跨境慢（實測約 33 tok/s），偶發掛住會拖死整個 function 被平台掐成 546。
+// 逾時就 abort 丟錯，交給備援換家重打；上限取 edge 牆鐘（150s）內留得住備援餘裕的值。
+const KIMI_TIMEOUT_MS = Number(Deno.env.get("KIMI_TIMEOUT_MS") ?? "100000");
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
 // 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
@@ -173,17 +176,29 @@ export async function callInterpret(persona: string, chartText: string, opts: {
             : { role: msg2.role, content: msg2.content }
         ),
       ];
-      const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
-        body: JSON.stringify({
-          model: m,
-          max_tokens: maxTokens + (/thinking|kimi-k3/i.test(m) ? KIMI_THINKING_EXTRA : 0),
-          messages: kimiMessages,
-          stream: false,
-          ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
-        }),
-      });
+      // k2.x 預設「思考開啟」：推理鏈吃光 completion 額度會回空正文（實測 content=""），
+      // 解卦不需要外顯推理 → 一律關閉；點名要思考的型號（*thinking/k3）才保留並加額度。
+      const wantsReasoning = /thinking|kimi-k3/i.test(m);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), KIMI_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
+          body: JSON.stringify({
+            model: m,
+            max_tokens: maxTokens + (wantsReasoning ? KIMI_THINKING_EXTRA : 0),
+            messages: kimiMessages,
+            stream: false,
+            ...(wantsReasoning ? {} : { thinking: { type: "disabled" } }),
+            ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
+          }),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.ok) throw new Error(`kimi ${res.status}: ${await res.text()}`);
       const data = await res.json();
       const msg = data.choices?.[0]?.message ?? {};
