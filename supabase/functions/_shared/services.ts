@@ -91,6 +91,11 @@ const isKimiModel = (m: string) => /^(kimi|moonshot)/i.test(m);
 const KIMI_THINKING_EXTRA = Number(Deno.env.get("KIMI_THINKING_EXTRA") ?? "2000");
 // 溫度不猜預設：未設 KIMI_TEMPERATURE 就不帶此參數，交給 Moonshot 各模型自己的預設值
 const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
+// 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
+// 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
+// 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
+const FALLBACK_KIMI = Deno.env.get("INTERPRET_FALLBACK_MODEL") ?? "kimi-k2-thinking";
+const FALLBACK_CLAUDE = "claude-sonnet-4-6";
 // 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
 // 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
@@ -154,42 +159,44 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   }
 
   const maxTokens = MODE_LIMITS[mode] ?? 1000;
-  let text: string;
-  let stopReason: string | null;
-  let rawIn: number | undefined, rawOut: number | undefined;
 
-  if (isKimiModel(model)) {
-    // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
-    const kimiMessages = [
-      { role: "system", content: `${ruleText}\n\n【角色聲線】\n${persona}` },
-      ...messages.map((m, i) =>
-        m.role === "assistant" && i === messages.length - 1 && opts.continuePartial
-          ? { role: "assistant", content: m.content, partial: true }
-          : { role: m.role, content: m.content }
-      ),
-    ];
-    const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens + (/thinking/i.test(model) ? KIMI_THINKING_EXTRA : 0),
-        messages: kimiMessages,
-        stream: false,
-        ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
-      }),
-    });
-    if (!res.ok) throw new Error(`kimi ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    const msg = data.choices?.[0]?.message ?? {};
-    // 只取正文；推理鏈在 reasoning_content，另防 <think> 內嵌洩漏
-    text = (msg.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "");
-    // finish_reason 映射成 Anthropic 語彙，deepen 續寫判斷（max_tokens）才接得上
-    const fr = data.choices?.[0]?.finish_reason ?? null;
-    stopReason = fr === "length" ? "max_tokens" : fr;
-    rawIn = data.usage?.prompt_tokens;
-    rawOut = data.usage?.completion_tokens;
-  } else {
+  // 呼叫指定模型一次（依模型名分流供應商），回統一形狀
+  const callModel = async (m: string): Promise<{ text: string; stopReason: string | null; rawIn?: number; rawOut?: number }> => {
+    if (isKimiModel(m)) {
+      // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
+      const kimiMessages = [
+        { role: "system", content: `${ruleText}\n\n【角色聲線】\n${persona}` },
+        ...messages.map((msg2, i) =>
+          msg2.role === "assistant" && i === messages.length - 1 && opts.continuePartial
+            ? { role: "assistant", content: msg2.content, partial: true }
+            : { role: msg2.role, content: msg2.content }
+        ),
+      ];
+      const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
+        body: JSON.stringify({
+          model: m,
+          max_tokens: maxTokens + (/thinking/i.test(m) ? KIMI_THINKING_EXTRA : 0),
+          messages: kimiMessages,
+          stream: false,
+          ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error(`kimi ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      const msg = data.choices?.[0]?.message ?? {};
+      // 只取正文；推理鏈在 reasoning_content，另防 <think> 內嵌洩漏
+      const text = (msg.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "");
+      // finish_reason 映射成 Anthropic 語彙，deepen 續寫判斷（max_tokens）才接得上
+      const fr = data.choices?.[0]?.finish_reason ?? null;
+      return {
+        text,
+        stopReason: fr === "length" ? "max_tokens" : fr,
+        rawIn: data.usage?.prompt_tokens,
+        rawOut: data.usage?.completion_tokens,
+      };
+    }
     const res = await fetch(API, {
       method: "POST",
       headers: {
@@ -197,15 +204,33 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
+      body: JSON.stringify({ model: m, max_tokens: maxTokens, system, messages }),
     });
     if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
-    stopReason = (data.stop_reason ?? null) as string | null;
-    rawIn = data.usage?.input_tokens;
-    rawOut = data.usage?.output_tokens;
+    return {
+      text: (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n"),
+      stopReason: (data.stop_reason ?? null) as string | null,
+      rawIn: data.usage?.input_tokens,
+      rawOut: data.usage?.output_tokens,
+    };
+  };
+
+  // 主模型失敗 → 備援換家重打一次；備援也掛才真的丟錯（呼叫端照舊處理）
+  const fallbackModel = isKimiModel(model)
+    ? FALLBACK_CLAUDE
+    : (Deno.env.get("KIMI_API_KEY") && FALLBACK_KIMI !== "off" ? FALLBACK_KIMI : null);
+  let usedModel = model;
+  let r: Awaited<ReturnType<typeof callModel>>;
+  try {
+    r = await callModel(model);
+  } catch (e) {
+    if (!fallbackModel || fallbackModel === model) throw e;
+    console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
+    usedModel = fallbackModel;
+    r = await callModel(fallbackModel);
   }
+  const { text, stopReason, rawIn, rawOut } = r;
 
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
   const estimated = rawIn == null || rawOut == null;
@@ -218,7 +243,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
     ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null } : parseTagged(text)),
-    usage, model, mode, estimated, stopReason,
+    usage, model: usedModel, mode, estimated, stopReason,
   };
 }
 
