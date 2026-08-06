@@ -84,7 +84,8 @@ export function renderChartTG(c: Chart): string {
 const API = "https://api.anthropic.com/v1/messages";
 /* ---------- KIMI（Moonshot，OpenAI 相容） ----------
    模型名以 kimi/moonshot 開頭即走此路；其餘照舊走 Anthropic。
-   平台：platform.moonshot.ai（全球版）；大陸版設 KIMI_API_BASE=https://api.moonshot.cn/v1。 */
+   平台分區：大陸版 platform.kimi.com（¥計價）→ KIMI_API_BASE=https://api.moonshot.cn/v1；
+   國際版 platform.kimi.ai（$計價）→ 預設值。金鑰跨區不通用，base 必須跟金鑰同區。 */
 const KIMI_API_BASE = Deno.env.get("KIMI_API_BASE") ?? "https://api.moonshot.ai/v1";
 const isKimiModel = (m: string) => /^(kimi|moonshot)/i.test(m);
 // k2-thinking 的推理鏈同樣計入 completion tokens：硬上限須外加思考預算，否則思考吃光額度、正文被截
@@ -94,7 +95,7 @@ const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
 // 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
-const FALLBACK_KIMI = Deno.env.get("INTERPRET_FALLBACK_MODEL") ?? "kimi-k2-thinking";
+const FALLBACK_KIMI = Deno.env.get("INTERPRET_FALLBACK_MODEL") ?? "kimi-k2.6";
 const FALLBACK_CLAUDE = "claude-sonnet-4-6";
 // 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
@@ -177,7 +178,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
         body: JSON.stringify({
           model: m,
-          max_tokens: maxTokens + (/thinking/i.test(m) ? KIMI_THINKING_EXTRA : 0),
+          max_tokens: maxTokens + (/thinking|kimi-k3/i.test(m) ? KIMI_THINKING_EXTRA : 0),
           messages: kimiMessages,
           stream: false,
           ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
