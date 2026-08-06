@@ -350,6 +350,8 @@ export function chartText(c: Chart, question: string): string {
     : "無（六親俱全）";
   const sanhe = sanheCheck(c);
   const fuyin = fuyinCheck(c);
+  // 包局：初爻與上爻（本卦）六親相同，該六親為全卦潛在主軸；依本卦判定，動變不影響成立
+  const baoju = c.ben[0].qin === c.ben[5].qin ? c.ben[0].qin : null;
   const tags = [c.chong && "本卦六沖", c.he && "本卦六合", c.bianChong && "變卦六沖", c.bianHe && "變卦六合"].filter(Boolean).join("、") || "無";
   return [
     `問事：${question || "（未填）"}`,
@@ -359,6 +361,7 @@ export function chartText(c: Chart, question: string): string {
     `沖合格局：${tags}`,
     `三合檢核：${sanhe ?? "無（不構成三合條件）"}`,
     `伏吟檢核：${fuyin ?? "無"}`,
+    ...(baoju ? [`包局檢核：${baoju}包局（初爻與上爻六親同為${baoju}）——內參標記：此六親為全卦潛在關鍵，論斷時暗中側重其所主之人事，但輸出中不得出現「包局」一詞、不得當作格局宣講`] : []),
     `爻位 | 六獸 | 六親(本爻) | 干支(五行) | 世/應 | 動靜（本爻六親→化出變爻六親）`,
     ...rows,
     `伏神：${fu}`,
