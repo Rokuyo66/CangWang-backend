@@ -82,6 +82,15 @@ export function renderChartTG(c: Chart): string {
 
 /* ---------- Anthropic ---------- */
 const API = "https://api.anthropic.com/v1/messages";
+/* ---------- KIMI（Moonshot，OpenAI 相容） ----------
+   模型名以 kimi/moonshot 開頭即走此路；其餘照舊走 Anthropic。
+   平台：platform.moonshot.ai（全球版）；大陸版設 KIMI_API_BASE=https://api.moonshot.cn/v1。 */
+const KIMI_API_BASE = Deno.env.get("KIMI_API_BASE") ?? "https://api.moonshot.ai/v1";
+const isKimiModel = (m: string) => /^(kimi|moonshot)/i.test(m);
+// k2-thinking 的推理鏈同樣計入 completion tokens：硬上限須外加思考預算，否則思考吃光額度、正文被截
+const KIMI_THINKING_EXTRA = Number(Deno.env.get("KIMI_THINKING_EXTRA") ?? "2000");
+// 溫度不猜預設：未設 KIMI_TEMPERATURE 就不帶此參數，交給 Moonshot 各模型自己的預設值
+const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
 // 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
@@ -144,30 +153,72 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     messages.push({ role: "assistant", content: opts.continuePartial.replace(/\s+$/, "") });
   }
 
-  const res = await fetch(API, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({ model, max_tokens: MODE_LIMITS[mode] ?? 1000, system, messages }),
-  });
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
+  const maxTokens = MODE_LIMITS[mode] ?? 1000;
+  let text: string;
+  let stopReason: string | null;
+  let rawIn: number | undefined, rawOut: number | undefined;
+
+  if (isKimiModel(model)) {
+    // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
+    const kimiMessages = [
+      { role: "system", content: `${ruleText}\n\n【角色聲線】\n${persona}` },
+      ...messages.map((m, i) =>
+        m.role === "assistant" && i === messages.length - 1 && opts.continuePartial
+          ? { role: "assistant", content: m.content, partial: true }
+          : { role: m.role, content: m.content }
+      ),
+    ];
+    const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens + (/thinking/i.test(model) ? KIMI_THINKING_EXTRA : 0),
+        messages: kimiMessages,
+        stream: false,
+        ...(KIMI_TEMPERATURE != null ? { temperature: Number(KIMI_TEMPERATURE) } : {}),
+      }),
+    });
+    if (!res.ok) throw new Error(`kimi ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const msg = data.choices?.[0]?.message ?? {};
+    // 只取正文；推理鏈在 reasoning_content，另防 <think> 內嵌洩漏
+    text = (msg.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "");
+    // finish_reason 映射成 Anthropic 語彙，deepen 續寫判斷（max_tokens）才接得上
+    const fr = data.choices?.[0]?.finish_reason ?? null;
+    stopReason = fr === "length" ? "max_tokens" : fr;
+    rawIn = data.usage?.prompt_tokens;
+    rawOut = data.usage?.completion_tokens;
+  } else {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
+    });
+    if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
+    stopReason = (data.stop_reason ?? null) as string | null;
+    rawIn = data.usage?.input_tokens;
+    rawOut = data.usage?.output_tokens;
+  }
+
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
-  const estimated = !data.usage;
+  const estimated = rawIn == null || rawOut == null;
   const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + ruleText.length + persona.length;
   const usage = {
-    in: data.usage?.input_tokens ?? Math.ceil(promptChars * 1.2),
-    out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2),
+    in: rawIn ?? Math.ceil(promptChars * 1.2),
+    out: rawOut ?? Math.ceil(text.length * 1.2),
   };
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
     ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null } : parseTagged(text)),
-    usage, model, mode, estimated, stopReason: (data.stop_reason ?? null) as string | null,
+    usage, model, mode, estimated, stopReason,
   };
 }
 
