@@ -258,7 +258,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
-    ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null } : parseTagged(text)),
+    ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
     usage, model: usedModel, mode, estimated, stopReason,
   };
 }

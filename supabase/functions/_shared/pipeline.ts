@@ -88,6 +88,12 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     : {});
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
+  // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。
+  // 落定後存檔，追問／完整卦理／換人評卦一律沿用同一用神，不會中途改取自打嘴巴。
+  const aiYong = ai.yong as { qin: string | null; viaShi: boolean } | null;
+  const yongQin = p.yongQin ?? (aiYong ? (aiYong.viaShi ? chart.ben[chart.shi - 1].qin : aiYong.qin) : null);
+  const yongViaShi = p.yongViaShi ?? (aiYong ? aiYong.viaShi : null);
+
   // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
   // 占期即今日，任何早於占期的 due 都不可能是「應期」，避免曆上出現往回設定的紅點。
   const castDay = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -103,7 +109,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     category: ai.category, lines, chart, gua_ben: chart.benName, gua_bian: chart.bianName,
     palace: chart.palace, reading: ai.reading, digest: ai.digest, suggested: ai.suggested,
     due_date: ai.due, model: ai.model, tokens_in: ai.usage.in, tokens_out: ai.usage.out,
-    yong_qin: p.yongQin ?? null, yong_via_shi: p.yongViaShi ?? null,
+    yong_qin: yongQin, yong_via_shi: yongViaShi,
   }).select("id").single();
   if (ai.due) {
     await db.from("feedback").insert({ cast_id: cast!.id, user_id: p.userId, due_date: ai.due });
@@ -128,7 +134,12 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     appendix += `\n\n<i>（✨此卦初解，幾知觀卦鑑已收錄 ${collected}/64。打 /collection 翻閱你的卦鑑。）</i>`;
   }
 
-  return { kind: "ok" as const, castId: cast!.id as string, chart, reading: ai.reading, appendix, suggested: ai.suggested, paid: bill.paid, breakthrough };
+  // yong 一併回傳：前端據此把盤面的用/原/忌/仇標記補上（起卦當下不再要求用戶先選用神）
+  return {
+    kind: "ok" as const, castId: cast!.id as string, chart, reading: ai.reading, appendix,
+    suggested: ai.suggested, paid: bill.paid, breakthrough,
+    yong: yongQin ? { qin: yongQin, viaShi: !!yongViaShi } : null,
+  };
 }
 
 /** 追問管線 */
