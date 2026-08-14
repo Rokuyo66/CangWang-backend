@@ -1,6 +1,7 @@
 // _shared/services.ts — 盤面渲染（TG）、Anthropic 呼叫、計費
 import { Chart, YAO_NAMES, huaJinTui } from "./core.ts";
-import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, parseTagged } from "./rules.ts";
+import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, parseTagged } from "./rules.ts";
+import type { Qian } from "./qian60.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -107,9 +108,12 @@ const FALLBACK_CLAUDE = "claude-sonnet-4-6";
 const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-sonnet-4-6";
 const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
 const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
+// 日運卦用 Haiku：等第與取籤都由程式算定，模型只負責把等第與籤意寫成角色聲線的短文，
+// 不承擔任何卦理判斷。這是免費且每人每日一次的功能，成本必須壓住。
+const MODEL_FORTUNE = Deno.env.get("INTERPRET_MODEL_FORTUNE") ?? "claude-haiku-4-5-20251001";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
 // 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
-const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600 };
+const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600 };
 
 // 句尾收束字元（含 markdown 粗體收尾）：結尾不在此清單＝疑似斷半句
 const SENT_END = ["。", "！", "？", "…", "」", "』", "）", "】", "＊", "～", "*", "."];
@@ -123,11 +127,12 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   deepen?: { briefReading: string };
   comment?: { prevReading: string; prevAuthor?: string };
   yong?: { qin: string; viaShi?: boolean; pos?: number | null };
+  fortune?: { tierLabel: string; qian: Qian; jieqiLine: string }; // 日運卦：等第與籤由程式算定後傳入
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
 }) {
-  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : "cast";
-  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : MODEL_LITE);
-  const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : RULES;
+  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : "cast";
+  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : MODEL_LITE);
+  const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : RULES;
   const system = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral" } },
     { type: "text", text: `【角色聲線】\n${persona}` },
@@ -154,6 +159,16 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     ? [{
         role: "user",
         content: `【盤面】\n${chartText}${yongHint}\n\n【${opts.comment.prevAuthor ?? "另一位修行者"}已給的解卦結論】\n${opts.comment.prevReading}\n\n以上結論出自「${opts.comment.prevAuthor ?? "另一位修行者"}」，不是你。請以你的視角，就這個結論說幾句你的看法；若提及原評卦人，須正確稱呼為「${opts.comment.prevAuthor ?? "對方"}」，不可張冠李戴成別人。`,
+      }]
+    : opts.fortune
+    ? [{
+        role: "user",
+        content: `【盤面】\n${chartText}\n\n【今日節氣】\n${opts.fortune.jieqiLine}\n\n` +
+          `【今日等第】${opts.fortune.tierLabel}（排盤程式依世爻旺衰判定之事實，不得改判）\n\n` +
+          `【今日之籤】第${opts.fortune.qian.n}籤　${opts.fortune.qian.gz}\n` +
+          `${opts.fortune.qian.poem.join("，")}。\n` +
+          `卦頭：${opts.fortune.qian.allusion}\n\n` +
+          `此籤是依上述等第自同等第籤池取出，與卦象同向。請依規則寫今日運勢：只取詩的意境，不得照字面談婚姻／官司／疾病／科舉，不給應期、不預測具體事件，150字內。`,
       }]
     : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
 
@@ -258,7 +273,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
-    ...(opts.followup || opts.deepen ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
+    ...(opts.followup || opts.deepen || opts.fortune ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
     usage, model: usedModel, mode, estimated, stopReason,
   };
 }

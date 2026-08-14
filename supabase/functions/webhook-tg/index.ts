@@ -3,7 +3,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { renderChartTG, mdToTG } from "../_shared/services.ts";
 import { ALL_GUA_NAMES } from "../_shared/core.ts";
-import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
+import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
+import { dailyFortune } from "../_shared/fortune.ts";
+import { jieqiOf } from "../_shared/jieqi.ts";
 import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_CAST, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT } from "../_shared/services.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
@@ -82,6 +84,7 @@ const HELP_TEXT =
   "<b>幾知觀指南</b>\n\n" +
   "🔮 <b>問卦</b>：直接說想問的事，或先打 /gua。系統會擲卦（搖卦／報三數）後為你解卦。\n" +
   "💬 <b>聊天</b>：直接跟道緣說話即可（不必指令）。好感足時，他/她/牠最有靈魂。\n" +
+  "☯ /fortune 今日運勢，每日免費一卦（附六十甲子籤）\n" +
   "🪙 /sign 每日上香，領靈石與好感（連續七日有大獎）\n" +
   "💰 /wallet 查看你的靈石、了解用途\n" +
   "👥 /who 看三位的好感與境界、隨時切換道緣\n" +
@@ -146,6 +149,10 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   }
   if (text === "/help") {
     await send(chatId, HELP_TEXT);
+    return;
+  }
+  if (text === "/fortune" || text === "/運勢") {
+    await runFortune(chatId, userId, ses);
     return;
   }
   if (text === "/about" || text === "/terms" || text === "/免責") {
@@ -491,6 +498,10 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await doSignIn(chatId, userId, ses);
     return;
   }
+  if (data === "fortune_now") {
+    await runFortune(chatId, userId, ses, true); // 順手補簽到
+    return;
+  }
   if (data === "sign_makeup") {
     await doSignIn(chatId, userId, ses, true);
     return;
@@ -551,6 +562,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await send(chatId, `（${CHAR_LABELS[newChar]}接過卦來看了看……）`);
     await typing(chatId);
     const r = await commentCast(db, { userId, castId: ses.last_cast_id, newCharacterId: newChar });
+    if (r.kind === "no_followup") { await send(chatId, "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。"); return; }
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
     if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
     if (r.kind === "paywall") {
@@ -566,6 +578,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await send(chatId, "（凝神細推……）");
     await typing(chatId);
     const r = await deepenCast(db, { userId, castId: ses.last_cast_id });
+    if (r.kind === "no_followup") { await send(chatId, "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。"); return; }
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
     if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
     if (r.kind === "incomplete") {
@@ -723,21 +736,60 @@ async function doSignIn(chatId: number, userId: string, ses: Record<string, any>
     (big ? "\n\n<b>✨ 七日圓滿，香火最盛。</b>明日起新的一輪。" : ""));
 }
 
-// 低調簽到提醒：當天首次互動且未簽到時，回一句角色化提醒（每日僅一次，用 session 標記）
+// 每日提醒：當天首次互動時，帶一句節氣，再引導上香與今日運勢（每日僅一次，用 session 標記）
+// 兩件事都做完了就不擾人。
 async function maybeSignReminder(chatId: number, userId: string, ses: Record<string, any>): Promise<void> {
   const today = todayTW();
   if (ses.sign_reminded === today) return; // 今天提醒過了
-  const { data: prof } = await db.from("profiles").select("last_sign_date").eq("id", userId).single();
-  if (prof?.last_sign_date === today) return; // 今天已簽，不提醒
+  const { data: prof } = await db.from("profiles").select("last_sign_date, last_fortune_date").eq("id", userId).single();
+  const signed = prof?.last_sign_date === today;
+  const gotFortune = prof?.last_fortune_date === today;
+  if (signed && gotFortune) return; // 該做的都做了
   await saveSession({ ...ses, sign_reminded: today });
+
+  const { y, m, d } = nowTaipei();
+  const jq = jieqiOf(y, m, d);
   const hint: Record<string, string> = {
     daoshi_m: "（大師兄頭也不抬）今日的香還沒上。",
     daoshi_f: "（師妹輕聲）對了，今日還沒上香呢。",
     lingshou: "（觀貓尾巴掃過香爐）喂，今日的香火還空著。",
   };
-  await send(chatId, (hint[ses.character_id] ?? "今日尚未上香。") + " /sign", {
-    reply_markup: { inline_keyboard: [[{ text: "🪙 上香簽到", callback_data: "sign_now" }]] },
-  });
+  const rows: Record<string, string>[][] = [];
+  if (!signed) rows.push([{ text: "🪙 上香簽到", callback_data: "sign_now" }]);
+  if (!gotFortune) rows.push([{ text: "☯ 問問今日運勢（免費）", callback_data: "fortune_now" }]);
+
+  await send(chatId,
+    `<i>${esc(jq.line)}</i>\n\n` +
+    (signed ? "" : (hint[ses.character_id] ?? "今日尚未上香。") + "\n") +
+    (gotFortune ? "" : "要不要看看，今日的運勢如何？"),
+    { reply_markup: { inline_keyboard: rows } });
+}
+
+// 每日運勢卦：免費、每日一次。點鈕進來時若還沒簽到，順手先把香上了（一鍵完成兩件事）。
+async function runFortune(chatId: number, userId: string, ses: Record<string, any>, autoSign = false): Promise<void> {
+  if (autoSign) {
+    const { data: prof } = await db.from("profiles").select("last_sign_date").eq("id", userId).maybeSingle();
+    if (prof?.last_sign_date !== todayTW()) await doSignIn(chatId, userId, ses);
+  }
+  const charId = ses.character_id ?? "daoshi_m";
+  await send(chatId, CASTING_LINE[charId] ?? "🪙 三錢落盤……");
+  await typing(chatId);
+  const r = await dailyFortune(db, { userId, characterId: charId, channel: "tg" });
+  if (r.kind === "already") { await send(chatId, "今日的運勢已經看過了。明日再來。"); return; }
+  if (r.kind === "capped") { await send(chatId, "幾知觀今日推演已達上限，三位修行者需要歇息。明日請早。"); return; }
+  if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻。"); return; }
+  if (r.kind === "failed") { await send(chatId, "今日運勢推演不順，稍後再試一次（沒算你今日的次數）。"); return; }
+
+  const poem = r.qian.poem.map((s: string) => `　${esc(s)}`).join("\n");
+  await send(chatId,
+    `<i>${esc(r.jieqi.line)}</i>\n\n` +
+    `<b>今日運勢 · ${esc(r.tierLabel)}</b>\n` +
+    `《${esc(r.chart.benName)}》\n\n` +
+    `<b>第${r.qian.n}籤　${esc(r.qian.gz)}</b>\n<pre>${poem}</pre>\n` +
+    `<i>卦頭：${esc(r.qian.allusion)}</i>\n\n` +
+    `${mdToTG(r.reading)}\n\n` +
+    `<i>（今日氣象，不論成敗、不設應期。心中另有懸而未決之事，另起一卦問得準。）</i>`,
+    { reply_markup: { inline_keyboard: [[{ text: "🔮 我有事想問一卦", callback_data: "guide_first_cast" }]] } });
 }
 
 async function runCast(chatId: number, userId: string, tgId: string, ses: Record<string, any>, numbers?: [number, number, number]) {
@@ -802,7 +854,8 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
     await send(chatId, "此卦內含追問已用盡，靈石亦不足。\n（明日簽到可得靈石。）");
     return;
   }
-  if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
+  if (r.kind === "no_followup") { await send(chatId, "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。"); return; }
+    if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
   await send(chatId, `<b>追問</b>｜${esc(question)}\n\n${mdToTG(r.answer)}` + (r.paid ? `\n\n<i>（靈石 −${r.paid}）</i>` : ""), {
     reply_markup: { inline_keyboard: [[{ text: "✍️ 再追問", callback_data: "fu_input" }]] },
   });

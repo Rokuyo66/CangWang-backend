@@ -3,6 +3,9 @@
 //  · TG/Mini App 後端內部呼叫：x-internal-key（沿用，向後相容）
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
+import { dailyFortune } from "../_shared/fortune.ts";
+import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
+import { jieqiOf } from "../_shared/jieqi.ts";
 import { chat, COST_CHAT, FREE_CHAT_PER_DAY, FAVOR_CAP } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 
@@ -56,9 +59,11 @@ const PLAYER_REWARDS = ["r07","r08","r09","r10"]; // 玩家池獎勵（其餘 01
 // 注意：unlocked 是「集滿達成」（eligible），非「已領取」。集滿後須玩家至卦曆點擊領取
 // （claim_reward）寫入 profiles.claimed_rewards 才算真正解鎖可用。
 async function computeCollection(uid: string) {
-  const { data: rows } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid);
+  const { data: rows } = await db.from("casts").select("gua_ben, gua_bian, category").eq("user_id", uid);
   const owned = new Set<string>();
-  for (const r of (rows ?? []) as { gua_ben: string | null; gua_bian: string | null }[]) {
+  for (const r of (rows ?? []) as { gua_ben: string | null; gua_bian: string | null; category: string | null }[]) {
+    // 日運卦不入鑑：那是每日免費贈的今日氣象，不該拿來刷 64 卦收集進度
+    if (r.category === FORTUNE_CATEGORY) continue;
     if (r.gua_ben) owned.add(r.gua_ben);
     if (r.gua_bian) owned.add(r.gua_bian);
   }
@@ -242,7 +247,7 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread").eq("id", uid).maybeSingle();
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date").eq("id", uid).maybeSingle();
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -266,7 +271,10 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: prof?.plaza_unread ?? 0 }, { headers: CORS });
+      // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
+      const fortuneDone = prof?.last_fortune_date === cday;
+      const [fy, fm, fd] = cday.split("-").map(Number);
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: prof?.plaza_unread ?? 0, fortuneDone, jieqi: jieqiOf(fy, fm, fd) }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -314,6 +322,22 @@ Deno.serve(async (req) => {
         lingshi: bal?.lingshi ?? 0, nextLingshi: nls, nextFavor: nfav,
         mended, signinTotal: newTotal, ahUnlocked: ahAfter,
         avatarUnlocked, newAvatar: avatarUnlocked ? AH_KEYS[ahAfter - 1] : null,
+      }, { headers: CORS });
+    }
+
+    // 每日運勢卦：免費、每人每日一次、不吃每日三卦額度；不給應期、不可追問展開換評
+    if (body.mode === "daily_fortune") {
+      const charId = ["daoshi_m", "daoshi_f", "lingshou"].includes(String(body.character_id))
+        ? String(body.character_id) : "daoshi_m";
+      const r = await dailyFortune(db, { userId: uid, characterId: charId, channel: "web" });
+      if (r.kind === "already") return Response.json({ kind: "already", msg: "今日的運勢已經看過了，明日再來。" }, { headers: CORS });
+      if (r.kind === "capped") return Response.json({ kind: "err", msg: "幾知觀今日推演已達上限，明日請早。" }, { headers: CORS });
+      if (r.kind === "rate_limited") return Response.json({ kind: "err", msg: "手速太快了，稍歇片刻。" }, { headers: CORS });
+      if (r.kind === "failed") return Response.json({ kind: "err", msg: "今日運勢推演失敗，稍後再試（未計入今日次數）。" }, { headers: CORS });
+      return Response.json({
+        kind: "ok", castId: r.castId, tier: r.tier, tierLabel: r.tierLabel,
+        qian: { n: r.qian.n, gz: r.qian.gz, poem: r.qian.poem, allusion: r.qian.allusion },
+        jieqi: r.jieqi, reading: r.reading, chart: r.chart, gua_ben: r.chart.benName,
       }, { headers: CORS });
     }
 
@@ -716,6 +740,9 @@ Deno.serve(async (req) => {
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
         });
+    // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
+    if ((result as { kind: string }).kind === "no_followup")
+      return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });
     return Response.json(result, { headers: CORS });
   } catch (e) {
     console.error(e);
