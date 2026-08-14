@@ -2,7 +2,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
 import type { Chart } from "./core.ts";
-import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI } from "./rules.ts";
+import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { callInterpret, billCast, billFollowup, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
@@ -124,13 +124,12 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (ai.due) {
     appendix += `\n\n<i>（此卦應期約在 ${ai.due}，屆時我會來問你準不準——印證過的卦會永久留存。）</i>`;
   }
-  // ② 新卦入鑑：首次起出此本卦才提示收集進度（與 /collection 同以 gua_ben 去重）
-  const { count: sameGua } = await db.from("casts")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", p.userId).eq("gua_ben", chart.benName);
-  if ((sameGua ?? 0) <= 1) { // 剛插入這筆即為首解
-    const { data: guaRows } = await db.from("casts").select("gua_ben").eq("user_id", p.userId);
-    const collected = new Set((guaRows ?? []).map((r) => r.gua_ben).filter(Boolean)).size;
+  // ② 新卦入鑑：首次起出此本卦才提示收集進度（與 /collection 同以 gua_ben 去重、同樣不計日運卦）
+  const { data: guaRows } = await db.from("casts").select("gua_ben, category").eq("user_id", p.userId);
+  const guaOnly = (guaRows ?? []).filter((r) => r.category !== FORTUNE_CATEGORY);
+  const sameGua = guaOnly.filter((r) => r.gua_ben === chart.benName).length;
+  if (sameGua <= 1) { // 剛插入這筆即為首解
+    const collected = new Set(guaOnly.map((r) => r.gua_ben).filter(Boolean)).size;
     appendix += `\n\n<i>（✨此卦初解，幾知觀卦鑑已收錄 ${collected}/64。打 /collection 翻閱你的卦鑑。）</i>`;
   }
 
@@ -147,9 +146,10 @@ export async function followupInterpret(db: SupabaseClient, p: {
   userId: string; castId: string; question: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi")
+    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
+  if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   const bill = await billFollowup(db, p.userId, p.castId);
@@ -204,9 +204,10 @@ export async function commentCast(db: SupabaseClient, p: {
   userId: string; castId: string; newCharacterId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, question, chart, reading, character_id, yong_qin, yong_via_shi")
+    .select("id, question, chart, reading, character_id, yong_qin, yong_via_shi, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
+  if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment", p_amount: -COST_COMMENT, p_ref: p.castId });
@@ -230,9 +231,10 @@ export async function deepenCast(db: SupabaseClient, p: {
   userId: string; castId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, deep_reading, yong_qin, yong_via_shi")
+    .select("id, character_id, question, chart, reading, deep_reading, yong_qin, yong_via_shi, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
+  if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
   // 已生成過則直接回快照（重看免費、不重呼叫模型——重複請求天然去重）
   if (cast.deep_reading) return { kind: "ok" as const, deep: cast.deep_reading as string, cached: true };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
