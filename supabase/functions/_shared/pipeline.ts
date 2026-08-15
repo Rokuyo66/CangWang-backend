@@ -22,17 +22,27 @@ export async function globalCapReached(db: SupabaseClient): Promise<boolean> {
   return (count ?? 0) >= DAILY_GLOBAL_CAP;
 }
 
-/** 一事不二占（MVP：正規化比對；應期已過或已回訪則放行） */
-export async function checkDuplicate(db: SupabaseClient, userId: string, question: string) {
-  const norm = normalizeQuestion(question);
-  if (norm.length < 4) return null; // 過短問句不比對，避免誤殺
-  const { data } = await db
-    .from("casts")
+/** 一事不二占（MVP：正規化比對；應期已過或已回訪則放行）
+ *  雙軌比對：擬題／改寫會讓問句字面改變，只比對最終問句的話，改個字就能重占同一事。
+ *  故最終問句與原話兩個正規化值，都要去比對歷史卦的 question_norm 與 question_raw_norm。 */
+export async function checkDuplicate(db: SupabaseClient, userId: string, question: string, questionRaw?: string) {
+  const norms = [...new Set([normalizeQuestion(question), normalizeQuestion(questionRaw ?? "")])]
+    .filter((n) => n.length >= 4); // 過短問句不比對，避免誤殺
+  if (!norms.length) return null;
+  // normalizeQuestion 已剝掉引號，包雙引號安全；逗號等殘留字元才不會拆散 in 清單
+  const list = norms.map((n) => `"${n}"`).join(",");
+  const base = () => db.from("casts")
     .select("id, question, gua_ben, due_date, created_at, feedback(answered_at)")
-    .eq("user_id", userId)
-    .eq("question_norm", norm)
+    .eq("user_id", userId);
+  let { data, error } = await base()
+    .or(`question_norm.in.(${list}),question_raw_norm.in.(${list})`)
     .order("created_at", { ascending: false })
     .limit(1);
+  if (error) {
+    // 舊 schema（question_raw_norm 未上）兜底：退回單軌比對，不可讓二占攔截整個失效
+    console.error("dup dual-check failed, fallback single", error.message);
+    ({ data } = await base().in("question_norm", norms).order("created_at", { ascending: false }).limit(1));
+  }
   const prev = data?.[0];
   if (!prev) return null;
   const today = new Date(Date.now() + TZ_OFFSET * 3600_000).toISOString().slice(0, 10);
@@ -59,13 +69,15 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   yongQin?: string;                    // 前端已取定的用神六親（與盤面一致）
   yongViaShi?: boolean;                // 用神是否取世爻
   castDate?: { y: number; m: number; d: number; hour: number | null }; // 手動排盤自填占時；無則用當下台北時
+  questionRaw?: string;                // 擬題／改寫前護道人的原話（無擬題則為空）
+  questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
 }) {
   // 0. 全站熔斷＋個人限流
   if (await globalCapReached(db)) return { kind: "capped" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 1. 二占
-  const dup = await checkDuplicate(db, p.userId, p.question);
+  const dup = await checkDuplicate(db, p.userId, p.question, p.questionRaw);
   if (dup) return { kind: "intercept" as const, message: interceptMessage(p.characterId, dup), prevCastId: dup.id };
 
   // 2. 計費
@@ -80,19 +92,22 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     : p.numbers ? castByNumbers(...p.numbers).lines : castCoins().lines;
   const chart = buildChart(lines, y, m, d, hour);
   const ctext = chartText(chart, p.question);
+  // 問事者指定的用神；取「世爻」時六親須由盤面世爻決定——TG 擬題只給得出「世爻」二字，沒有盤面可判
+  const askedQin = p.yongQin === "世爻" ? chart.ben[chart.shi - 1].qin : p.yongQin;
+  const askedViaShi = p.yongQin === "世爻" ? true : p.yongViaShi;
 
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
   const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
-  const ai = await callInterpret(ch!.persona_prompt, ctext, p.yongQin
-    ? { yong: { qin: p.yongQin, viaShi: p.yongViaShi, pos: pickUsePos(chart, p.yongQin, p.yongViaShi) } }
+  const ai = await callInterpret(ch!.persona_prompt, ctext, askedQin
+    ? { yong: { qin: askedQin, viaShi: askedViaShi, pos: pickUsePos(chart, askedQin, askedViaShi) } }
     : {});
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
   // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。
   // 落定後存檔，追問／完整卦理／換人評卦一律沿用同一用神，不會中途改取自打嘴巴。
   const aiYong = ai.yong as { qin: string | null; viaShi: boolean } | null;
-  const yongQin = p.yongQin ?? (aiYong ? (aiYong.viaShi ? chart.ben[chart.shi - 1].qin : aiYong.qin) : null);
-  const yongViaShi = p.yongViaShi ?? (aiYong ? aiYong.viaShi : null);
+  const yongQin = askedQin ?? (aiYong ? (aiYong.viaShi ? chart.ben[chart.shi - 1].qin : aiYong.qin) : null);
+  const yongViaShi = askedViaShi ?? (aiYong ? aiYong.viaShi : null);
 
   // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
   // 占期即今日，任何早於占期的 due 都不可能是「應期」，避免曆上出現往回設定的紅點。
@@ -103,14 +118,25 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   }
 
   // 5. 入庫
-  const { data: cast } = await db.from("casts").insert({
+  const row = {
     user_id: p.userId, character_id: p.characterId, channel: p.channel,
     question: p.question, question_norm: normalizeQuestion(p.question),
     category: ai.category, lines, chart, gua_ben: chart.benName, gua_bian: chart.bianName,
     palace: chart.palace, reading: ai.reading, digest: ai.digest, suggested: ai.suggested,
     due_date: ai.due, model: ai.model, tokens_in: ai.usage.in, tokens_out: ai.usage.out,
     yong_qin: yongQin, yong_via_shi: yongViaShi,
-  }).select("id").single();
+    // 原話與來源：日後可比對「擬題過的卦」與「原句卦」的回評準確率
+    question_raw: p.questionRaw ?? null,
+    question_raw_norm: p.questionRaw ? normalizeQuestion(p.questionRaw) : null,
+    question_source: p.questionSource ?? "manual",
+  };
+  let { data: cast, error: insErr } = await db.from("casts").insert(row).select("id").single();
+  if (insErr) {
+    // 舊 schema（0028 未跑）兜底：去掉新欄位重試。卦錢已扣，這一步絕不可失敗。
+    console.error("cast insert with question_raw failed, retry without", insErr.message);
+    const { question_raw: _a, question_raw_norm: _b, question_source: _c, ...legacy } = row;
+    ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
+  }
   if (ai.due) {
     await db.from("feedback").insert({ cast_id: cast!.id, user_id: p.userId, due_date: ai.due });
   }

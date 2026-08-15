@@ -2,6 +2,8 @@
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
+import { QUESTION_CRAFT } from "./rules.ts";
+import { normYong } from "./qrefine.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
@@ -50,6 +52,10 @@ const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
 const capOf = (t: number) => Math.round(t / REPLY_HEADROOM);   // 八成目標 → 硬上限
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
 export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 每人每日免費聊天上限（額度內不扣、超過每則扣靈石）
+// 探詢輪（角色為了問清楚而反問的那幾句）每日免費額度：不計聊天句數、不扣靈石。
+// 理由：那幾句是為了讓卦問得準，收費等於懲罰願意講清楚的人。設上限純為防刷。
+export const FREE_PROBE_PER_DAY = Number(Deno.env.get("FREE_PROBE_PER_DAY") ?? "6");
+const MAX_PROBE_ROUNDS = Number(Deno.env.get("MAX_PROBE_ROUNDS") ?? "2"); // 連續探詢上限，超過必須擬題（別變成盤問）
 
 // 繁體強制（日後多語言從此開關擴充）。"0"=關閉
 export const FORCE_TRAD = (Deno.env.get("FORCE_TRAD") ?? "1") !== "0";
@@ -59,7 +65,7 @@ const S2T: Record<string, string> = { "这":"這","时":"時","会":"會","应":
 // 保護：這些簡體形在繁體另有別義（尤其干支/卦理），一律不轉
 const S2T_PROTECT = ["干","后","里","面","系","松","谷","表","板","范","采","云","台","只","制","发","复","历","钟","获","余","冲","斗","借","咸","涂","尽","汇","团","姜","布","丑","沈"];
 for (const k of S2T_PROTECT) delete S2T[k];
-function s2t(text: string): string {
+export function s2t(text: string): string {
   if (!FORCE_TRAD || !text) return text;
   let out = "";
   for (const ch of text) out += S2T[ch] ?? ch;
@@ -194,6 +200,36 @@ const scrubBilling = (text: string): string => {
   return text.split(/(?<=[。！？\n])/).filter((s) => !BILLING_RE.test(s)).join("").trim();
 };
 
+/* ---------- 機器標記解析（[[PROBE]] / [[DRAFT|問句|用神]] / [[ASK]]） ----------
+   小模型常把標記寫歪：單括號、全形【】、括號間夾空白、全形豎線。一律容錯吃下並剝乾淨，
+   絕不可讓標記裸奔給用戶看。剝除必須發生在計費之前——探詢輪不計費，得先知道這則是不是探詢。 */
+const DRAFT_RE = /[\[【]\s*[\[【]?\s*DRAFT\s*[|｜:：]\s*([^\]】]*?)\s*[\]】]\s*[\]】]?/i;
+const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK)\s*[\]】]?\s*[\]】]/ig;
+
+export function parseMarks(text: string): {
+  clean: string; probe: boolean; ask: boolean;
+  draft: string | null; draftYong: { qin: string; viaShi?: boolean } | null;
+} {
+  let clean = text ?? "";
+  let draft: string | null = null;
+  let draftYong: { qin: string; viaShi?: boolean } | null = null;
+
+  const dm = clean.match(DRAFT_RE);
+  if (dm) {
+    clean = clean.replace(DRAFT_RE, "");
+    const parts = (dm[1] ?? "").split(/[|｜]/).map((x) => x.trim());
+    // 問句：剝掉模型愛加的引號，太短（模型只吐了個「好」）視為擬題失敗，退回一般邀請
+    const q = (parts[0] ?? "").replace(/^[「『"“']+|[」』"”']+$/g, "").trim().slice(0, 40);
+    if (q.length >= 4) { draft = q; draftYong = normYong(parts[1]); }
+  }
+  const flags = clean.match(FLAG_RE) ?? [];
+  clean = clean.replace(FLAG_RE, "").trim();
+  const probe = flags.some((f) => /PROBE/i.test(f));
+  const ask = flags.some((f) => /ASK/i.test(f));
+  // 同時吐 PROBE 與 DRAFT（模型犯傻）→ 以擬題為準，探詢已無意義
+  return { clean, probe: probe && !draft, ask, draft, draftYong };
+}
+
 // 兜底意圖判斷：僅在「明確求斷」時視為想問卦（泛用詞如要不要/好不好/可以嗎已移除，避免閒聊誤判）
 function looksLikeDivination(msg: string): boolean {
   // 明確問卜動作
@@ -236,6 +272,13 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     .map((t) => t.role === "assistant" ? { ...t, body: normalizeNarration(scrubBilling(t.body), characterId) || "（……）" } : t);
   // 確保歷史以 assistant 回覆結尾（若最後一則是 user，去掉它，避免新訊息與它黏成「回上一句」）
   while (turns.length && turns[turns.length - 1].role === "user") turns.pop();
+  // 連續探詢輪次：由最近一則助理回覆往前數 mark='probe' 的連續段（撞到非探詢即停）。
+  // 舊 schema 無 mark 欄時查詢會失敗回 null → streak 0，不影響聊天。
+  const { data: markRows } = await db.from("chat_messages")
+    .select("mark").eq("user_id", userId).eq("character_id", characterId).eq("role", "assistant")
+    .order("created_at", { ascending: false }).limit(4);
+  let probeStreak = 0;
+  for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
   const cleanMemory = scrubBilling(ucMem?.memory_summary as string ?? "") || undefined;
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -247,7 +290,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const lead = new Date(r.date + "T00:00:00Z"); lead.setUTCDate(lead.getUTCDate() - (r.lead_days || 0));
     return today >= lead.toISOString().slice(0, 10);
   }).map((r) => `・${r.date}${r.time ? " " + r.time : ""}　${r.title}`).join("\n");
-  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines };
+  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak };
 }
 
 // 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
@@ -290,7 +333,13 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
-function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0) {
+function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0) {
+  // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
+  const probeRule = probeStreak >= MAX_PROBE_ROUNDS
+    ? `
+
+【本輪限定·最高優先】你已經連續探詢 ${probeStreak} 輪了，這一輪**不准再探詢**（不可輸出 [[PROBE]]）。就用手上已有的線索替他把問題理成一句，輸出 [[DRAFT|問句|用神六親]]。線索仍不足就取最合理的一種理解去擬，讓他過目時自己改。`
+    : "";
   const daoshiMRule = characterId === "daoshi_m" ? `
 
 【大師兄好感分層】目前好感：${favor}。依目前層級回應，不可因護道人主動要求親密而提前解鎖。
@@ -323,13 +372,32 @@ ${castLines || "（他還沒問過卦。）"}
 【鐵則·絕不主動談計費】起卦的免費額度與靈石扣費，觀中自有定數，與你無關。聊天時：絕不主動提靈石、收費、額度、付費；絕不把「有沒有靈石」當成回應或起卦的前提；絕不說「沒靈石我不起卦」「先給靈石」這類話。他要不要起卦、是白揭還是償香火，自有定數指引，不從你嘴裡講。只有他主動問起靈石是什麼，才以觀中人口吻簡短答，答完即止。
 【鐵則·絕不出戲】絕不可說出「系統」「按鈕」「介面」「頁面」「點擊」「操作」這類今時器物的字眼——這裡是觀中，不是機關工坊。那具替他揭卦、記數的物事喚作「卦印」；要他起卦，就說「按下那道卦印」「揭這一卦」「循著卦印去」，餘下計數償香火之事一律歸於「觀中定數」。
 
-【判斷他想閒聊還是想問卦】這很重要：
-- 若他只是閒聊、抒發、問你的事、扯淡（如「不愧是你師兄」「今天好累」「你喜歡吃什麼」）→ 正常以角色聲線回應，不要叫他起卦。
-- 若他像是想為某件具體的事求個吉凶斷語——不論句式，只要在問某事會不會成/該不該/能不能/可不可以/值不值得/何時/適不適合/進不進場/買不買，都算想問卦。例：「我這月財運如何」「該不該換工作」「他會回來嗎」「這支股票可以進場嗎」「這支要不要買」「我追得到她嗎」「這事能成嗎」→ 先以角色口吻簡短回應一句（可帶安慰或吐槽），然後反問要不要為此起一卦，並在整段回應最後另起一行輸出標記：[[ASK]]
-- 尤其攸關健康、親人安危、重大處境的嚴肅問題（如家人開刀、生病、官司、變故），先以你的方式處理風險與承接情緒：師妹可安撫，觀喵可短句關照，大師兄只做事實確認、風險校正與下一步。絕不可冷漠，絕不可把話題轉去靈石或起卦條件，再自然引導為此起一卦。
-- 別被句式騙過——「可以進場嗎」「值得買嗎」「追得到嗎」都是問卦。看的是「他在不在問一件事的吉凶/結果/該不該」。
-- 只有確實判斷想問卦時才輸出 [[ASK]]。純閒聊、情感陪伴、生活對話（喝茶、訴苦、抱怨、分享心情、問候、調情、聊近況）**絕不輸出**。判斷依據是「他是否想為某件具體的事求一個吉凶／成敗／時機的斷語」，而非只是提到生活或情緒。寧可漏標，不可誤標——把閒聊當問卦逼人起卦，非常破壞體驗。標記用戶看不到，別在正文提它。
-- 引導起卦時，只溫和反問「要不要為此起一卦」即可，**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下那道卦印之後，是白揭還是償香火，觀中自有定數，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。`;
+【他是閒聊，還是心裡有事想問？——三段式，這段最重要】
+第一段·分辨
+- 純閒聊、抒發、問你的事、扯淡（「不愧是你師兄」「今天好累」「你喜歡吃什麼」）→ 正常以聲線回應，什麼標記都不要輸出。
+- 他心裡有事想求個斷語——不論句式，只要在問某事會不會成／該不該／能不能／值不值得／何時／適不適合／追不追得到／進不進場，都算。例：「我這月財運如何」「該不該換工作」「他會回來嗎」「這事能成嗎」→ 進第二段或第三段。
+- 別被句式騙過——「可以進場嗎」「值得買嗎」「追得到嗎」都是想問。看的是「他在不在為某件事求一個結果」。
+
+第二段·探詢（線索不齊時，先問清楚，別急著叫他起卦）
+他心裡有事，但講得含糊——只有情緒沒有事、沒說對象是誰、沒說想要什麼結果、沒說看多久之內 → 以你的聲線問**一個**缺口，只問最關鍵的那一個，然後在整段回應最後另起一行輸出標記：[[PROBE]]
+- 這是關心，不是盤問：一次一句、要短、順著他的話問，不要連珠炮、不要列清單。
+- 已經問過的不要重問。至多探詢${MAX_PROBE_ROUNDS}輪，之後一定要擬題。
+- 問得越準，卦才越準——這幾句是為他好，不是拖延。
+
+第三段·擬題（線索夠了，替他把問題理成一句）
+把散在對話裡的線索收攏成一句能起卦的問句：先用你的聲線說一句引導（例：「你要問的，我替你理成一句。」「這事我幫你理過了，看看是不是這個意思。」），然後在整段回應最後另起一行輸出標記：
+[[DRAFT|理好的問句|用神六親]]
+- **正文絕不可把擬好的問句再寫一遍**——問句只放在標記裡，觀中自會呈到他眼前讓他過目點頭。正文只留那句引導。
+- 用神六親從這幾個挑一個填：妻財／官鬼／父母／子孫／兄弟／世爻，判不準就填 null。（求財投資生意薪資→妻財；事業求職升遷考試官司災病→官鬼；房車契約文書學歷長輩天氣→父母；子女晚輩平安醫藥寵物出行→子孫；同輩朋友合夥競爭→兄弟；問自身狀態運勢→世爻；感情依所問對象：問男方取官鬼、問女方取妻財，對象不明填 null）
+- 擬的問句必須忠於他的原意，**絕不可替他改變所問之事**——你是替他把話說清楚，不是替他決定要問什麼。
+
+${QUESTION_CRAFT}
+
+【共通鐵則】
+- 攸關健康、親人安危、重大處境的嚴肅問題（家人開刀、生病、官司、變故），先以你的方式承接情緒與風險：師妹可安撫，觀喵可短句關照，大師兄只做事實確認、風險校正與下一步。絕不冷漠，絕不把話題轉去靈石或起卦條件，再自然地引導。
+- 標記用戶看不到，別在正文提它、別解釋它。
+- 寧可漏標，不可誤標——把閒聊當問卦逼人起卦，非常破壞體驗。純閒聊、情感陪伴、生活對話（喝茶、訴苦、抱怨、分享心情、問候、調情、聊近況）**三種標記都不要輸出**。
+- 引導起卦時**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下那道卦印之後是白揭還是償香火，觀中自有定數，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。${probeRule}`;
 }
 
 // --- Claude Haiku ---
@@ -471,7 +539,10 @@ export interface ChatResult {
   freeLeft: number;    // 今日剩餘免費聊天則數
   lingshiLeft: number; // 聊天後靈石餘額
   statePrefix: string;
-  wantCast: boolean;   // AI 判定疑似想問卦
+  wantCast: boolean;   // AI 判定疑似想問卦（探詢輪一律 false——那是在問清楚，不是在邀他起卦）
+  probe: boolean;      // 這則是探詢輪（角色在問清楚缺的線索）：不出起卦鈕、不計費
+  draft: string | null;// 角色替他理好、待他點頭的問句
+  draftYong: { qin: string; viaShi?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
 }
 
 /** 聊天主流程：三層降級，記憶跨層一致 */
@@ -504,12 +575,13 @@ export async function chat(db: SupabaseClient, p: {
     return {
       reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
       cost: 0, freeLeft: Math.max(0, FREE_CHAT_PER_DAY - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
+      probe: false, draft: null, draftYong: null,
     };
   }
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
   const ctx = await buildContext(db, p.userId, p.characterId);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
@@ -528,16 +600,33 @@ export async function chat(db: SupabaseClient, p: {
       try { reply = await callFreeTier(system + FREE_GUARD, ctx.turns, p.message); tier = "free"; }
       catch (e) { console.error("all free tiers fail, fallback canned", e); }
     }
-    // 計費：只要成功產出回覆（不論 Haiku 或降級層）都算一句——免費額度內記次，超過扣靈石。
-    // 降級層回覆若不記次，Haiku 一掛用戶就能無限免費聊（舊漏洞）。
-    if (reply) {
-      if (withinFree) {
-        used += 1;
-        await db.from("free_quota").upsert({ key: qkey, used_today: used, last_reset: today });
-      } else {
-        await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST_CHAT });
-        lingshi -= COST_CHAT; cost = COST_CHAT;
-      }
+  }
+
+  // 機器標記解析：必須在計費之前——探詢輪免費，得先知道這則是不是探詢。
+  const marks = parseMarks(reply);
+  reply = marks.clean;
+  let probeFree = false;
+  if (reply && marks.probe) {
+    // 探詢輪免費額度（每日上限，防有人靠誘導探詢無限白嫖）
+    const pkey = `probefree:${p.userId}:${today}`;
+    const { data: pq } = await db.from("free_quota").select("used_today, last_reset").eq("key", pkey).maybeSingle();
+    const pUsed = (pq && pq.last_reset === today) ? pq.used_today : 0;
+    if (pUsed < FREE_PROBE_PER_DAY) {
+      await db.from("free_quota").upsert({ key: pkey, used_today: pUsed + 1, last_reset: today });
+      probeFree = true;
+    }
+  }
+
+  // 計費：只要成功產出回覆（不論 Haiku 或降級層）都算一句——免費額度內記次，超過扣靈石。
+  // 降級層回覆若不記次，Haiku 一掛用戶就能無限免費聊（舊漏洞）。
+  // 例外：探詢輪（角色為問清楚而反問）在每日免費額度內完全不計——那幾句是為了讓卦問得準。
+  if (reply && !probeFree) {
+    if (withinFree) {
+      used += 1;
+      await db.from("free_quota").upsert({ key: qkey, used_today: used, last_reset: today });
+    } else {
+      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST_CHAT });
+      lingshi -= COST_CHAT; cost = COST_CHAT;
     }
   }
   if (!reply) {
@@ -546,13 +635,11 @@ export async function chat(db: SupabaseClient, p: {
     tier = "canned";
   }
 
-  // 意圖判斷雙保險：①AI 吐的標記 ②後端關鍵詞偵測（免費層/罐頭層標記不穩，故後端兜底）
-  // 容錯：小模型常把 [[ASK]] 寫成有空格的 [ [ASK ] ]、單括號 [ASK]、或全形 【ASK】，全部當標記處理並清除，避免裸奔給用戶
-  const ASK_RE = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/gi;
-  const askMark = /[\[【]\s*[\[【]?\s*ASK\s*[\]】]?\s*[\]】]/i.test(reply);
-  // 統一清洗：去 ASK 標記→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
-  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(t.replace(ASK_RE, "").trim()), p.characterId));
+  // 統一清洗：剝機器標記→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
+  // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
+  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(parseMarks(t).clean), p.characterId));
   reply = polish(reply);
+  let effMarks = marks;   // 重生後改用新稿的標記
 
   // 出戲防線（取代舊的固定罐頭 guardCharacterOOC，改「帶指令重生一次」，不跳針）：
   //  ①助理拒絕外洩 ②露骨情慾描寫 ③大師兄踩好感層級。只折騰主力層，重生至多一次控成本。
@@ -565,20 +652,31 @@ export async function chat(db: SupabaseClient, p: {
       try {
         const h2 = await callHaiku(system + "\n\n【本回合修正·最高優先】" + steer, ctx.turns, p.message, maxTok);
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
+        const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
-        if (cand) reply = cand;
+        if (cand) { reply = cand; effMarks = m2; }
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
     }
   }
-  const wantCast = askMark || looksLikeDivination(p.message);
+  const draft = tier === "canned" ? null : effMarks.draft;   // 罐頭層不擬題
+  // 意圖判斷雙保險：①AI 吐的標記 ②後端關鍵詞偵測（免費層/罐頭層標記不穩，故後端兜底）
+  // 探詢輪一律不算想問卦——那是在把話問清楚，這時丟起卦鈕等於打斷自己
+  const wantCast = !effMarks.probe && (effMarks.ask || !!draft || looksLikeDivination(p.message));
 
-  // 寫對話紀錄（記憶；只存乾淨內容，不含標記）
-  await db.from("chat_messages").insert([
+  // 寫對話紀錄（記憶；只存乾淨內容，不含標記）。mark 供下次算探詢輪次。
+  const mark = effMarks.probe ? "probe" : draft ? "draft" : effMarks.ask ? "ask" : null;
+  const rows: Record<string, unknown>[] = [
     { user_id: p.userId, character_id: p.characterId, role: "user", body: p.message, tier },
-    { user_id: p.userId, character_id: p.characterId, role: "assistant", body: reply, tier },
-  ]);
+    { user_id: p.userId, character_id: p.characterId, role: "assistant", body: reply, tier, mark },
+  ];
+  const { error: insErr } = await db.from("chat_messages").insert(rows);
+  if (insErr) {
+    // 舊 schema（mark 欄未上）兜底：寧可少一欄，不可掉記憶
+    console.error("chat_messages insert with mark failed, retry without", insErr.message);
+    await db.from("chat_messages").insert(rows.map(({ mark: _m, ...r }) => r));
+  }
 
   // 滾動記憶彙整：背景執行，不拖慢這次回覆（同 broadcast 的 waitUntil 模式）
   const condenseTask = condenseMemory(db, p.userId, p.characterId);
@@ -596,5 +694,8 @@ export async function chat(db: SupabaseClient, p: {
   const freeLeft = Math.max(0, FREE_CHAT_PER_DAY - used);
   const stateArr = CHAT_STATE[p.characterId]?.[tier] ?? [""];
   const statePrefix = pick(stateArr);
-  return { reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast };
+  return {
+    reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
+    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null,
+  };
 }

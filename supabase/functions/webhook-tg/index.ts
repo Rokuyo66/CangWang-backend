@@ -10,6 +10,7 @@ import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_CAST, COST_FOLLO
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
+import { refineQuestion } from "../_shared/qrefine.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -383,7 +384,18 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
 
   // 明確主動問卦入口：用戶剛說「我要問卦」之類，或 awaiting_cast 狀態下又打字（換問題）
   if (ses.state === "awaiting_cast" && text) {
-    await saveSession({ ...ses, pending_question: text });
+    // 問句預檢：問得不好，卦也解不好。只提議、不攔阻——玩家永遠可以「就照原本的問法」。
+    const rf = await refineQuestion(db, { userId, question: text });
+    if (!rf.ok && rf.rewrites.length) {
+      await saveSession({ ...ses, draft_opts: rf.rewrites, draft_yong: rf.yong?.qin ?? null, draft_raw: text, draft_question: null, pending_question: null });
+      const rows = rf.rewrites.map((q: string, i: number) => [{ text: `✔ ${q.slice(0, 40)}`, callback_data: `usedraft:${i}` }]);
+      rows.push([{ text: "↩️ 就照我原本的問法", callback_data: "rawq" }]);
+      await send(chatId,
+        `你要問的是：\n「${esc(text)}」\n\n<i>這樣問，卦不好應——${esc(rf.issues.join("；"))}。</i>\n換個問法，卦才答得準：`,
+        { reply_markup: { inline_keyboard: rows } });
+      return;
+    }
+    await saveSession({ ...ses, pending_question: text, pending_raw: null, pending_source: "manual", pending_yong: null, draft_opts: null, draft_question: null });
     const ptag = await castPriceTag(tgId);
     await send(chatId, `問事已記下：\n「${esc(text)}」\n\n<i>靜心三十息，誠想所問之事，再起卦。心定，卦方準。</i>\n靜不下心，可改報三數。`, {
       reply_markup: { inline_keyboard: [[
@@ -400,9 +412,19 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     const r = await chat(db, { userId, characterId: ses.character_id, message: text });
     const tierTail = r.tier === "haiku" ? `\n\n<i>好感 ${r.favorLeft}</i>`
       : r.tier === "canned" ? "\n\n<i>（今日免費閒聊已盡、靈石不足，/sign 簽到補靈石）</i>" : "";
-    if (r.wantCast) {
+    if (r.draft) {
+      // 角色替他把問題理成一句了 → 先呈給他過目點頭，不逕自起卦（問句是他的，不可替他改掉所問之事）
+      await saveSession({ ...ses, draft_question: r.draft, draft_yong: r.draftYong?.qin ?? null, draft_raw: text, draft_opts: null, pending_question: null });
+      await send(chatId, (r.statePrefix ? r.statePrefix + "\n" : "") + esc(r.reply) + tierTail);
+      await send(chatId, `<b>「${esc(r.draft)}」</b>\n\n<i>是問這個嗎？</i>`, {
+        reply_markup: { inline_keyboard: [
+          [{ text: "✔ 就問這一句", callback_data: "draft_ok" }],
+          [{ text: "✍️ 我自己改", callback_data: "draft_edit" }, { text: "🙅 先不問", callback_data: "draft_no" }],
+        ] },
+      });
+    } else if (r.wantCast) {
       // 記下這句當待問事，給起卦按鈕（用戶點了才進起卦；不點可繼續聊）
-      await saveSession({ ...ses, pending_question: text });
+      await saveSession({ ...ses, pending_question: text, pending_raw: null, pending_source: "manual", pending_yong: null });
       const ptag = await castPriceTag(tgId);
       await send(chatId, (r.statePrefix ? r.statePrefix + "\n" : "") + esc(r.reply) + tierTail, {
         reply_markup: { inline_keyboard: [[
@@ -460,6 +482,40 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     return;
   }
 
+  // 擬題確認（閒聊擬題卡）／預檢改寫選用：點頭後才成為待問之事
+  if (data === "draft_ok" || data.startsWith("usedraft:") || data === "rawq") {
+    const opts = Array.isArray(ses.draft_opts) ? ses.draft_opts as string[] : [];
+    const q = data === "draft_ok" ? (ses.draft_question ?? "")
+      : data === "rawq" ? (ses.draft_raw ?? "")
+      : (opts[Number(data.slice(9))] ?? "");
+    if (!q) { await send(chatId, "那句話我沒接住，再說一次想問的事即可。"); return; }
+    const src = data === "draft_ok" ? "chat_draft" : data === "rawq" ? "manual" : "refined";
+    await saveSession({
+      ...ses, state: "idle", pending_question: q,
+      pending_raw: ses.draft_raw ?? null, pending_source: src,
+      pending_yong: data === "rawq" ? null : (ses.draft_yong ?? null),
+      draft_question: null, draft_opts: null, draft_yong: null, draft_raw: null,
+    });
+    const ptag = await castPriceTag(tgId);
+    await send(chatId, `問事已記下：\n「${esc(q)}」\n\n<i>靜心三十息，誠想所問之事，再起卦。心定，卦方準。</i>`, {
+      reply_markup: { inline_keyboard: [[
+        { text: `🪙 搖卦（${ptag}）`, callback_data: "cast" },
+        { text: `🔢 報三數（${ptag}）`, callback_data: "numinput" },
+      ]] },
+    });
+    return;
+  }
+  if (data === "draft_edit") {
+    await saveSession({ ...ses, state: "awaiting_cast", draft_question: null, draft_opts: null, draft_yong: null, draft_raw: null, pending_question: null });
+    await send(chatId, "那便照你的意思說——<b>一句話，把想問的事寫清楚</b>。\n\n<i>訣竅：誰、什麼事、想要什麼結果、看多久之內。</i>");
+    return;
+  }
+  if (data === "draft_no") {
+    await saveSession({ ...ses, draft_question: null, draft_opts: null, draft_yong: null, draft_raw: null, pending_question: null });
+    await send(chatId, "那便擱著。想問了再說。");
+    return;
+  }
+
   if (data === "cast") {
     if (!ses.pending_question) {
       await send(chatId, "先輸入想問的事。"); return;
@@ -487,7 +543,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await saveSession({ ...ses, state: "awaiting_cast", pending_question: null });
     await send(chatId,
       "好。<b>把你想問的事，一句話說清楚。</b>\n\n" +
-      "<i>訣竅：問得越具體，卦象越能應。</i>\n" +
+      "<i>訣竅：誰、什麼事、想要什麼結果、看多久之內——四樣齊了，卦才應得準。</i>\n" +
       "・好的問法：「這份新工作該不該接？」「他這個月會不會聯繫我？」\n" +
       "・模糊的問法：「我的人生會好嗎？」（太大，難應）\n\n" +
       "現在，輸入你的第一問——");
@@ -799,6 +855,9 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
   const r = await castAndInterpret(db, {
     userId, quotaKey: `tg:${tgId}`, characterId: ses.character_id,
     question: ses.pending_question, channel: "tg", numbers,
+    questionRaw: ses.pending_raw ?? undefined,
+    questionSource: ses.pending_source ?? "manual",
+    yongQin: ses.pending_yong ?? undefined,   // 擬題／改寫時已取定的用神（世爻由排盤端解算）
   });
   if (r.kind === "capped") {
     await send(chatId, "幾知觀今日推演已達上限，三位修行者需要歇息。明日請早。");
@@ -822,7 +881,7 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     await saveSession({ ...ses, state: "idle" });
     return;
   }
-  await saveSession({ ...ses, state: "idle", pending_question: null, last_cast_id: r.castId });
+  await saveSession({ ...ses, state: "idle", pending_question: null, pending_raw: null, pending_source: null, pending_yong: null, last_cast_id: r.castId });
   const castNote = numbers ? "\n<i>※ 以三數總和定動爻（數字起卦法，源於梅花易數）</i>" : "";
   await send(chatId, `<pre>${esc(renderChartTG(r.chart))}</pre>` + castNote);
   // 追問按鈕標價：依此卦已用追問數，顯示 (靈石0) 或 (靈石5)
