@@ -8,6 +8,7 @@ import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { chat, COST_CHAT, FREE_CHAT_PER_DAY, FAVOR_CAP } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
+import { refineQuestion } from "../_shared/qrefine.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -505,7 +506,18 @@ Deno.serve(async (req) => {
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
     if (body.mode === "chat") {
       const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? "") });
-      return Response.json({ kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost, freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast }, { headers: CORS });
+      return Response.json({
+        kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost,
+        freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast,
+        probe: r.probe,                                    // 探詢輪：前端不出起卦鈕
+        draft: r.draft, draftYong: r.draftYong,            // 擬題：前端出確認卡，用神可直通
+      }, { headers: CORS });
+    }
+
+    // 問句預檢（問事頁送出前）：只提議、不攔阻；任何失敗都回 ok:true 靜默放行
+    if (body.mode === "refine") {
+      const r = await refineQuestion(db, { userId: uid, question: String(body.question ?? "") });
+      return Response.json({ kind: "ok", ...r }, { headers: CORS });
     }
 
     // 觀前廣場：發文（自由心得 thread/chat_story 直存；分享卦 cast 讀快照驗本人）
@@ -739,6 +751,7 @@ Deno.serve(async (req) => {
           numbers: body.numbers, lines: body.lines, // ← 網頁傳已起好的卦
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
+          questionRaw: body.question_raw, questionSource: body.question_source,
         });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
