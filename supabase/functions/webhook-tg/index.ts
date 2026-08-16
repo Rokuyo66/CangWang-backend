@@ -137,6 +137,14 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     return;
   }
 
+  // 每日提醒：當天第一則訊息就帶到，不論走哪條路徑。
+  // 原本只掛在最下面的閒聊分支，所有 /指令 與 followup_input／num_input／awaiting_cast
+  // 狀態都會提前 return，提醒永遠跳不出來（卡在 awaiting_cast 的人一次都收不到）。
+  // 例外：/start 是初次入觀的招呼流程，/sign 與 /fortune 本身就是要做那兩件事，不重複打擾。
+  if (!["/start", "/sign", "/fortune", "/運勢"].includes(text)) {
+    await maybeSignReminder(chatId, userId, ses);
+  }
+
   if (text === "/start") {
     await saveSession({ ...ses, state: "idle", pending_question: null });
     await send(chatId,
@@ -413,8 +421,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     } else {
       await send(chatId, (r.statePrefix ? r.statePrefix + "\n" : "") + esc(r.reply) + tierTail);
     }
-    await maybeSignReminder(chatId, userId, ses);
-    return;
+    return; // 每日提醒已於 onMessage 開頭統一帶到，此處不再重複
   }
 }
 
@@ -745,7 +752,11 @@ async function maybeSignReminder(chatId: number, userId: string, ses: Record<str
   const signed = prof?.last_sign_date === today;
   const gotFortune = prof?.last_fortune_date === today;
   if (signed && gotFortune) return; // 該做的都做了
-  await saveSession({ ...ses, sign_reminded: today });
+  // 就地改寫傳入的 ses，不只寫 DB：本函式現在跑在 onMessage 最前面，
+  // 後續 handler 還會用同一個 ses 物件 saveSession({...ses,…})，
+  // 不同步改記憶體裡這份就會被舊值蓋回去，變成每則訊息都重複提醒。
+  ses.sign_reminded = today;
+  await saveSession({ ...ses });
 
   const { y, m, d } = nowTaipei();
   const jq = jieqiOf(y, m, d);
