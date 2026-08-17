@@ -112,10 +112,18 @@ async function userFromJwt(jwt: string): Promise<string | null> {
   return await ensureWebUser(data.user.id, data.user.email ?? undefined);
 }
 
+// App 最低版本。0＝不啟用。調高即刻讓舊版 App 失去「需登入」的功能（排盤、複製、看廣場不受影響）。
+// 不寫死在程式裡：要擋哪一版是營運決定，改 env 即可，不必重新部署函式。
+const MIN_APP_BUILD = Number(Deno.env.get("MIN_APP_BUILD") ?? "0");
+
 // 觀前石牆：公開回評牆＋整體準驗統計（免認證唯讀；只出評語/卦名/暱稱，不含問事原文）
-let wallCache: { t: number; payload: unknown } | null = null;
+let wallCache: { t: number; payload: Record<string, unknown> } | null = null;
 async function wallResponse(): Promise<Response> {
-  if (wallCache && Date.now() - wallCache.t < 300_000) return Response.json(wallCache.payload, { headers: CORS });
+  // min_app_build 疊在快取外層：門檻是隨時可能調的營運參數，不該被 5 分鐘快取黏住。
+  // 前端搭石牆的順風車讀它，不必為了版本檢查另外打一趟。
+  if (wallCache && Date.now() - wallCache.t < 300_000) {
+    return Response.json({ ...wallCache.payload, min_app_build: MIN_APP_BUILD }, { headers: CORS });
+  }
   const stats = { hit: 0, part: 0, miss: 0, total: 0 };
   for (const [k, v] of [["hit", 1], ["part", 2], ["miss", 3]] as const) {
     const { count } = await db.from("feedback").select("cast_id", { count: "exact", head: true }).eq("verdict", v);
@@ -143,7 +151,7 @@ async function wallResponse(): Promise<Response> {
   }));
   const payload = { kind: "ok", stats, entries };
   wallCache = { t: Date.now(), payload };
-  return Response.json(payload, { headers: CORS });
+  return Response.json({ ...payload, min_app_build: MIN_APP_BUILD }, { headers: CORS });
 }
 
 // 觀前廣場列表（免認證唯讀）：作者暱稱/頭像兩段式查 profiles（不巢狀嵌入，同石牆做法）
@@ -230,6 +238,16 @@ Deno.serve(async (req) => {
 
   // 貼文內頁：免認證唯讀（全文＋盤面/閒聊快照＋回文串）
   if (body.mode === "post_detail") return await postDetailResponse(body.post_id);
+
+  // 版本閘門：只擋需登入的功能。到這一行為止的 wall／post_list／post_detail 都已放行，
+  // 所以舊版 App 仍可排盤、複製卦象（純本機）與觀看廣場，只是不能登入、不能發言。
+  // MIN_APP_BUILD 未設或為 0 時完全不啟用。TG（x-internal-key）沒有版本概念，不受此限。
+  if (req.headers.get("authorization") && MIN_APP_BUILD > 0) {
+    const b = Number(body.app_build ?? 0);
+    if (b < MIN_APP_BUILD) {
+      return Response.json({ kind: "app_outdated", min_build: MIN_APP_BUILD, app_build: b }, { headers: CORS });
+    }
+  }
 
   // 認證雙軌
   let jwtUserId: string | null = null;
