@@ -290,10 +290,14 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
+      // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
+      const { count: pnCount } = await db.from("plaza_notices")
+        .select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
+      const plazaUnreadCount = pnCount ?? 0;
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
       const [fy, fm, fd] = cday.split("-").map(Number);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: prof?.plaza_unread ?? 0, fortuneDone, jieqi: jieqiOf(fy, fm, fd) }, { headers: CORS });
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd) }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -665,7 +669,9 @@ Deno.serve(async (req) => {
       if (replyTo) {
         const { data: tgt } = await db.from("post_comments").select("user_id").eq("id", replyTo).maybeSingle();
         if (tgt && tgt.user_id && tgt.user_id !== uid) {
-          await db.rpc("bump_plaza_unread", { p_user: tgt.user_id, p_delta: 1 });
+          // 逐則記錄「哪一篇的哪一則」，而非只累加一個總數——否則使用者只知道有人回他，
+          // 卻不知道是哪一篇，紅點形同虛設
+          await db.from("plaza_notices").insert({ user_id: tgt.user_id, post_id: body.post_id, comment_id: row!.id });
         }
       }
       return Response.json({ kind: "ok", id: row!.id, created_at: row!.created_at, commentCount: (newCount as number | null) ?? 0 }, { headers: CORS });
@@ -722,8 +728,8 @@ Deno.serve(async (req) => {
 
     // 會員頁「廣場」頁籤：我參與的貼文（我發的＋我回過文的），同列表形狀
     if (body.mode === "my_plaza") {
-      // 進「會員 › 廣場」即視為已看過被回覆通知，未讀清零（紅點消失）
-      await db.from("profiles").update({ plaza_unread: 0 }).eq("id", uid);
+      // 刻意不在這裡清未讀：一進列表就清零，人就永遠看不到「是哪一篇」。
+      // 改為開啟該篇時才清（見 plaza_seen）。
       const { data: mine } = await db.from("posts").select("id").eq("user_id", uid)
         .order("created_at", { ascending: false }).limit(30);
       const { data: cmts } = await db.from("post_comments").select("post_id").eq("user_id", uid)
@@ -734,7 +740,22 @@ Deno.serve(async (req) => {
         .in("id", ids).order("created_at", { ascending: false });
       if (error) return Response.json({ kind: "err", msg: "載入失敗" }, { headers: CORS });
       const entries = await postEntries((posts ?? []) as PostRow[]);
-      return Response.json({ kind: "ok", posts: entries }, { headers: CORS });
+      // 各篇未讀數：紅點要標在標題後面，指得出是哪一篇
+      const { data: nts } = await db.from("plaza_notices").select("post_id").eq("user_id", uid);
+      const unread = new Map<string, number>();
+      for (const n of (nts ?? []) as { post_id: string }[]) unread.set(n.post_id, (unread.get(n.post_id) ?? 0) + 1);
+      return Response.json({
+        kind: "ok",
+        posts: entries.map((p: { id: string }) => ({ ...p, unread: unread.get(p.id) ?? 0 })),
+      }, { headers: CORS });
+    }
+
+    // 讀過某篇：清掉該篇的未讀（前端開啟貼文內頁時呼叫）
+    if (body.mode === "plaza_seen") {
+      if (!body.post_id) return Response.json({ kind: "err", msg: "post_id required" }, { headers: CORS });
+      await db.from("plaza_notices").delete().eq("user_id", uid).eq("post_id", body.post_id);
+      const { count } = await db.from("plaza_notices").select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
+      return Response.json({ kind: "ok", plazaUnread: count ?? 0 }, { headers: CORS });
     }
 
     // 三個月鎖：超過 90 天的卦不能再追問/換評（內容仍可回顧）
