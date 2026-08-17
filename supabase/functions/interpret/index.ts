@@ -286,6 +286,11 @@ Deno.serve(async (req) => {
         const f = Array.isArray(c.feedback) ? c.feedback[0] : c.feedback;
         return !f || (f as { verdict: number | null })?.verdict == null;
       }).length;
+      // 方案先取：免費聊天、起卦、追問三項額度都依方案分級，下面每一段都要用它。
+      // （曾經把這行擺在第一個使用點之後，profile 整支因暫時性死區 500，
+      //   前端登入後 refreshProfile 失敗、畫面翻不到已登入狀態——宣告必須在最前。）
+      const plan = await planOf(db, uid);
+      const followFreeLeft = await followupFreeLeft(db, uid, plan);
       // 今日聊天免費剩餘
       const cday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
       const { data: cq } = await db.from("free_quota").select("used_today, last_reset").eq("key", `chatfree:${uid}:${cday}`).maybeSingle();
@@ -296,10 +301,6 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
-      // 方案與今日免費追問餘額：追問是主要互動，剩幾次要讓人隨時看得到，
-      // 不能等按下去才說要扣靈石
-      const plan = await planOf(db, uid);
-      const followFreeLeft = await followupFreeLeft(db, uid, plan);
       // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
       const { count: pnCount } = await db.from("plaza_notices")
         .select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
