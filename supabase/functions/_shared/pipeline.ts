@@ -3,7 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
-import { callInterpret, billCast, billFollowup, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, billFollowup, planOf, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -84,7 +84,10 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
 }) {
   // 0. 全站熔斷＋個人限流
-  if (await globalCapReached(db)) return { kind: "capped" as const };
+  //    熔斷是防「免費用戶把成本打爆」的閘門，付費用戶不該被它擋——付了錢還說
+  //    今日額滿，是最傷的體驗。付費者仍受每分鐘限流約束（防濫用，不防成本）。
+  const plan = await planOf(db, p.userId);
+  if (plan === "free" && await globalCapReached(db)) return { kind: "capped" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 1. 二占
@@ -92,7 +95,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (dup) return { kind: "intercept" as const, message: interceptMessage(p.characterId, dup), prevCastId: dup.id };
 
   // 2. 計費
-  const bill = await billCast(db, p.userId, p.quotaKey);
+  const bill = await billCast(db, p.userId, p.quotaKey, plan);
   if (!bill.ok) return { kind: "paywall" as const };
 
   // 3. 排盤（網頁傳卦 or 三數 or 模擬擲卦，皆進同一文王卦引擎）
@@ -189,7 +192,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
-  const bill = await billFollowup(db, p.userId, p.castId);
+  const bill = await billFollowup(db, p.userId, p.castId, await planOf(db, p.userId));
   if (!bill.ok) return { kind: bill.reason === "lingshi" ? "paywall" as const : "not_found" as const };
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();

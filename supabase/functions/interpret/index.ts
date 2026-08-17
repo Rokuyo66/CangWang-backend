@@ -9,6 +9,7 @@ import { jieqiOf } from "../_shared/jieqi.ts";
 import { chat, COST_CHAT, FREE_CHAT_PER_DAY, FAVOR_CAP } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
+import { planOf, followupFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP } from "../_shared/services.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -39,7 +40,12 @@ function parseCastDate(cd: unknown): { y: number; m: number; d: number; hour: nu
   if (hour != null && !okInt(hour, 0, 23)) return undefined;
   return { y: y as number, m: m as number, d: d as number, hour: hour == null ? null : (hour as number) };
 }
-const SIGN_REWARDS: [number, number][] = [[10,0],[10,0],[15,5],[15,0],[20,0],[20,0],[50,10]];
+// 連續簽到 7 日一輪的獎勵 [靈石, 好感]。
+// 原本一輪 140 顆（約 600/月），零售價值遠超訂閱月費——簽到就能供養整月的用量，
+// 靈石經濟等於自我瓦解，沒人需要買。下修到一輪 66 顆（約 283/月）：
+// 仍足以支撐日常追問與換評，但要開完整卦理或大量加卦就得付費。
+// 維持單一貨幣（不另立「限定用途靈石」）——兩種貨幣只會生出「這顆為什麼不能用」的客服。
+const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],[20,10]];
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
 const ahUnlockedCount = (signinTotal: number) => 5 + Math.min(3, Math.floor(signinTotal / 7));
@@ -290,6 +296,10 @@ Deno.serve(async (req) => {
       const { unlocked: eligible } = await computeCollection(uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
       const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
+      // 方案與今日免費追問餘額：追問是主要互動，剩幾次要讓人隨時看得到，
+      // 不能等按下去才說要扣靈石
+      const plan = await planOf(db, uid);
+      const followFreeLeft = await followupFreeLeft(db, uid, plan);
       // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
       const { count: pnCount } = await db.from("plaza_notices")
         .select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
@@ -297,7 +307,9 @@ Deno.serve(async (req) => {
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
       const [fy, fm, fd] = cday.split("-").map(Number);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd) }, { headers: CORS });
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+        plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）

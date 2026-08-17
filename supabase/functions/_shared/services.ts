@@ -96,6 +96,8 @@ const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // KIMI 硬超時：edge→.cn 跨境慢（實測約 33 tok/s），偶發掛住會拖死整個 function 被平台掐成 546。
 // 逾時就 abort 丟錯，交給備援換家重打；上限取 edge 牆鐘（150s）內留得住備援餘裕的值。
 const KIMI_TIMEOUT_MS = Number(Deno.env.get("KIMI_TIMEOUT_MS") ?? "100000");
+// 卦理規則的快取存活時間。設 "5m" 可退回舊行為（見 system 組裝處的說明）。
+const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
 // 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
@@ -133,8 +135,13 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : "cast";
   const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : MODEL_LITE);
   const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : RULES;
+  // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
+  // TTL 用 1 小時而非預設的 5 分鐘：本站流量約每小時個位數次解卦，平均間隔已經
+  // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
+  // 那樣的快取是在多花錢。1h 寫入雖是 2 倍，但一寫多讀，整體省 7 成上下。
+  // 角色聲線放在快取斷點之後：三個角色各有一份，擺進前綴會裂成三份快取。
   const system = [
-    { type: "text", text: ruleText, cache_control: { type: "ephemeral" } },
+    { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
     { type: "text", text: `【角色聲線】\n${persona}` },
   ];
   // 用神提示：所有 mode 一體適用——追問/深展/評卦沿用首解已取定之用神，避免中途改取自打嘴巴
@@ -180,7 +187,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const maxTokens = MODE_LIMITS[mode] ?? 1000;
 
   // 呼叫指定模型一次（依模型名分流供應商），回統一形狀
-  const callModel = async (m: string): Promise<{ text: string; stopReason: string | null; rawIn?: number; rawOut?: number }> => {
+  const callModel = async (m: string): Promise<{ text: string; stopReason: string | null; rawIn?: number; rawOut?: number; cacheWrite?: number; cacheRead?: number }> => {
     if (isKimiModel(m)) {
       // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
       const kimiMessages = [
@@ -228,22 +235,38 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         rawOut: data.usage?.completion_tokens,
       };
     }
-    const res = await fetch(API, {
+    const post = (sys: unknown) => fetch(API, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({ model: m, max_tokens: maxTokens, system, messages }),
+      body: JSON.stringify({ model: m, max_tokens: maxTokens, system: sys, messages }),
     });
+    let res = await post(system);
+    // ttl 若不被接受就退回預設 5 分鐘重打一次。解卦是主要功能，
+    // 不能因為一個快取參數整條路斷掉——寧可少省一點錢。
+    if (res.status === 400) {
+      const body = await res.text();
+      if (/ttl|cache_control/i.test(body)) {
+        console.warn("cache ttl rejected, retrying with default TTL:", body.slice(0, 200));
+        res = await post(system.map((b) => b.cache_control ? { ...b, cache_control: { type: "ephemeral" } } : b));
+      } else {
+        throw new Error(`anthropic 400: ${body}`);
+      }
+    }
     if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
     const data = await res.json();
     return {
       text: (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n"),
       stopReason: (data.stop_reason ?? null) as string | null,
+      // input_tokens 只含「未命中快取」的部分，快取的寫入與讀取各自另計。
+      // 三個都收才是真實輸入量——少收就會低估成本。
       rawIn: data.usage?.input_tokens,
       rawOut: data.usage?.output_tokens,
+      cacheWrite: data.usage?.cache_creation_input_tokens,
+      cacheRead: data.usage?.cache_read_input_tokens,
     };
   };
 
@@ -261,7 +284,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     usedModel = fallbackModel;
     r = await callModel(fallbackModel);
   }
-  const { text, stopReason, rawIn, rawOut } = r;
+  const { text, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
 
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
   const estimated = rawIn == null || rawOut == null;
@@ -269,6 +292,8 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const usage = {
     in: rawIn ?? Math.ceil(promptChars * 1.2),
     out: rawOut ?? Math.ceil(text.length * 1.2),
+    cacheWrite: cacheWrite ?? 0,
+    cacheRead: cacheRead ?? 0,
   };
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
@@ -281,12 +306,16 @@ export async function callInterpret(persona: string, chartText: string, opts: {
 /** 每次 Claude 呼叫記一筆用量（失敗不阻斷主流程） */
 export async function logUsage(db: SupabaseClient, p: {
   userId: string | null; mode: string; model: string;
-  usage: { in: number; out: number }; estimated: boolean;
+  usage: { in: number; out: number; cacheWrite?: number; cacheRead?: number }; estimated: boolean;
 }) {
   try {
     await db.from("ai_usage").insert({
       user_id: p.userId, mode: p.mode, model: p.model,
       tokens_in: p.usage.in, tokens_out: p.usage.out, estimated: p.estimated,
+      // 真實輸入量 = tokens_in + cache_write + cache_read，三欄分開存才算得出
+      // 快取命中率與實際成本（寫入 2 倍價、讀取 0.1 倍價，不能混在一起算）
+      cache_write_tokens: p.usage.cacheWrite ?? 0,
+      cache_read_tokens: p.usage.cacheRead ?? 0,
     });
   } catch (e) {
     console.error("logUsage failed", e);
@@ -319,23 +348,38 @@ export async function rateLimited(db: SupabaseClient, userId: string): Promise<b
 /* ---------- 計費 ---------- */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-export const FREE_CASTS_PER_DAY = 3;
-export const FREE_FOLLOWUPS_PER_CAST = 2; // bot 用戶天然已註冊
+export const FREE_CASTS_PER_DAY = Number(Deno.env.get("FREE_CASTS_PER_DAY") ?? "2");
+// 追問改為「每日額度」而非「每卦額度」：原本每卦免費 2 次、一天 3 卦，等於每天
+// 最多 6 次免費追問；追問是主要互動，這是成本大宗。改成每日 N 次，訂閱方案加碼。
+// 走 env 是為了讓你不必重新部署就能調——上線初期這個數字要邊看數據邊抓。
+export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "1");
+// 各方案每日免費追問次數（未列者比照 free）
+export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 8, cangwang: 20 };
+export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 8 };
 export const COST_FOLLOWUP = 8;
 export const COST_EXTRA_CAST = 10;
 export const COST_DEEPEN = 15;     // 展開完整卦理（首次生成扣，重看免費；Sonnet 長輸出，中高價位）
 export const COST_COMMENT = 5;     // 換人評卦（另一角色評同卦）
 export const GRANT_REGISTER = 50;
 
+/** 讀方案：到期即視同 free。全站的「這人是不是付費用戶」都走這一支，免得各處各判一次 */
+export async function planOf(db: SupabaseClient, userId: string): Promise<string> {
+  const { data } = await db.from("profiles").select("plan, plan_until").eq("id", userId).maybeSingle();
+  if (!data || !data.plan || data.plan === "free") return "free";
+  if (data.plan_until && new Date(data.plan_until).getTime() < Date.now()) return "free";
+  return data.plan as string;
+}
+
 /** 起卦計費：先吃免費額度，滿則扣靈石。回傳 {ok, paid, reason?} */
-export async function billCast(db: SupabaseClient, userId: string, quotaKey: string) {
+export async function billCast(db: SupabaseClient, userId: string, quotaKey: string, plan = "free") {
   const today = new Date().toISOString().slice(0, 10);
+  const freeCasts = PLAN_CASTS[plan] ?? FREE_CASTS_PER_DAY;
   const { data: q } = await db.from("free_quota").select("*").eq("key", quotaKey).maybeSingle();
   if (!q || q.last_reset !== today) {
     await db.from("free_quota").upsert({ key: quotaKey, used_today: 1, last_reset: today });
     return { ok: true, paid: 0 };
   }
-  if (q.used_today < FREE_CASTS_PER_DAY) {
+  if (q.used_today < freeCasts) {
     await db.from("free_quota").update({ used_today: q.used_today + 1 }).eq("key", quotaKey);
     return { ok: true, paid: 0 };
   }
@@ -344,16 +388,37 @@ export async function billCast(db: SupabaseClient, userId: string, quotaKey: str
   return { ok: true, paid: COST_EXTRA_CAST };
 }
 
-/** 追問計費：卦內含 N 次免費，超出扣靈石 */
-export async function billFollowup(db: SupabaseClient, userId: string, castId: string) {
+/** 當日已用的免費追問次數（key 自帶日期，隔日自然歸零，不必另跑清理） */
+async function followupFreeUsed(db: SupabaseClient, userId: string) {
+  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);  // 台北日界
+  const key = `followfree:${userId}:${today}`;
+  const { data } = await db.from("free_quota").select("used_today").eq("key", key).maybeSingle();
+  return { key, today, used: data?.used_today ?? 0 };
+}
+
+/** 某人今日還剩幾次免費追問（前端顯示用） */
+export async function followupFreeLeft(db: SupabaseClient, userId: string, plan: string) {
+  const { used } = await followupFreeUsed(db, userId);
+  return Math.max(0, (PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY) - used);
+}
+
+/** 追問計費：每日 N 次免費（依方案），超出扣靈石。
+ *  原本是「每卦免費 2 次」——一天三卦就等於六次免費追問，而追問正是最常用的互動，
+ *  成本大宗卡在這裡。改成每日額度後，額度與卦數脫鉤，才控得住。
+ *  casts.followup_used 仍照舊累加：那是單卦的追問紀錄，前端與卦曆都在讀。 */
+export async function billFollowup(db: SupabaseClient, userId: string, castId: string, plan = "free") {
   const { data: c } = await db.from("casts").select("followup_used").eq("id", castId).single();
   if (!c) return { ok: false, paid: 0, reason: "not_found" };
-  if (c.followup_used < FREE_FOLLOWUPS_PER_CAST) {
-    await db.from("casts").update({ followup_used: c.followup_used + 1 }).eq("id", castId);
+  const bump = () => db.from("casts").update({ followup_used: c.followup_used + 1 }).eq("id", castId);
+
+  const { key, today, used } = await followupFreeUsed(db, userId);
+  if (used < (PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY)) {
+    await db.from("free_quota").upsert({ key, used_today: used + 1, last_reset: today });
+    await bump();
     return { ok: true, paid: 0 };
   }
   const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "followup", p_amount: -COST_FOLLOWUP, p_ref: castId });
   if (error) return { ok: false, paid: 0, reason: "lingshi" };
-  await db.from("casts").update({ followup_used: c.followup_used + 1 }).eq("id", castId);
+  await bump();
   return { ok: true, paid: COST_FOLLOWUP };
 }
