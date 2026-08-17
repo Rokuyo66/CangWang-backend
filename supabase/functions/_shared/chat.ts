@@ -56,6 +56,13 @@ export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"
 // 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
 export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 20, zhiji: 50, cangwang: 100 };
 export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
+// 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
+// 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。
+export const PLAN_MEMORIES: Record<string, number> = { free: 6, guanwei: 12, zhiji: 24, cangwang: 40 };
+export const PLAN_TURNS: Record<string, number> = { free: 6, guanwei: 8, zhiji: 12, cangwang: 16 };
+export const PLAN_PINS: Record<string, number> = { free: 0, guanwei: 1, zhiji: 3, cangwang: 5 };
+export const memoryQuotaOf = (plan: string) => PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
+export const pinQuotaOf = (plan: string) => PLAN_PINS[plan] ?? PLAN_PINS.free;
 // 探詢輪（角色為了問清楚而反問的那幾句）每日免費額度：不計聊天句數、不扣靈石。
 // 理由：那幾句是為了讓卦問得準，收費等於懲罰願意講清楚的人。設上限純為防刷。
 export const FREE_PROBE_PER_DAY = Number(Deno.env.get("FREE_PROBE_PER_DAY") ?? "6");
@@ -250,7 +257,7 @@ function looksLikeDivination(msg: string): boolean {
 }
 
 // 卦歷摘要（注入聊天，讓角色記得用戶問過什麼）
-async function buildContext(db: SupabaseClient, userId: string, characterId: string) {
+async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
     .select("id, question, gua_ben, digest, created_at")
@@ -266,12 +273,29 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const vtext = v === 1 ? "（已驗：準）" : v === 2 ? "（已驗：部分準）" : v === 3 ? "（已驗：不準）" : "";
     return `・${(c.question ?? "").slice(0, 20)}→《${c.gua_ben}》${c.digest ? "：" + c.digest : ""}${vtext}`;
   }).join("\n");
-  // 長期記憶摘要（滾動彙整的產物）
+  // 舊路：單段記憶摘要（0032 之後只當退路，見下）
   const { data: ucMem } = await db.from("user_character")
     .select("memory_summary").eq("user_id", userId).eq("character_id", characterId).maybeSingle();
+  // 長期記憶：0032 起改讀 character_memories（一則一列），依方案取前 N 則
+  //（釘選優先、其餘新到舊）。溢出的不刪、只是不注入，補訂閱即回。
+  // ⚠ 相容：0032 還沒跑、或查詢失敗時，退回舊的 user_character.memory_summary
+  //    單段文字，所以這支的部署順序不綁 migration，不會因先後而壞。
+  const memCap = PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
+  let memRows: { body: string }[] | null = null;
+  try {
+    const { data, error } = await db.from("character_memories")
+      .select("body, pinned_at, created_at")
+      .eq("user_id", userId).eq("character_id", characterId)
+      .order("pinned_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(memCap);
+    if (!error) memRows = (data ?? []) as { body: string }[];
+  } catch (e) {
+    console.error("character_memories 讀取失敗，退回 memory_summary", e);
+  }
   const { data: history } = await db.from("chat_messages")
     .select("role, body").eq("user_id", userId).eq("character_id", characterId)
-    .order("created_at", { ascending: false }).limit(HISTORY_TURNS * 2);
+    .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
   const turns = (history ?? []).reverse()
     .map((t) => t.role === "assistant" ? { ...t, body: normalizeNarration(scrubBilling(t.body), characterId) || "（……）" } : t);
   // 確保歷史以 assistant 回覆結尾（若最後一則是 user，去掉它，避免新訊息與它黏成「回上一句」）
@@ -283,7 +307,9 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     .order("created_at", { ascending: false }).limit(4);
   let probeStreak = 0;
   for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
-  const cleanMemory = scrubBilling(ucMem?.memory_summary as string ?? "") || undefined;
+  // 有列就用列（組成條列），沒列才退回舊的單段摘要
+  const memText = memRows && memRows.length ? memRows.map((m) => `・${m.body}`).join("\n") : (ucMem?.memory_summary as string ?? "");
+  const cleanMemory = scrubBilling(memText) || undefined;
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
   const { data: rems } = await db.from("reminders")
@@ -313,17 +339,30 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     .order("created_at", { ascending: true }).limit(toCondense);
   if (!oldMsgs?.length) return;
 
-  const { data: uc } = await db.from("user_character")
-    .select("memory_summary").eq("user_id", userId).eq("character_id", characterId).maybeSingle();
-  const prev = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
+  // 已有的記憶（供去重；不再是「拿來重寫的整段」）。取最近 12 則就夠判重複。
+  let known = "";
+  let hasRows = false;
+  try {
+    const { data, error } = await db.from("character_memories")
+      .select("body").eq("user_id", userId).eq("character_id", characterId)
+      .order("created_at", { ascending: false }).limit(12);
+    if (!error) { hasRows = true; known = (data ?? []).map((m) => `・${m.body}`).join("\n"); }
+  } catch { /* 表還不存在，走下面的舊路 */ }
+  if (!hasRows) {
+    const { data: uc } = await db.from("user_character")
+      .select("memory_summary").eq("user_id", userId).eq("character_id", characterId).maybeSingle();
+    known = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
+  }
 
   const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubBilling(m.body) : m.body}`).join("\n");
-  const sys = "你在維護與某位『護道人』的長期記憶。把【既有記憶】與【新增對話】合併成一份更新後的長期記憶，供你日後延續這段關係。要求：①保留關於護道人的事實（自稱、近況、在意的人事物、偏好、提過的細節）——事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②保留你與他的關係與情感走向（從生疏到熟、發生過的關鍵互動）③精簡，短句或條列，繁體中文，全文不超過 300 字 ④只輸出記憶本身，不要任何前言、說明或標題。";
-  const usr = `【既有記憶】\n${prev || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
+  // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
+  // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
+  const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶。";
+  const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
 
   let summary = "";
   try {
-    const h = await callHaiku(sys, [], usr, 600);
+    const h = await callHaiku(sys, [], usr, 300);
     summary = h.text;
     await logUsage(db, { userId, mode: "chat_memory", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
   } catch (e) {
@@ -331,9 +370,23 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     return;
   }
   if (!summary) return;
+  // 沒有新東西也要刪明細——否則同一批對話每次都重跑一次彙整，白燒 token
+  const nothingNew = /^無新記憶[。.]?$/.test(summary.trim());
 
-  await db.from("user_character").update({ memory_summary: summary })
-    .eq("user_id", userId).eq("character_id", characterId);
+  if (!nothingNew) {
+    let wrote = false;
+    try {
+      const { error } = await db.from("character_memories")
+        .insert({ user_id: userId, character_id: characterId, body: summary, source: "chat" });
+      wrote = !error;
+    } catch { /* 表還不存在 */ }
+    // 相容：0032 還沒跑就退回舊的單段摘要（append 而非覆寫，避免遺失既有記憶）
+    if (!wrote) {
+      const merged = known ? `${known}\n${summary}`.slice(-1200) : summary;
+      await db.from("user_character").update({ memory_summary: merged })
+        .eq("user_id", userId).eq("character_id", characterId);
+    }
+  }
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
@@ -616,7 +669,7 @@ export async function chat(db: SupabaseClient, p: {
   }
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
-  const ctx = await buildContext(db, p.userId, p.characterId);
+  const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free");
   const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
