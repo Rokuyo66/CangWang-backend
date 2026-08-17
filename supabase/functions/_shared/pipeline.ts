@@ -22,7 +22,12 @@ export async function globalCapReached(db: SupabaseClient): Promise<boolean> {
   return (count ?? 0) >= DAILY_GLOBAL_CAP;
 }
 
-/** 一事不二占（MVP：正規化比對；應期已過或已回訪則放行）
+// 一事不二占的攔阻時效。過了就當新的一次占問——同一句話隔了夠久再問，
+// 問的多半已是另一回事（上個月的「這週會有消息嗎」與這個月的並非同一事）。
+const DUP_WINDOW_DUE_DAYS = 30;    // 有應期者：等應期本是規矩，但也不該無限期等下去
+const DUP_WINDOW_NODUE_DAYS = 7;   // 無應期者：沒有「應期已過」可解封，不設時效等於永久封死這句話
+
+/** 一事不二占（正規化比對；應期已過、已回評、或超過時效則放行）
  *  雙軌比對：擬題／改寫會讓問句字面改變，只比對最終問句的話，改個字就能重占同一事。
  *  故最終問句與原話兩個正規化值，都要去比對歷史卦的 question_norm 與 question_raw_norm。 */
 export async function checkDuplicate(db: SupabaseClient, userId: string, question: string, questionRaw?: string) {
@@ -49,6 +54,12 @@ export async function checkDuplicate(db: SupabaseClient, userId: string, questio
   const duePassed = prev.due_date && prev.due_date < today;
   const answered = Array.isArray(prev.feedback) ? prev.feedback[0]?.answered_at : (prev.feedback as { answered_at?: string } | null)?.answered_at;
   if (duePassed || answered) return null;
+  // 時效：前卦太舊就不再攔。沒有應期的卦原本永遠解不了封——問過一次，那句話就再也問不得；
+  // 雙軌比對上線後比中的機會又更高，不設時效等於把「再三瀆」用成了牢籠。
+  const ageDays = (Date.now() - new Date(prev.created_at).getTime()) / 86_400_000;
+  if (ageDays > (prev.due_date ? DUP_WINDOW_DUE_DAYS : DUP_WINDOW_NODUE_DAYS)) return null;
+  // 攔下了就留紀錄：雙軌四組比對命中哪一筆、隔了多久，日後才查得出是不是誤殺
+  console.log(`[dup] intercept user=${userId} age=${ageDays.toFixed(1)}d prev=${prev.id} prevQ=${(prev.question ?? "").slice(0, 30)} norms=${norms.join("|")}`);
   return prev;
 }
 
