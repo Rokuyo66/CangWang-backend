@@ -6,7 +6,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "..
 import { dailyFortune } from "../_shared/fortune.ts";
 import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP } from "../_shared/chat.ts";
+import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP } from "../_shared/services.ts";
@@ -463,6 +463,55 @@ Deno.serve(async (req) => {
       if (!nick) return Response.json({ kind: "err", msg: "暱稱不可空白" }, { headers: CORS });
       await db.from("profiles").update({ display_name: nick }).eq("id", uid);
       return Response.json({ kind: "ok", nickname: nick }, { headers: CORS });
+    }
+
+    // ── 回憶（共憶）：記憶一則一列，額度依方案。額度不落資料——
+    //    取用時 limit N，所以升降方案、刪一則後面遞補全自動成立。
+    //    清單一次回全部（含溢出的），前端才畫得出「鎖住的那幾則」。
+    if (body.mode === "memory_list") {
+      const cid = String(body.character_id ?? "");
+      if (!["daoshi_m", "daoshi_f", "lingshou"].includes(cid)) return Response.json({ kind: "err", msg: "角色不存在" }, { headers: CORS });
+      const plan = await planOf(db, uid);
+      const cap = memoryQuotaOf(plan), pinCap = pinQuotaOf(plan);
+      const { data, error } = await db.from("character_memories")
+        .select("id, body, source, pinned_at, created_at")
+        .eq("user_id", uid).eq("character_id", cid)
+        .order("pinned_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false });
+      if (error) return Response.json({ kind: "err", msg: "回憶暫時讀不到" }, { headers: CORS });
+      const rows = data ?? [];
+      // 前 cap 則＝角色現在記得的；其後＝溢出被鎖（資料還在，補訂閱即回）
+      const items = rows.map((m, i) => ({ ...m, locked: i >= cap }));
+      const pinned = rows.filter((m) => m.pinned_at).length;
+      return Response.json({ kind: "ok", items, cap, pinCap, pinned, plan }, { headers: CORS });
+    }
+
+    // 刪一則回憶：刪掉之後被鎖的下一則自動遞補進額度內（不需任何同步）
+    if (body.mode === "memory_delete") {
+      const { error } = await db.from("character_memories")
+        .delete().eq("id", String(body.memory_id ?? "")).eq("user_id", uid);
+      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+    }
+
+    // 釘選／取消釘選：釘住的永不因額度縮減而溢出。釘選數依方案上限。
+    if (body.mode === "memory_pin") {
+      const id = String(body.memory_id ?? "");
+      const want = !!body.pin;
+      const plan = await planOf(db, uid);
+      const pinCap = pinQuotaOf(plan);
+      if (want) {
+        if (pinCap <= 0) return Response.json({ kind: "err", msg: "此方案尚不能釘選回憶" }, { headers: CORS });
+        const { count } = await db.from("character_memories")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", uid).not("pinned_at", "is", null);
+        if ((count ?? 0) >= pinCap) {
+          return Response.json({ kind: "err", msg: `釘選已滿（${pinCap} 則，三位角色共用），先取消一則再釘` }, { headers: CORS });
+        }
+      }
+      const { error } = await db.from("character_memories")
+        .update({ pinned_at: want ? new Date().toISOString() : null })
+        .eq("id", id).eq("user_id", uid);
+      return Response.json({ kind: error ? "err" : "ok", pinned: want }, { headers: CORS });
     }
 
     // 自訂提醒：列表
