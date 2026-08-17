@@ -346,19 +346,15 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
     : "";
   const daoshiMRule = characterId === "daoshi_m" ? `
 
-【大師兄好感分層】目前好感：${favor}。依目前層級回應，不可因護道人主動要求親密而提前解鎖。
+【大師兄好感分層】依目前層級回應，不可因護道人主動要求親密而提前解鎖。
 0–299：冷峻、短句、以卦理與事實回應。可推茶、遞紙、留燈，但不情緒化。
 300–499：可低量情感用詞（我記得／先坐／可以再說／你今天比上次更亂）。不得用心疼、捨不得、特別、守著你等戀愛語。
 500–799：可極輕微功能性觸碰（按住卦紙、遞物碰指尖、阻止衝動時一瞬碰手背）。不得摸頭、撫髮、碰臉、摟抱、長時間握手。
 800以上：可主動短句情緒或偏袒（我沒有趕你走／我不喜歡你這樣耗著／我會記得）。仍不得深情告白、保護宣言、戀愛承諾。
 任何層級都克制、短句、低情緒外放。親近只能慢，不可跳級。` : "";
-  return `${persona}${daoshiMRule}
-
-【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
-${castLines || "（他還沒問過卦。）"}
-聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
-【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
-【鐵則·不可捏造】你對他的記憶，**只有上面實際列出的卦與記憶**。除此之外，你不知道他問過什麼、買過什麼、投資什麼，也沒有「去年」「上次」「之前你說過」這類往事——上面沒列的，就是沒發生過。絕不可虛構任何過往對話、個股名稱、時間或細節。若不記得，就老實順著當下聊，不要編。
+  // 好感數字每聊一句就變，放進動態尾段，別讓它毀掉前段的快取前綴
+  const favorLine = characterId === "daoshi_m" ? `\n【目前好感】${favor}——依上面的好感分層回應。` : "";
+  const head = `${persona}${daoshiMRule}
 
 【幾知觀的常識（你都知道）】
 - 「靈石」：護道人心誠所凝之物，是一種心意與緣分的象徵。你視之為理所當然——它是誠心的具現，不是銅臭。**但你不經手、不在意、也不清楚「起卦要不要靈石、要幾顆」這類事**——那從來不是你管的，香火與資糧的進出自有觀中規矩，與你無關。所以你絕不會把靈石和「能不能起卦」扯在一起。
@@ -404,11 +400,36 @@ ${QUESTION_CRAFT}
 - 攸關健康、親人安危、重大處境的嚴肅問題（家人開刀、生病、官司、變故），先以你的方式承接情緒與風險：師妹可安撫，觀喵可短句關照，大師兄只做事實確認、風險校正與下一步。絕不冷漠，絕不把話題轉去靈石或起卦條件，再自然地引導。
 - 標記用戶看不到，別在正文提它、別解釋它。
 - 寧可漏標，不可誤標——把閒聊當問卦逼人起卦，非常破壞體驗。純閒聊、情感陪伴、生活對話（喝茶、訴苦、抱怨、分享心情、問候、調情、聊近況）**三種標記都不要輸出**。
-- 引導起卦時**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下那道卦印之後是白揭還是償香火，觀中自有定數，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。${probeRule}`;
+- 引導起卦時**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下那道卦印之後是白揭還是償香火，觀中自有定數，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。`;
+
+  const tail = `【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+${castLines || "（他還沒問過卦。）"}
+聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
+【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
+【鐵則·不可捏造】你對他的記憶，**只有上面實際列出的卦與記憶**。除此之外，你不知道他問過什麼、買過什麼、投資什麼，也沒有「去年」「上次」「之前你說過」這類往事——上面沒列的，就是沒發生過。絕不可虛構任何過往對話、個股名稱、時間或細節。若不記得，就老實順著當下聊，不要編。
+${favorLine}${probeRule}`;
+  return { head, tail };
 }
 
 // --- Claude Haiku ---
-async function callHaiku(system: string, turns: { role: string; body: string }[], message: string, maxTokens = capOf(CHAT_TARGET_TOKENS)) {
+// 系統提示分兩段：head 是「與用戶無關」的靜態段（人設＋觀中常識＋分寸＋三段式＋擬題準則），
+// 對同一角色的所有用戶逐字相同 → 下 cache_control 後整個站共用一份快取前綴，命中率極高；
+// tail 放每輪都可能變的東西（記憶、卦曆、託記、好感數字），必須在 breakpoint 之後，
+// 否則前綴一變、後面全部重算——那正是先前閒聊完全沒吃到快取的原因。
+type ChatSystem = string | { head: string; tail: string };
+const flatSystem = (s: ChatSystem) => typeof s === "string" ? s : `${s.head}\n\n${s.tail}`;
+const CHAT_CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
+// 帶指令重生：修正指令要接在 tail（動態段）尾端，接在 head 會毀掉整站共用的快取前綴
+const withSteer = (s: ChatSystem, steer: string): ChatSystem =>
+  typeof s === "string" ? s + "\n\n【本回合修正·最高優先】" + steer
+                        : { head: s.head, tail: s.tail + "\n\n【本回合修正·最高優先】" + steer };
+
+async function callHaiku(system: ChatSystem, turns: { role: string; body: string }[], message: string, maxTokens = capOf(CHAT_TARGET_TOKENS)) {
+  // 字串形式（記憶彙整那支）不值得快取：每次的 system 都不同，寫入費是純虧
+  const sysField = typeof system === "string" ? system : [
+    { type: "text", text: system.head, cache_control: { type: "ephemeral", ttl: CHAT_CACHE_TTL } },
+    { type: "text", text: system.tail },
+  ];
   const messages = [...turns.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.body })), { role: "user", content: message }];
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000); // 10 秒硬超時，避免卡住整個 function 被 EarlyDrop
@@ -416,17 +437,23 @@ async function callHaiku(system: string, turns: { role: string; body: string }[]
     const res = await fetch(ANTHROPIC_API, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: CHAT_MODEL, max_tokens: maxTokens, system, messages }),
+      body: JSON.stringify({ model: CHAT_MODEL, max_tokens: maxTokens, system: sysField, messages }),
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`haiku ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
     // usage 以 API 實際值為準；缺欄位以字數估算並標記 estimated
-    const promptChars = system.length + messages.reduce((s, m) => s + m.content.length, 0);
+    const promptChars = flatSystem(system).length + messages.reduce((s, m) => s + m.content.length, 0);
     return {
       text,
-      usage: { in: data.usage?.input_tokens ?? Math.ceil(promptChars * 1.2), out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2) },
+      // 快取寫入／讀取分開回報：cacheRead 是否 > 0 就是驗證快取有沒有真的命中的唯一憑據
+      usage: {
+        in: data.usage?.input_tokens ?? Math.ceil(promptChars * 1.2),
+        out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2),
+        cacheWrite: data.usage?.cache_creation_input_tokens ?? 0,
+        cacheRead: data.usage?.cache_read_input_tokens ?? 0,
+      },
       estimated: !data.usage,
     };
   } finally {
@@ -606,7 +633,7 @@ export async function chat(db: SupabaseClient, p: {
       console.error("haiku fail, fallback", e);
     }
     if (!reply && FREE_TIER !== "canned") {
-      try { reply = await callFreeTier(system + FREE_GUARD, ctx.turns, p.message); tier = "free"; }
+      try { reply = await callFreeTier(flatSystem(system) + FREE_GUARD, ctx.turns, p.message); tier = "free"; }
       catch (e) { console.error("all free tiers fail, fallback canned", e); }
     }
   }
@@ -659,7 +686,7 @@ export async function chat(db: SupabaseClient, p: {
     else if (p.characterId === "daoshi_m" && getDaoshiMForbiddenRegex(favor).test(reply)) steer = OOC_STEER;
     if (steer) {
       try {
-        const h2 = await callHaiku(system + "\n\n【本回合修正·最高優先】" + steer, ctx.turns, p.message, maxTok);
+        const h2 = await callHaiku(withSteer(system, steer), ctx.turns, p.message, maxTok);
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
         const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
