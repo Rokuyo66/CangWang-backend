@@ -51,7 +51,11 @@ const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
 };
 const capOf = (t: number) => Math.round(t / REPLY_HEADROOM);   // 八成目標 → 硬上限
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
-export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 每人每日免費聊天上限（額度內不扣、超過每則扣靈石）
+export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
+// 閒聊依方案分級。改成本表之前，免費層每日 15 句約佔免費成本的四成四，
+// 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 20, zhiji: 50, cangwang: 100 };
+export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
 // 探詢輪（角色為了問清楚而反問的那幾句）每日免費額度：不計聊天句數、不扣靈石。
 // 理由：那幾句是為了讓卦問得準，收費等於懲罰願意講清楚的人。設上限純為防刷。
 export const FREE_PROBE_PER_DAY = Number(Deno.env.get("FREE_PROBE_PER_DAY") ?? "6");
@@ -548,6 +552,7 @@ export interface ChatResult {
 
 /** 聊天主流程：三層降級，記憶跨層一致 */
 export async function chat(db: SupabaseClient, p: {
+  plan?: string;                       // 方案決定每日免費句數（見 PLAN_CHATS）
   userId: string; characterId: string; message: string;
 }): Promise<ChatResult> {
   // 取好感
@@ -563,7 +568,8 @@ export async function chat(db: SupabaseClient, p: {
   const qkey = `chatfree:${p.userId}:${today}`;
   const { data: q } = await db.from("free_quota").select("used_today, last_reset").eq("key", qkey).maybeSingle();
   let used = (q && q.last_reset === today) ? q.used_today : 0;
-  const withinFree = used < FREE_CHAT_PER_DAY;
+  const chatQuota = chatQuotaOf(p.plan ?? "free");
+  const withinFree = used < chatQuota;
   const canPay = lingshi >= COST_CHAT;
 
   // 每分鐘限流：超限直接以角色口吻打發，不呼叫模型、不扣費、不寫記憶
@@ -575,7 +581,7 @@ export async function chat(db: SupabaseClient, p: {
     };
     return {
       reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
-      cost: 0, freeLeft: Math.max(0, FREE_CHAT_PER_DAY - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
+      cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null,
     };
   }
@@ -692,7 +698,7 @@ export async function chat(db: SupabaseClient, p: {
     favorNew = Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
-  const freeLeft = Math.max(0, FREE_CHAT_PER_DAY - used);
+  const freeLeft = Math.max(0, chatQuota - used);
   const stateArr = CHAT_STATE[p.characterId]?.[tier] ?? [""];
   const statePrefix = pick(stateArr);
   return {

@@ -352,7 +352,7 @@ export const FREE_CASTS_PER_DAY = Number(Deno.env.get("FREE_CASTS_PER_DAY") ?? "
 // 追問改為「每日額度」而非「每卦額度」：原本每卦免費 2 次、一天 3 卦，等於每天
 // 最多 6 次免費追問；追問是主要互動，這是成本大宗。改成每日 N 次，訂閱方案加碼。
 // 走 env 是為了讓你不必重新部署就能調——上線初期這個數字要邊看數據邊抓。
-export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "1");
+export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "2");
 // 各方案每日免費追問次數（未列者比照 free）
 export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 8, cangwang: 20 };
 export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 8 };

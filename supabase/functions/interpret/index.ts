@@ -6,7 +6,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "..
 import { dailyFortune } from "../_shared/fortune.ts";
 import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { chat, COST_CHAT, FREE_CHAT_PER_DAY, FAVOR_CAP } from "../_shared/chat.ts";
+import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP } from "../_shared/services.ts";
@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
       const cday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
       const { data: cq } = await db.from("free_quota").select("used_today, last_reset").eq("key", `chatfree:${uid}:${cday}`).maybeSingle();
       const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
-      const chatFreeLeft = Math.max(0, FREE_CHAT_PER_DAY - cused);
+      const chatFreeLeft = Math.max(0, chatQuotaOf(plan) - cused);
       const signedToday = prof?.last_sign_date === cday;
       // 收集獎勵待領數（卦曆鈕紅點用）：集滿達成但尚未領取
       const { unlocked: eligible } = await computeCollection(uid);
@@ -309,7 +309,8 @@ Deno.serve(async (req) => {
       const [fy, fm, fd] = cday.split("-").map(Number);
       return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
-        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP }, { headers: CORS });
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP,
+        chatFreePerDay: chatQuotaOf(plan) }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
@@ -539,7 +540,7 @@ Deno.serve(async (req) => {
 
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
     if (body.mode === "chat") {
-      const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? "") });
+      const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? ""), plan: await planOf(db, uid) });
       return Response.json({
         kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost,
         freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast,
