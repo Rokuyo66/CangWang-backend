@@ -177,8 +177,8 @@ const POST_LIST_COLS = "id, user_id, type, title, cast_snapshot, chat_snapshot, 
 async function postEntries(rows: PostRow[]) {
   const userIds = [...new Set(rows.map((p) => p.user_id))];
   const { data: ps } = userIds.length
-    ? await db.from("profiles").select("id, display_name, selected_avatar").in("id", userIds) : { data: [] };
-  const profs = new Map((ps ?? []).map((p: { id: string; display_name: string | null; selected_avatar: string | null }) => [p.id, p]));
+    ? await db.from("profiles").select("id, display_name, selected_avatar, title_tag").in("id", userIds) : { data: [] };
+  const profs = new Map((ps ?? []).map((p: { id: string; display_name: string | null; selected_avatar: string | null; title_tag: string | null }) => [p.id, p]));
   return rows.map((p) => ({
     id: p.id, user_id: p.user_id, type: p.type, title: p.title,
     character_id: p.character_id, like_count: p.like_count, comment_count: p.comment_count ?? 0,
@@ -221,9 +221,9 @@ async function postDetailResponse(postId: unknown): Promise<Response> {
     .order("like_count", { ascending: false }).order("created_at", { ascending: true }).limit(200);
   const comments = cs ?? [];
   const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
-  const { data: ps } = await db.from("profiles").select("id, display_name, selected_avatar").in("id", userIds);
-  const profs = new Map((ps ?? []).map((x: { id: string; display_name: string | null; selected_avatar: string | null }) => [x.id, x]));
-  const who = (uid: string) => ({ name: profs.get(uid)?.display_name || "護道人", avatar: profs.get(uid)?.selected_avatar ?? null });
+  const { data: ps } = await db.from("profiles").select("id, display_name, selected_avatar, title_tag").in("id", userIds);
+  const profs = new Map((ps ?? []).map((x: { id: string; display_name: string | null; selected_avatar: string | null; title_tag: string | null }) => [x.id, x]));
+  const who = (uid: string) => ({ name: profs.get(uid)?.display_name || "護道人", avatar: profs.get(uid)?.selected_avatar ?? null, title_tag: profs.get(uid)?.title_tag ?? null });
   return Response.json({
     kind: "ok",
     post: { ...p, pinned: !!p.pinned_at, cast: p.cast_snapshot ?? null, chat: p.chat_snapshot ?? null, ...who(p.user_id) },
@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes").eq("id", uid).maybeSingle();
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes, title_tag").eq("id", uid).maybeSingle();
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -315,7 +315,8 @@ Deno.serve(async (req) => {
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP,
         chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at,
-        ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES }, { headers: CORS });
+        ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
+        title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
     // 初次問事引導看完：記在帳號，換裝置不會再跳一次
