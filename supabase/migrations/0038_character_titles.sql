@@ -32,6 +32,18 @@ comment on table character_titles is
   '大師兄的好感分層（daoshiMRule）是安全機制，voice_hint 絕不可鬆動它，'
   '否則玩家能靠換身分繞過好感門檻。只寫立場、稱謂、關心的事，不寫情感尺度。';
 
+-- ── 事件骨架先種下去，否則下面的身分掛不上 unlock_event（外鍵指向 character_events）。
+-- 0037 只建表沒種資料，所以第一次跑 0038 會 FK 失敗。
+--
+-- 這裡種的是「章的存在」不是「章的內容」：scenes 為空陣列、published 為 false，
+-- 前端因此顯示為「尚未開放」——看得到規劃、點不動。劇本寫好之後 update 這幾列即可，
+-- 不必再動結構，身分的解鎖關係也不會斷。
+insert into character_events (id, character_id, chapter, seq, title, require_favor, scenes, published) values
+  ('daoshi_m_c1', 'daoshi_m', 1, 1, '代理',     0,   '[]'::jsonb, false),
+  ('daoshi_m_c2', 'daoshi_m', 2, 1, '缺頁',     300, '[]'::jsonb, false),
+  ('daoshi_m_c3', 'daoshi_m', 3, 1, '他的名字', 500, '[]'::jsonb, false)
+on conflict (id) do nothing;
+
 -- 種子：三位的預設身分（對齊前端寫死的 TITLE 表），加上大師兄第一章的解鎖身分。
 -- voice_hint 刻意只有一句：夠讓他有發揮，又不會把 tail 撐大。
 insert into character_titles (id, character_id, label, voice_hint, unlock_event, seq) values
