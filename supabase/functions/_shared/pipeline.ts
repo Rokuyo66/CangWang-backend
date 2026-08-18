@@ -82,7 +82,24 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   castDate?: { y: number; m: number; d: number; hour: number | null }; // 手動排盤自填占時；無則用當下台北時
   questionRaw?: string;                // 擬題／改寫前護道人的原話（無擬題則為空）
   questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
+  clientToken?: string;                // 起卦冪等憑據：同一次起卦動作只准成立一卦
 }) {
+  // -1. 冪等：先搶 token。搶不到代表這一次起卦已經有人在做（連點兩下、
+  //     斷線重試、或兩台裝置同時送），直接回頭等那一份，不重複扣費與呼叫 AI。
+  if (p.clientToken) {
+    const { error: claimErr } = await db.from("cast_claims")
+      .insert({ token: p.clientToken, user_id: p.userId });
+    if (claimErr) {
+      const { data: prev } = await db.from("cast_claims")
+        .select("cast_id").eq("token", p.clientToken).maybeSingle();
+      if (prev?.cast_id) {
+        const { data: c } = await db.from("casts")
+          .select("id, reading, character_id").eq("id", prev.cast_id).maybeSingle();
+        if (c) return { kind: "duplicate" as const, castId: c.id, reading: c.reading ?? "" };
+      }
+      return { kind: "in_progress" as const };   // 第一份還在批，請前端稍後撈
+    }
+  }
   // 0. 全站熔斷＋個人限流
   //    熔斷是防「免費用戶把成本打爆」的閘門，付費用戶不該被它擋——付了錢還說
   //    今日額滿，是最傷的體驗。付費者仍受每分鐘限流約束（防濫用，不防成本）。
@@ -150,6 +167,10 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     console.error("cast insert with question_raw failed, retry without", insErr.message);
     const { question_raw: _a, question_raw_norm: _b, question_source: _c, ...legacy } = row;
     ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
+  }
+  if (p.clientToken) {
+    // 回填後，同 token 的後續請求就能直接拿到這一卦，而不是再等
+    await db.from("cast_claims").update({ cast_id: cast!.id }).eq("token", p.clientToken);
   }
   if (ai.due) {
     await db.from("feedback").insert({ cast_id: cast!.id, user_id: p.userId, due_date: ai.due });

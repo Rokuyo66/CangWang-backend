@@ -883,7 +883,8 @@ Deno.serve(async (req) => {
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
           questionRaw: body.question_raw, questionSource: body.question_source,
-        });
+      clientToken: typeof body.client_token === "string" ? body.client_token : undefined,
+    });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
       return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });
