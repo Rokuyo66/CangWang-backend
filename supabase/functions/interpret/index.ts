@@ -46,6 +46,9 @@ function parseCastDate(cd: unknown): { y: number; m: number; d: number; hour: nu
 // 仍足以支撐日常追問與換評，但要開完整卦理或大量加卦就得付費。
 // 維持單一貨幣（不另立「限定用途靈石」）——兩種貨幣只會生出「這顆為什麼不能用」的客服。
 const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],[20,10]];
+// 可解鎖配色售價（靈石）。零 AI 邊際成本，屬純毛利品項；
+// 定價以「簽到月收約 283 顆」為尺，一套約當一個月的簽到量，買得下但要攢。
+const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porcelain: 320 };
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
 const ahUnlockedCount = (signinTotal: number) => 5 + Math.min(3, Math.floor(signinTotal / 7));
@@ -272,7 +275,7 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at").eq("id", uid).maybeSingle();
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes").eq("id", uid).maybeSingle();
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -311,13 +314,32 @@ Deno.serve(async (req) => {
       return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP,
-        chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at }, { headers: CORS });
+        chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at,
+        ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES }, { headers: CORS });
     }
 
     // 初次問事引導看完：記在帳號，換裝置不會再跳一次
     if (body.mode === "set_guide_seen") {
       await db.from("profiles").update({ guide_seen_at: new Date().toISOString() }).eq("id", uid);
       return Response.json({ kind: "ok" }, { headers: CORS });
+    }
+
+    // 解鎖付費配色（買斷）。價格只在後端定義——前端顯示的數字不可信，
+    // 扣款一律以這張表為準。
+    if (body.mode === "buy_theme") {
+      const key = String(body.theme ?? "");
+      const price = THEME_PRICES[key];
+      if (!price) return Response.json({ kind: "err", msg: "沒有這個配色" }, { headers: CORS });
+      const { data: prof } = await db.from("profiles").select("lingshi, owned_themes").eq("id", uid).maybeSingle();
+      const owned = (prof?.owned_themes ?? []) as string[];
+      if (owned.includes(key)) return Response.json({ kind: "err", msg: "此配色已解鎖" }, { headers: CORS });
+      const bal = prof?.lingshi ?? 0;
+      if (bal < price) return Response.json({ kind: "err", msg: `靈石不足（需 ${price}，尚有 ${bal}）` }, { headers: CORS });
+      await db.rpc("apply_lingshi", { p_user: uid, p_action: "buy_theme", p_amount: -price, p_ref: key });
+      await db.from("profiles").update({ owned_themes: [...owned, key] }).eq("id", uid);
+      const { data: after } = await db.from("profiles").select("lingshi").eq("id", uid).maybeSingle();
+      return Response.json({ kind: "ok", theme: key, lingshi: after?.lingshi ?? bal - price,
+        ownedThemes: [...owned, key] }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
