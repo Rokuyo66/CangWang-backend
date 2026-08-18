@@ -27,6 +27,7 @@ export interface ObjectFile {
   name: string;
   desc: string;        // 素材，不是最終文案；AI 依當局氛圍演繹
   clue?: string;       // 調查此物取得之線索 id
+  needsItem?: string;  // 調查此物需先持有某道具（kind 為 item 的線索 id）
 }
 
 export interface RegionFile {
@@ -49,6 +50,10 @@ export interface ClueFile {
   region: number;      // 所在區 1..6
   text: string;
   requires?: string[]; // 前置線索 id
+  /** knowledge ＝ 你知道了什麼；item ＝ 你手上有什麼（可攜帶、可作工具、可出示）。
+   *  兩者不分兩張表：差別只在能不能拿去撬、去開、去給人看，
+   *  開兩套資料結構要作者維護兩份、validator 檢查兩份，換不到額外機制。 */
+  kind: "knowledge" | "item";
 }
 
 export interface NpcFile {
@@ -56,6 +61,7 @@ export interface NpcFile {
   name: string;
   region: number;
   voice: string;       // 聲口提示，供 AI 演繹
+  reactsTo?: string[]; // 出示這些線索／道具會改變其反應
 }
 
 export interface CompanionFile {
@@ -140,30 +146,56 @@ export function validateCase(cf: CaseFile): string[] {
 
   const clueIds = new Set(cf.clues.map((c) => c.id));
 
-  // 物件指向的線索須存在
+  const byId = new Map(cf.clues.map((c) => [c.id, c]));
+  const itemIds = new Set(cf.clues.filter((c) => c.kind === "item").map((c) => c.id));
+
+  // 物件指向的線索與道具須存在
   for (const r of cf.regions)
     for (const o of r.objects) {
       if (!o.desc?.trim()) push(`物件 ${o.id} 缺 desc`);
       if (o.clue && !clueIds.has(o.clue)) push(`物件 ${o.id} 指向不存在的線索 ${o.clue}`);
+      if (o.needsItem) {
+        if (!clueIds.has(o.needsItem)) push(`物件 ${o.id} 需要不存在的道具 ${o.needsItem}`);
+        else if (!itemIds.has(o.needsItem))
+          push(`物件 ${o.id} 的 needsItem 指向 ${o.needsItem}，但那是 knowledge 不是 item——知識撬不開門`);
+      }
     }
 
   // 線索
   for (const c of cf.clues) {
     if (c.region < 1 || c.region > 6) push(`線索 ${c.id} 的 region 越界：${c.region}`);
     if (!c.text?.trim()) push(`線索 ${c.id} 缺 text`);
+    if (c.kind !== "knowledge" && c.kind !== "item")
+      push(`線索 ${c.id} 的 kind 須為 knowledge／item，得 ${c.kind}`);
     for (const req of c.requires ?? [])
       if (!clueIds.has(req)) push(`線索 ${c.id} 的前置 ${req} 不存在`);
   }
 
-  // 前置線索成環 → 死鎖，玩家永遠拿不到
-  const byId = new Map(cf.clues.map((c) => [c.id, c]));
+  // 依賴成環 → 死鎖，玩家永遠拿不到。
+  // 依賴 ＝ 前置線索 ∪ 取得途徑所需的道具。一條線索若有多個取得途徑，
+  // 只要其中一條不需道具就不算被擋，故取各途徑所需道具的交集。
+  const sourceDeps = (id: string): Set<string> => {
+    const objSources = cf.regions.flatMap((r) => r.objects.filter((o) => o.clue === id));
+    const viaCompanion = cf.companions.some((c) => c.clues.includes(id));
+    if (viaCompanion) return new Set(); // 角色自主搜索不需道具
+    if (!objSources.length) return new Set();
+    let inter: Set<string> | null = null;
+    for (const o of objSources) {
+      const d = new Set(o.needsItem ? [o.needsItem] : []);
+      inter = inter == null ? d : new Set([...inter].filter((x) => d.has(x)));
+    }
+    return inter ?? new Set();
+  };
+  const depsOf = (id: string): string[] =>
+    [...new Set([...(byId.get(id)?.requires ?? []), ...sourceDeps(id)])].filter((x) => byId.has(x));
+
   const state = new Map<string, 0 | 1 | 2>();
   const walk = (id: string, path: string[]): void => {
     const st = state.get(id) ?? 0;
     if (st === 2) return;
-    if (st === 1) { push(`線索前置成環：${[...path, id].join(" → ")}`); return; }
+    if (st === 1) { push(`線索依賴成環（玩家永遠解不開）：${[...path, id].join(" → ")}`); return; }
     state.set(id, 1);
-    for (const req of byId.get(id)?.requires ?? []) if (byId.has(req)) walk(req, [...path, id]);
+    for (const dep of depsOf(id)) walk(dep, [...path, id]);
     state.set(id, 2);
   };
   for (const c of cf.clues) walk(c.id, []);
@@ -180,6 +212,8 @@ export function validateCase(cf: CaseFile): string[] {
   for (const n of cf.npcs) {
     if (n.region < 1 || n.region > 6) push(`NPC ${n.id} 的 region 越界：${n.region}`);
     if (!n.voice?.trim()) push(`NPC ${n.id} 缺 voice（聲口提示）`);
+    for (const r of n.reactsTo ?? [])
+      if (!clueIds.has(r)) push(`NPC ${n.id} 的 reactsTo 指向不存在的線索 ${r}`);
   }
 
   // 同行角色

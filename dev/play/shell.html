@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>卦案原型｜荒村借宿</title>
+<style>
+  :root{
+    --bg:#12100e; --panel:#1a1714; --line:#332c25; --ink:#e8e0d4; --dim:#8b8073;
+    --gold:#c8a86b; --warn:#a8623f; --ok:#7d9a6a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Noto Serif TC","Songti TC",serif;line-height:1.75}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  .dim{color:var(--dim)}
+  .mono{font-variant-numeric:tabular-nums}
+
+  .wrap{max-width:760px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:26px;letter-spacing:.12em;margin:0 0 6px;font-weight:500}
+  h2{font-size:14px;letter-spacing:.2em;color:var(--gold);margin:32px 0 12px;font-weight:500}
+  h3{font-size:12px;letter-spacing:.18em;color:var(--gold);margin:0 0 10px;font-weight:500}
+  .q{color:var(--dim);margin:0 0 8px}
+  .hint{color:var(--dim);font-size:13px;margin:0 0 16px}
+  .err{color:var(--warn)}
+
+  .picks{display:grid;gap:8px}
+  .pick{display:block;width:100%;text-align:left;background:var(--panel);
+    border:1px solid var(--line);border-radius:2px;padding:12px 14px}
+  .pick:hover{border-color:var(--gold)}
+  .pick.on{border-color:var(--gold);background:#221d17}
+  .pn{display:block;font-size:15px}
+  .pd{display:block;font-size:12px;color:var(--dim);margin-top:3px}
+
+  .row{display:flex;gap:10px;margin-top:20px}
+  .big{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:14px;font-size:15px;letter-spacing:.1em}
+  .big:hover{border-color:var(--gold)}
+  .big.go{border-color:var(--gold);color:var(--gold)}
+
+  .gua{background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:14px 16px;margin:14px 0;font-size:13px}
+  .ghead{font-size:15px;margin-bottom:8px}
+  .gline{margin:3px 0}
+  .acc{color:var(--gold)}
+  .acc-void,.acc-hiddenHard,.acc-contested{color:var(--warn)}
+  .acc-open,.acc-stirring{color:var(--ok)}
+  .gtab{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+  .gtab td{padding:3px 6px;border-top:1px solid var(--line);white-space:nowrap}
+  .gtab .p{color:var(--gold);width:1em}
+  .role{color:var(--gold)}
+
+  .game{display:grid;grid-template-columns:1fr 320px;gap:16px;
+    max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+  .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding-bottom:10px;border-bottom:1px solid var(--line);font-size:13px}
+  .clock{color:var(--gold);font-size:17px;font-variant-numeric:tabular-nums}
+  .mini{margin-left:auto;background:none;border:1px solid var(--line);
+    border-radius:2px;padding:4px 10px;font-size:12px;color:var(--dim)}
+  .mini:hover{border-color:var(--gold);color:var(--gold)}
+
+  .scene{margin:16px 0 20px}
+  .scene p{margin:0 0 12px}
+  .log{border-top:1px solid var(--line);padding-top:14px;
+    max-height:46vh;overflow-y:auto;font-size:14px}
+  .l{margin:0 0 9px;color:var(--dim)}
+  .lt{display:inline-block;min-width:52px;color:#5f574c;font-size:12px;
+    font-variant-numeric:tabular-nums}
+  .l-gain{color:var(--gold)}
+  .l-world{color:var(--warn)}
+  .l-talk,.l-companion{color:var(--ink)}
+  .l-system{color:#6e665b;font-style:italic}
+
+  .right{display:flex;flex-direction:column;gap:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:14px}
+  .act{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    width:100%;text-align:left;background:none;border:1px solid var(--line);
+    border-radius:2px;padding:9px 11px;margin-bottom:6px;font-size:14px}
+  .act:hover{border-color:var(--gold)}
+  .act.warn{border-color:#4a352a}
+  .cost{font-size:11px;color:var(--dim);white-space:nowrap}
+  .itm{margin:0 0 6px;font-size:13px}
+  .itm.lost{color:var(--warn);text-decoration:line-through}
+  .truth{background:var(--panel);border-left:2px solid var(--gold);padding:12px 16px}
+  .truth.hid{border-left-color:var(--line);color:var(--dim)}
+
+  @media(max-width:900px){
+    .game{grid-template-columns:1fr}
+    .log{max-height:30vh}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>/*BUNDLE*/</script>
+</body>
+</html>

@@ -9,3 +9,4 @@ supabase/.temp/
 CLAUDE.md
 DEPLOY.md
 supabase/migrations/0017_reminders.sql
+dev/play.html

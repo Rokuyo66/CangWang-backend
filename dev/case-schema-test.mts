@@ -54,7 +54,40 @@ const CASES: Case[] = [
       c.clues.find((x) => x.id === "c_stele_mark")!.requires = ["c_cellar"];
       return c;
     },
-    expect: /線索前置成環/,
+    expect: /線索依賴成環/,
+  },
+  {
+    name: "道具被鎖在需要它自己才能開的門後（自鎖死結）",
+    broken: () => {
+      const c = clone();
+      // 短撬出自第 2 區農具堆，把那個物件也設成需要短撬才能翻
+      c.regions.find((r) => r.pos === 2)!.objects.find((o) => o.id === "o_tools")!.needsItem = "c_pry";
+      return c;
+    },
+    expect: /線索依賴成環.*c_pry/,
+  },
+  {
+    name: "needsItem 指向的是 knowledge 而非 item",
+    broken: () => {
+      const c = clone();
+      c.regions.find((r) => r.pos === 6)!.objects.find((o) => o.id === "o_pit")!.needsItem = "c_ash";
+      return c;
+    },
+    expect: /知識撬不開門/,
+  },
+  {
+    name: "needsItem 指向不存在的道具",
+    broken: () => {
+      const c = clone();
+      c.regions.find((r) => r.pos === 6)!.objects.find((o) => o.id === "o_pit")!.needsItem = "c_ghost";
+      return c;
+    },
+    expect: /需要不存在的道具 c_ghost/,
+  },
+  {
+    name: "NPC 反應指向不存在的線索",
+    broken: () => { const c = clone(); c.npcs[0].reactsTo = ["c_ghost"]; return c; },
+    expect: /reactsTo 指向不存在的線索 c_ghost/,
   },
   {
     name: "同行角色能拿到自己搜不到的區的線索",

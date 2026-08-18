@@ -20,12 +20,14 @@ export const HUANGCUN: CaseFile = {
   entryHour: 19, // 戌時進案（難度旋鈕：固定時辰會壓掉入墓局、提高平局比例）
   voidPolicy: "allow",
 
-  // ⚠ 客觀真相：固定不變。卦象只決定玩家從哪裡切入、代價多大，不決定這段是不是真的。
+  // ⚠ 客觀真相：固定不變。無論玩家起出什麼卦、走哪條路線、是否找到她，這段事實都不改變。
+  //   卦象只決定玩家從哪裡切入、代價多大，不決定這段是不是真的。
+  //   truth 會在結案時原文呈現給玩家，所以這裡只寫故事本身，不寫給 AI 的約束——
+  //   約束寫在註解，別寫進字串，否則玩家會在案件檔案裡讀到「無論玩家起出什麼卦」。
   truth:
     "少女確實還活著，被村長之弟藏在後山古碑後方的舊地窖裡。" +
     "他並非圖謀少女，而是二十年前那樁溺井舊案的當事人；少女在井邊撿到一件舊物，" +
-    "他怕事發，先把人扣住再想辦法。村長知情而選擇沉默。" +
-    "無論玩家起出什麼卦、走哪條路線、是否找到她，這段事實都不改變。",
+    "他怕事發，先把人扣住再想辦法。村長知情而選擇沉默。",
 
   regions: [
     {
@@ -54,6 +56,7 @@ export const HUANGCUN: CaseFile = {
       objects: [
         { id: "o_stove", name: "灶臺", desc: "灶膛裡的灰還帶餘溫，鍋底有新刷過的水痕。", clue: "c_ash" },
         { id: "o_table", name: "供桌", desc: "牌位被人取走了，供桌上留著兩道沒積灰的方印。" },
+        { id: "o_tools", name: "牆角農具", desc: "幾把生鏽的鋤頭鐮刀，堆裡插著一根短撬，柄上的漆磨得發亮。", clue: "c_pry" },
       ],
       onKey: {
         open: "灶膛的餘溫燙手。有人今晚在這裡煮過東西，而且不只一人份。",
@@ -115,7 +118,7 @@ export const HUANGCUN: CaseFile = {
       desc: "後山半腰立著一塊無字古碑，碑身被山霧浸得發黑。碑後的浮土顏色比周圍新。",
       objects: [
         { id: "o_stele", name: "古碑", desc: "碑面近底處有一道新鑿的痕，像是為了搬動它而下的鑿子。", clue: "c_stele_mark" },
-        { id: "o_pit", name: "碑後浮土", desc: "浮土下是一塊活動的板子，掀開有風從底下上來。", clue: "c_cellar" },
+        { id: "o_pit", name: "碑後浮土", desc: "浮土下是一塊活動的板子，邊緣嵌得死緊，徒手掀不動。", clue: "c_cellar", needsItem: "c_pry" },
       ],
       onKey: {
         open: "新鑿痕就在碑腳，山霧再重也遮不住。有人近日動過這塊碑。",
@@ -129,28 +132,43 @@ export const HUANGCUN: CaseFile = {
   ],
 
   npcs: [
-    { id: "n_chief", name: "村長", region: 5, voice: "話少，答得慢，每一句都先想過。被問急了就說「山裡的事，山裡了」。" },
-    { id: "n_brother", name: "村長之弟", region: 4, voice: "話多、搶著解釋，手不肯放下來。越是無關的事講得越細。" },
-    { id: "n_widow", name: "井邊老婦", region: 1, voice: "耳背，講話大聲，翻來覆去講二十年前那樁溺井的事，沒人愛聽。" },
+    { id: "n_chief", name: "村長", region: 5, voice: "話少，答得慢，每一句都先想過。被問急了就說「山裡的事，山裡了」。", reactsTo: ["c_villager_lie", "c_temple_paper"] },
+    { id: "n_brother", name: "村長之弟", region: 4, voice: "話多、搶著解釋，手不肯放下來。越是無關的事講得越細。", reactsTo: ["c_road_track", "c_bed_hair"] },
+    { id: "n_widow", name: "井邊老婦", region: 1, voice: "耳背，講話大聲，翻來覆去講二十年前那樁溺井的事，沒人愛聽。", reactsTo: ["c_well_cloth"] },
   ],
 
   clues: [
-    { id: "c_well_cloth", name: "井臺藍布片", region: 1, text: "井臺石縫裡的藍布片，是新扯斷的。少女失蹤那日穿的正是藍衫。" },
-    { id: "c_ash", name: "未冷的灶灰", region: 2, text: "空屋的灶今晚有人生過火，而且煮的份量不只一人。" },
-    { id: "c_bed_hair", name: "床下紅頭繩", region: 3, text: "西廂床板縫裡的紅頭繩，斷口朝門。她曾被關在這間屋子裡。" },
-    { id: "c_temple_paper", name: "廢廟殘黃紙", region: 4, text: "殘破黃紙上寫著二十年前的日子——正是那樁溺井舊案的日子。" },
-    { id: "c_road_track", name: "山路拖痕", region: 5, text: "泥地上的拖痕通往後山，旁邊的腳印一深一淺，是負重的人留下的。" },
-    { id: "c_villager_lie", name: "村長之弟的矛盾口供", region: 5, text: "他說整晚沒出過門，但村口的人記得他戌時往後山去過。", requires: ["c_road_track"] },
-    { id: "c_stele_mark", name: "古碑新鑿痕", region: 6, text: "碑腳的新鑿痕是為了搬動碑身而下的，就在這幾日。" },
-    { id: "c_cellar", name: "碑後地窖入口", region: 6, text: "浮土下的活動板子掀開後有風上來——底下是空的，而且通著人待得住的地方。", requires: ["c_stele_mark", "c_temple_paper"] },
+    { id: "c_well_cloth", kind: "knowledge", name: "井臺藍布片", region: 1, text: "井臺石縫裡的藍布片，是新扯斷的。少女失蹤那日穿的正是藍衫。" },
+    { id: "c_ash", kind: "knowledge", name: "未冷的灶灰", region: 2, text: "空屋的灶今晚有人生過火，而且煮的份量不只一人。" },
+    { id: "c_pry", kind: "item", name: "短撬", region: 2, text: "農具堆裡抽出來的短撬，一尺來長，撬得動嵌死的板子。" },
+    { id: "c_bed_hair", kind: "knowledge", name: "床下紅頭繩", region: 3, text: "西廂床板縫裡的紅頭繩，斷口朝門。她曾被關在這間屋子裡。" },
+    { id: "c_temple_paper", kind: "knowledge", name: "廢廟殘黃紙", region: 4, text: "殘破黃紙上寫著二十年前的日子——正是那樁溺井舊案的日子。" },
+    { id: "c_road_track", kind: "knowledge", name: "山路拖痕", region: 5, text: "泥地上的拖痕通往後山，旁邊的腳印一深一淺，是負重的人留下的。" },
+    { id: "c_villager_lie", kind: "knowledge", name: "村長之弟的矛盾口供", region: 5, text: "他說整晚沒出過門，但村口的人記得他戌時往後山去過。", requires: ["c_road_track"] },
+    { id: "c_stele_mark", kind: "knowledge", name: "古碑新鑿痕", region: 6, text: "碑腳的新鑿痕是為了搬動碑身而下的，就在這幾日。" },
+    { id: "c_cellar", kind: "knowledge", name: "碑後地窖入口", region: 6, text: "浮土下的活動板子掀開後有風上來——底下是空的，而且通著人待得住的地方。", requires: ["c_stele_mark", "c_temple_paper"] },
   ],
 
+  // 三個角色是三種觀察者，可搜索區與可取得線索刻意不重疊——
+  // 帶誰進來就決定你先看見案子的哪一半（規格書第八節）。
   companions: [
     {
-      id: "daoshi_m",
+      id: "daoshi_m", // 師兄：古籍、符號、陣法、建築
       regions: [4, 5, 6],
       clues: ["c_temple_paper", "c_road_track", "c_stele_mark"],
       trigger: "玩家停滯 15 分鐘，或玩家已取得任一線索且當前不在該區",
+    },
+    {
+      id: "daoshi_f", // 師妹：人際、情緒、言語漏洞
+      regions: [1, 2, 5],
+      clues: ["c_well_cloth", "c_ash", "c_villager_lie"],
+      trigger: "玩家停滯 15 分鐘，或玩家已與任一 NPC 對話過",
+    },
+    {
+      id: "lingshou", // 觀喵：靈異、氣味、動物異常、禁忌
+      regions: [1, 3, 6],
+      clues: ["c_well_cloth", "c_bed_hair", "c_stele_mark"],
+      trigger: "玩家停滯 10 分鐘，或世界時間入夜（21 時後）",
     },
   ],
 };
