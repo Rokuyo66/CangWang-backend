@@ -257,6 +257,22 @@ function looksLikeDivination(msg: string): boolean {
 }
 
 // 卦歷摘要（注入聊天，讓角色記得用戶問過什麼）
+// 他在此人眼中的身分 → 一句聲口提示（見 0038 character_titles）。
+// ⚠ 回傳值只能接進 tail。head 對同一角色全站逐字相同、下了 cache_control 共用
+//    快取前綴；把隨用戶而異的身分放進去，前綴會依身分分岔，命中率當場崩掉——
+//    好感數字被趕到 tail 是同一個理由。
+async function titleVoiceHint(db: SupabaseClient, userId: string, characterId: string): Promise<string> {
+  const { data: uc } = await db.from("user_character").select("title_tag")
+    .eq("user_id", userId).eq("character_id", characterId).maybeSingle();
+  const id = uc?.title_tag;
+  if (!id) return "";                                   // 沒選＝用預設，不多注一句
+  // 綁 character_id 一起查：別人的身分套不到這個角色身上（前端傳什麼都一樣）
+  const { data: t } = await db.from("character_titles").select("label, voice_hint")
+    .eq("id", id).eq("character_id", characterId).maybeSingle();
+  if (!t) return "";
+  return `【你此刻的身分】${t.label}${t.voice_hint ? `——${t.voice_hint}` : ""}`;
+}
+
 async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
@@ -390,7 +406,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
-function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0) {
+function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "") {
   // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
   const probeRule = probeStreak >= MAX_PROBE_ROUNDS
     ? `
@@ -455,7 +471,10 @@ ${QUESTION_CRAFT}
 - 寧可漏標，不可誤標——把閒聊當問卦逼人起卦，非常破壞體驗。純閒聊、情感陪伴、生活對話（喝茶、訴苦、抱怨、分享心情、問候、調情、聊近況）**三種標記都不要輸出**。
 - 引導起卦時**絕不可附帶任何成本字眼**（靈石、要幾顆、有沒有靈石、免費幾次、付費）——他按下那道卦印之後是白揭還是償香火，觀中自有定數，那不歸你管、你也不知情。你只管邀他起卦，錢的事一個字都別碰。`;
 
-  const tail = `【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+  // 身分那句擺 tail 最前面：先立身分，再談淵源。
+  // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
+  const titleBlock = titleLine ? titleLine + "\n" : "";
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
 ${castLines || "（他還沒問過卦。）"}
 聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
@@ -670,7 +689,8 @@ export async function chat(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
   const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free");
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak);
+  const titleLine = await titleVoiceHint(db, p.userId, p.characterId);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
