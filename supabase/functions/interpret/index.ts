@@ -460,6 +460,106 @@ Deno.serve(async (req) => {
       return Response.json({ kind: "ok", character_id: cid, avatar: val }, { headers: CORS });
     }
 
+    /* ═══ 道緣事件 ═══
+       進度與身分一律由伺服器判定。客戶端只送「我做了什麼」，不送「我因此得到什麼」——
+       localStorage 玩家自己改得動，拿它當憑據等於把解鎖權交出去。 */
+
+    // 已完成的事件 id（取代前端暫存的 storyDone）
+    if (body.mode === "event_progress") {
+      const { data: rows } = await db.from("user_character_events")
+        .select("event_id, chosen, completed_at").eq("user_id", uid).not("completed_at", "is", null);
+      const done: Record<string, { chosen: string | null; at: string }> = {};
+      for (const r of (rows ?? []) as { event_id: string; chosen: string | null; completed_at: string }[])
+        done[r.event_id] = { chosen: r.chosen, at: r.completed_at };
+      // 順帶回傳已選身分：名片、聊天抬頭、卦例詳情三處都要同步顯示，
+      // 分三支 API 去問等於為了一行字打三次網路。
+      const { data: ucs } = await db.from("user_character").select("character_id, title_tag").eq("user_id", uid);
+      const picked = (ucs ?? []).filter((r: { title_tag: string | null }) => r.title_tag);
+      const { data: labels } = picked.length
+        ? await db.from("character_titles").select("id, label").in("id", picked.map((r: { title_tag: string }) => r.title_tag))
+        : { data: [] };
+      const labelOf = new Map((labels ?? []).map((t: { id: string; label: string }) => [t.id, t.label]));
+      const titles: Record<string, { id: string; label: string }> = {};
+      for (const r of picked as { character_id: string; title_tag: string }[])
+        if (labelOf.has(r.title_tag)) titles[r.character_id] = { id: r.title_tag, label: labelOf.get(r.title_tag)! };
+      return Response.json({ kind: "ok", done, titles }, { headers: CORS });
+    }
+
+    // 完成一章。獎勵只在 completed_at 由 null 轉 now() 的那一次發放——
+    // 用唯一性約束當併發仲裁者（同 cast_claims 的思路），重放請求拿不到第二份。
+    if (body.mode === "event_finish") {
+      const evId = String(body.event_id ?? "");
+      const chosen = body.chosen == null ? null : String(body.chosen).slice(0, 40);
+      const { data: ev } = await db.from("character_events")
+        .select("id, character_id, require_favor, require_event, rewards").eq("id", evId).maybeSingle();
+      if (!ev) return Response.json({ kind: "err", msg: "查無此事件" }, { headers: CORS });
+
+      // 道緣門檻：現在才驗，因為前端擋得住的東西不等於伺服器可以不擋
+      const { data: uc } = await db.from("user_character").select("favor")
+        .eq("user_id", uid).eq("character_id", ev.character_id).maybeSingle();
+      if ((uc?.favor ?? 0) < (ev.require_favor ?? 0))
+        return Response.json({ kind: "err", msg: "道緣未至" }, { headers: CORS });
+
+      // 前置章未完成就不能跳關
+      if (ev.require_event) {
+        const { data: prev } = await db.from("user_character_events").select("completed_at")
+          .eq("user_id", uid).eq("event_id", ev.require_event).maybeSingle();
+        if (!prev?.completed_at) return Response.json({ kind: "err", msg: "前一章尚未了結" }, { headers: CORS });
+      }
+
+      const { data: cur } = await db.from("user_character_events").select("completed_at")
+        .eq("user_id", uid).eq("event_id", evId).maybeSingle();
+      const firstTime = !cur?.completed_at;
+      await db.from("user_character_events").upsert(
+        { user_id: uid, event_id: evId, chosen, completed_at: cur?.completed_at ?? new Date().toISOString() },
+        { onConflict: "user_id,event_id" });
+
+      // 重看時只更新選項，不再發一次獎勵
+      const rw = (ev.rewards ?? {}) as Record<string, unknown>;
+      if (firstTime && typeof rw.memory === "string" && rw.memory.trim())
+        await db.from("character_memories")
+          .insert({ user_id: uid, character_id: ev.character_id, body: rw.memory, source: "event" });
+
+      return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? rw : {} }, { headers: CORS });
+    }
+
+    // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）
+    if (body.mode === "char_titles") {
+      const cid = String(body.character_id ?? "");
+      const { data: list } = await db.from("character_titles")
+        .select("id, label, unlock_event").eq("character_id", cid).order("seq");
+      const { data: doneRows } = await db.from("user_character_events")
+        .select("event_id").eq("user_id", uid).not("completed_at", "is", null);
+      const done = new Set((doneRows ?? []).map((r: { event_id: string }) => r.event_id));
+      const { data: uc } = await db.from("user_character").select("title_tag")
+        .eq("user_id", uid).eq("character_id", cid).maybeSingle();
+      // voice_hint 不下發：那是給模型看的，不是給人看的，外流等於劇透兼被玩家調校
+      const items = (list ?? []).map((t: { id: string; label: string; unlock_event: string | null }) =>
+        ({ id: t.id, label: t.label, unlock_event: t.unlock_event, unlocked: !t.unlock_event || done.has(t.unlock_event) }));
+      return Response.json({ kind: "ok", items, selected: uc?.title_tag ?? null }, { headers: CORS });
+    }
+
+    // 換身分。會改變他聊天時的聲口（voice_hint 注進 systemPrompt 的 tail）
+    if (body.mode === "set_char_title") {
+      const cid = String(body.character_id ?? "");
+      const tid = String(body.title_id ?? "");
+      if (!tid) {   // 空字串＝回復預設
+        await db.from("user_character").upsert({ user_id: uid, character_id: cid, title_tag: null }, { onConflict: "user_id,character_id" });
+        return Response.json({ kind: "ok", character_id: cid, title_id: null }, { headers: CORS });
+      }
+      // 綁 character_id 一起查：別人的身分套不到這個角色身上
+      const { data: t } = await db.from("character_titles")
+        .select("id, label, unlock_event").eq("id", tid).eq("character_id", cid).maybeSingle();
+      if (!t) return Response.json({ kind: "err", msg: "此身分不屬於該角色" }, { headers: CORS });
+      if (t.unlock_event) {
+        const { data: done } = await db.from("user_character_events").select("completed_at")
+          .eq("user_id", uid).eq("event_id", t.unlock_event).maybeSingle();
+        if (!done?.completed_at) return Response.json({ kind: "err", msg: "此身分尚未解鎖" }, { headers: CORS });
+      }
+      await db.from("user_character").upsert({ user_id: uid, character_id: cid, title_tag: tid }, { onConflict: "user_id,character_id" });
+      return Response.json({ kind: "ok", character_id: cid, title_id: tid, label: t.label }, { headers: CORS });
+    }
+
     // 載入聊天歷史（前端顯示用；記憶後端本就保存）
     if (body.mode === "chat_history") {
       // 取「最新」40 則（原本 ascending+limit 是取最舊 40）；
