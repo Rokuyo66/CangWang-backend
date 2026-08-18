@@ -15,7 +15,7 @@ const HUANGCUN: CaseDef = {
   id: "huangcun",
   title: "荒村借宿",
   question: "此行能否尋回失蹤的少女",
-  useQin: "子孫", // 少女、小口取子孫爻
+  useQin: "應", // 問無名分之陌生少女行蹤 → 取應爻（rules.ts 第 25 行）
   regions: [
     { pos: 1, name: "村口水井", image: "宅基·井·灶·地下" },
     { pos: 2, name: "主屋堂室", image: "宅·堂屋·廚房·內室" },
@@ -83,12 +83,17 @@ function report(label: string, states: CaseState[]) {
 
   // 各維度分佈
   const dims: [string, (s: CaseState) => string][] = [
-    ["關鍵線索區 keyPos", (s) => String(s.keyPos ?? "不上卦")],
+    ["關鍵線索區 keyPos", (s) => String(s.key.pos ?? "不上卦")],
     ["取得代價 access", (s) => s.access],
     ["玩家立足區 startPos(世)", (s) => String(s.startPos)],
     ["對手區 rivalPos(應)", (s) => String(s.rivalPos)],
     ["節奏 tempo", (s) => s.tempo],
-    ["用神伏藏", (s) => (s.hidden ? "伏" : "現")],
+    ["用神伏藏", (s) => (s.key.hidden ? "伏" : "現")],
+    ["用神月令旺衰", (s) => s.key.wang ?? "-"],
+    ["用神力量 grade", (s) => s.key.grade],
+    ["世用生剋", (s) => s.shiYong ?? "-"],
+    ["忌神(阻力)態勢", (s) => (s.support.jiStrong ? "旺動" : s.support.jiActive ? "發動" : "靜")],
+    ["元神(助力)態勢", (s) => (s.support.yuanActive ? "發動" : "靜")],
     ["主軸方位 palaceDir", (s) => s.palaceDir],
   ];
   console.log("\n【各維度分佈】");
@@ -114,20 +119,24 @@ function report(label: string, states: CaseState[]) {
   console.log(`  三局平均看到幾種不同 core：${(distinct3core / Math.floor(n / 3)).toFixed(2)} / 3  ← 這才是內容真正要撐的差異`);
 
   // 退化風險：玩家一開局就站在關鍵線索上 → 案子可能秒破，需要特別設計
-  const onKey = states.filter((s) => s.startPos === s.keyPos).length;
-  const rivalKey = states.filter((s) => s.rivalPos === s.keyPos).length;
+  const onKey = states.filter((s) => s.startPos === s.key.pos).length;
+  const rivalKey = states.filter((s) => s.rivalPos === s.key.pos).length;
   console.log("\n【退化風險】");
   console.log(`  世持用神（立足區＝關鍵線索區，開局即站在線索上）：${pct(onKey, n)}`);
   console.log(`  應持用神（線索在對手手上）：${pct(rivalKey, n)}`);
 }
 
 function dump(s: CaseState) {
+  const k = s.key, sp = s.support;
   console.log(`\n  ── ${s.benName}${s.turnTo ? ` 之 ${s.turnTo}` : ""}（${s.palace}宮${s.guaType}）`);
   console.log(`     主軸方位 ${s.palaceDir}${s.turnDir ? ` → 翻面 ${s.turnDir}` : ""}   節奏 ${s.tempo}   ${s.omens.join("、") || "無特殊格局"}`);
-  console.log(`     用神${s.useQin} 落 ${s.keyPos ?? "不上卦"} 區${s.hidden ? "（伏）" : ""}   代價 ${s.access}   立足 ${s.startPos} 區   對手 ${s.rivalPos} 區`);
+  console.log(`     用神${s.useQin} 落 ${k.pos ?? "不上卦"} 區${k.hidden ? `（伏於 ${k.flyPos} 區飛神下，${k.chuFu}）` : ""}`);
+  console.log(`     旺衰 ${k.wang}／${k.grade}   ${[k.kong, k.mu, k.po, k.anDong ? "暗動" : null].filter(Boolean).join("·") || "無空破墓"}   日辰 ${k.dayActs.join("·") || "不作用"}`);
+  console.log(`     代價 ${s.access}   世用 ${s.shiYong}   立足 ${s.startPos} 區   對手 ${s.rivalPos} 區`);
+  console.log(`     元神(助) ${sp.yuanPos.join("、") || "無"}${sp.yuanActive ? " 發動" : ""}   忌神(阻) ${sp.jiPos.join("、") || "無"}${sp.jiStrong ? " 旺動" : sp.jiActive ? " 發動" : ""}${sp.tongGuan ? "   →貪生忘剋通關" : ""}`);
   for (const r of s.regions.slice().reverse()) {
     const mark = r.roles.length ? `[${r.roles.join("")}]` : "";
-    const mv = r.moving ? `動→${r.flux.join("·") || "平變"}` : "";
+    const mv = r.moving ? `動→${r.flux.join("·") || "平變"}` : r.anDong ? "暗動" : "";
     console.log(`     ${r.pos} ${r.name.padEnd(6)} ${r.qin}${r.zhi}(${r.wx}) ${r.beast} ${r.dir.padEnd(2)} ${mark}${mv} ${r.tags.length ? "【" + r.tags.join("·") + "】" : ""}`);
   }
 }
@@ -137,13 +146,14 @@ const errs = selfCheck();
 console.log(errs.length ? `❌ 自檢失敗：\n  ${errs.join("\n  ")}` : "✅ 卦理常數自檢通過（八卦上卦對照 64 卦、沖合墓、生剋、旬空、八方位）");
 if (errs.length) process.exit(1);
 
-// 用神取法待六六裁決：少女若為玩家晚輩親屬取子孫；若為無名分之陌生人，
-// 正統取應爻。兩者的佈局分佈差很多，先各跑一輪比較。
-const HUANGCUN_YING: CaseDef = { ...HUANGCUN, id: "huangcun_ying", useQin: "應" };
+// 裁決：用神依所問之事取，不為遊戲效果攀親帶故。荒村借宿問的是無名分之
+// 陌生少女行蹤 → 取應爻。單一案件內世應組合固定不是缺點，變化由旺衰生剋
+// 與元忌神承擔——A 就是在驗這句話。C 保留六親路徑，證明飛伏機制未消失。
+const HUANGCUN_ZISUN: CaseDef = { ...HUANGCUN, id: "huangcun_zisun", useQin: "子孫" };
 
-report("A. 用神取子孫（少女＝晚輩）＋ 隨機進案時間", runBatch(N, false));
-report("B. 用神取子孫 ＋ 固定進案時間（2026-08-18 戌時，隔離時間變因）", runBatch(N, true));
-report("C. 用神取應爻（少女＝陌生人，正統取法）＋ 隨機進案時間", runBatch(N, false, HUANGCUN_YING));
+report("A. 用神取應（問陌生少女行蹤·正統取法）＋ 隨機進案時間", runBatch(N, false));
+report("B. 用神取應 ＋ 固定進案時間（2026-08-18 戌時，隔離時間變因）", runBatch(N, true));
+report("C. 用神取子孫（六親路徑，飛伏仍在）＋ 隨機進案時間", runBatch(N, false, HUANGCUN_ZISUN));
 
 /* ═══ 用神類型 → 案件手感對照 ═══
    同一張地圖，換一個用神就換一種佈局分佈。
@@ -153,9 +163,9 @@ console.log(`  ${"用神".padEnd(6)}${"core種數".padEnd(9)}${"有效數".padEn
 for (const qin of ["父母", "兄弟", "官鬼", "妻財", "子孫", "應"]) {
   const st = runBatch(N, false, { ...HUANGCUN, id: `q_${qin}`, useQin: qin });
   const core = tally(st.map((s) => s.sig.core));
-  const hid = pct(st.filter((s) => s.hidden).length, N);
-  const onKey = pct(st.filter((s) => s.startPos === s.keyPos).length, N);
-  const kp = tally(st.map((s) => s.keyPos));
+  const hid = pct(st.filter((s) => s.key.hidden).length, N);
+  const onKey = pct(st.filter((s) => s.startPos === s.key.pos).length, N);
+  const kp = tally(st.map((s) => s.key.pos));
   const dist = [1, 2, 3, 4, 5, 6].map((p) => ((kp.get(p) ?? 0) / N * 100).toFixed(0).padStart(3)).join(" ");
   console.log(`  ${qin.padEnd(6)}${String(core.size).padEnd(9)}${entropyEff([...core.values()], N).toFixed(1).padEnd(8)}${hid.padEnd(8)}${onKey.padEnd(9)}${dist}`);
 }
