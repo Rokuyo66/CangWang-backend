@@ -9,7 +9,7 @@
 // 不送「我因此得到什麼」。RunState 可整包存進 case_runs.state。
 
 import type { CaseState } from "./case.ts";
-import type { CaseFile, ClueFile, ObjectFile } from "./case-schema.ts";
+import type { CaseFile, ClueFile, NpcFile, ObjectFile } from "./case-schema.ts";
 
 /* ═══════════════ 狀態 ═══════════════ */
 
@@ -29,6 +29,7 @@ export interface RunState {
   searched: number[];         // 已搜索過的區
   seen: string[];             // 已查看過的物件 id
   talked: string[];           // 已對話過的 npc id
+  heard: string[];            // 已聽過的 NPC 台詞，鍵為 `${npcId}#${句次}`
   compFinds: string[];        // 同行角色取得之線索
   lostClues: string[];        // 因時限錯失、本局再也拿不到的線索
   worldMarks: string[];       // 已觸發的時間事件
@@ -195,7 +196,7 @@ export function startRun(cf: CaseFile, st: CaseState, companion: string | null, 
   const run: RunState = {
     caseId: cf.id, companion, minute, startMinute: minute,
     region: st.startPos,  // 世爻 ＝ 玩家立足之處
-    clues: [], searched: [], seen: [], talked: [], compFinds: [], lostClues: [],
+    clues: [], searched: [], seen: [], talked: [], heard: [], compFinds: [], lostClues: [],
     worldMarks: [], errand: null, log: [], ended: false,
   };
   const compName = companion ? COMPANION_NAME[companion] ?? companion : null;
@@ -233,11 +234,18 @@ export function options(cf: CaseFile, st: CaseState, run: RunState): ActionOptio
     });
   }
 
-  for (const n of view.npcs)
+  // 「談過了」不等於「問完了」——拿到新證據後他可能就肯講了。
+  // 不標出來的話，玩家不會知道該回頭找誰，證據撬口供這條路等於沒開。
+  for (const n of view.npcs) {
+    const npc = cf.npcs.find((x) => x.id === n.id)!;
+    const hasNew = freshLines(cf, run, npc).length > 0;
     out.push({
       action: { kind: "talk", npcId: n.id },
-      label: `攀談　${n.name}`, cost: COST.talk, note: n.talked ? "已談過" : undefined,
+      label: `攀談　${n.name}`,
+      cost: COST.talk,
+      note: !n.talked ? undefined : hasNew ? "他還有話" : "已談過",
     });
+  }
 
   // 外出中就不出這顆鈕——人不在你身邊，沒有人可以拜託。
   // 剩餘時間由畫面另外顯示，不塞回選項列表裡假裝是個可按的東西。
@@ -321,6 +329,26 @@ function returnFromErrand(cf: CaseFile, st: CaseState, run: RunState) {
   gainClue(cf, run, st, pick, `（${name}帶回來的）`);
 }
 
+/** 此刻這位 NPC 願意說、而玩家還沒聽過的話。
+ *
+ *  一句話要出得來，三個條件都得成立：沒聽過、needs 的線索都在手上、
+ *  它要給的那條線索本身的 requires 也滿足。
+ *  最後一項不能省——requires 是線索自身的前提，不因為改由誰口中說出而失效。 */
+function freshLines(cf: CaseFile, run: RunState, npc: NpcFile) {
+  run.heard ??= [];   // 舊存檔沒有這個欄位
+  return npc.says
+    .map((line, i) => ({ line, key: `${npc.id}#${i}` }))
+    .filter(({ line, key }) => {
+      if (run.heard.includes(key)) return false;
+      if (!(line.needs ?? []).every((n) => run.clues.includes(n))) return false;
+      if (line.clue) {
+        const c = cf.clues.find((x) => x.id === line.clue);
+        if (c && !(c.requires ?? []).every((r) => run.clues.includes(r))) return false;
+      }
+      return true;
+    });
+}
+
 function gainClue(cf: CaseFile, run: RunState, st: CaseState, clueId: string, via: string) {
   if (run.clues.includes(clueId)) return;
   const c = cf.clues.find((x) => x.id === clueId);
@@ -368,11 +396,15 @@ export function applyAction(cf: CaseFile, st: CaseState, prev: RunState, a: Acti
       if (!npc) break;
       advance(cf, st, run, COST.talk);
       if (!run.talked.includes(npc.id)) run.talked.push(npc.id);
-      const shown = (npc.reactsTo ?? []).filter((c) => run.clues.includes(c));
-      push(run, "talk", `${npc.name}：${npc.voice}`);
-      if (shown.length) {
-        const names = shown.map((c) => cf.clues.find((x) => x.id === c)?.name).join("、");
-        push(run, "talk", `你把【${names}】擺到他面前。他的話停了半拍——那半拍比他說的任何一句都清楚。`);
+      const fresh = freshLines(cf, run, npc);
+      if (!fresh.length) {
+        push(run, "talk", `${npc.name}把方才的話又說了一遍。沒有新的東西——除非你手上多點什麼。`);
+        break;
+      }
+      for (const { line, key } of fresh) {
+        run.heard.push(key);
+        push(run, "talk", `${npc.name}：${line.text}`);
+        if (line.clue) gainClue(cf, run, st, line.clue, `（${npc.name}說的）`);
       }
       break;
     }

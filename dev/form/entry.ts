@@ -405,14 +405,27 @@ function secNpcs(): string {
     ${field("名稱", "name", `npcs.${i}.name`, "text")}
     ${field("所在區", "region", `npcs.${i}.region`, "select", { options: ["1", "2", "3", "4", "5", "6"] })}
     ${field("聲口", "voice", `npcs.${i}.voice`, "area",
-      { rows: 3, hint: "唯一餵給 AI 的性格來源。寫他怎麼說話、避談什麼、什麼會讓他鬆口" })}
-    ${field("會有反應", "reactsTo", `npcs.${i}.reactsTo`, "text",
-      { hint: "以逗號分隔的線索識別碼；出示這些會改變他的態度" })}
+      { rows: 3, hint: "唯一餵給 AI 的性格來源。寫他怎麼說話、避談什麼、什麼會讓他鬆口。這是導演指示，不是台詞" })}
+    <div class="sub">
+      <div class="sub-h">他會說的話（依序判定，條件滿足且沒聽過才出）</div>
+      ${(n.says ?? []).map((_, j) => `<div class="line">
+        <div class="item-h"><span class="n">第 ${j + 1} 句</span>
+          <button class="x" data-del="say" data-i="${i}" data-j="${j}">移除</button></div>
+        ${field("內容", "text", `npcs.${i}.says.${j}.text`, "area",
+          { rows: 2, hint: "這句要傳達的事實。素材不是台詞——AI 依聲口演繹" })}
+        ${field("要先有", "needs", `npcs.${i}.says.${j}.needs`, "text",
+          { hint: "逗號分隔的線索識別碼。留空＝一開口就說。「沒證據就撬不開他的口」靠這欄" })}
+        ${field("說了會給", "clue", `npcs.${i}.says.${j}.clue`, "text",
+          { hint: "線索識別碼。留空＝只是反應或場面話，不給新資訊" })}
+      </div>`).join("")}
+      <button class="add sm" data-add="say" data-i="${i}">＋ 加一句</button>
+    </div>
   </div>`).join("");
 
   return `<div class="sec">
     <h2>NPC</h2>
-    <p class="cap">村民、關係人。共 ${cf.npcs.length} 位。對話是全案唯一會即時生成的部分。</p>
+    <p class="cap">村民、關係人。共 ${cf.npcs.length} 位。對話是全案唯一會即時生成的部分。
+      每個人至少要有一句話——開不了口的 NPC，玩家攀談只會得到空氣。</p>
     ${body}
     <button class="add" data-add="npc">＋ 加一位 NPC</button>
   </div>`;
@@ -554,9 +567,16 @@ ${cf.clues.map((c) => `    { id: ${q(c.id)}, name: ${q(c.name)}, region: ${c.reg
   ],
 
   npcs: [
-${cf.npcs.map((n) => `    { id: ${q(n.id)}, name: ${q(n.name)}, region: ${n.region}` +
-    (n.reactsTo?.length ? `, reactsTo: [${n.reactsTo.map(q).join(", ")}]` : "") +
-    `,\n      voice: ${q(n.voice)} },`).join("\n")}
+${cf.npcs.map((n) => `    {
+      id: ${q(n.id)}, name: ${q(n.name)}, region: ${n.region},
+      voice: ${q(n.voice)},
+      says: [
+${(n.says ?? []).map((l) => "        { " +
+    (l.needs?.length ? `needs: [${l.needs.map(q).join(", ")}], ` : "") +
+    (l.clue ? `clue: ${q(l.clue)}, ` : "") +
+    `text: ${q(l.text)} },`).join("\n")}
+      ],
+    },`).join("\n")}
   ],
 
   companions: [
@@ -743,13 +763,14 @@ function renderPlay() {
 /* ═══════════════ 事件 ═══════════════ */
 
 // 逗號分隔的欄位：表單存字串，模型存陣列
-const LIST_PATHS = /(\.requires|\.reactsTo|companions\.\d+\.(regions|clues))$/;
+const LIST_PATHS = /(\.requires|\.needs|companions\.\d+\.(regions|clues))$/;
 const NUM_LIST = /companions\.\d+\.regions$/;
 
 function readControl(path: string, raw: string): unknown {
   if (path === "entryHour") return raw === "依玩家當下" ? null : Number(raw);
   if (/^clues\.\d+\.region$|^npcs\.\d+\.region$/.test(path)) return Number(raw);
-  if (/\.clue$/.test(path)) return raw === "（不給線索）" ? undefined : raw;
+  // NPC 台詞的 clue 是文字輸入（不是下拉），留空就是「這句不給線索」
+  if (/\.clue$/.test(path)) return (!raw.trim() || raw === "（不給線索）") ? undefined : raw;
   if (/\.needsItem$/.test(path)) return raw === "（不需道具）" ? undefined : raw;
   if (LIST_PATHS.test(path)) {
     const parts = raw.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
@@ -801,8 +822,13 @@ app.addEventListener("click", (e) => {
     cf.clues.push({ id: "", name: "", region: 1, text: "", kind: "knowledge" } as ClueFile);
     save(); render(); return;
   }
+  if (add === "say") {
+    const npc = cf.npcs[Number(t.dataset.i)];
+    (npc.says ??= []).push({ text: "" });
+    save(); render(); return;
+  }
   if (add === "npc") {
-    cf.npcs.push({ id: "", name: "", region: 1, voice: "" } as NpcFile);
+    cf.npcs.push({ id: "", name: "", region: 1, voice: "", says: [{ text: "" }] } as NpcFile);
     save(); render(); return;
   }
   if (add === "companion") {
@@ -817,6 +843,7 @@ app.addEventListener("click", (e) => {
   }
   if (del === "clue") { cf.clues.splice(Number(t.dataset.i), 1); save(); render(); return; }
   if (del === "npc") { cf.npcs.splice(Number(t.dataset.i), 1); save(); render(); return; }
+  if (del === "say") { cf.npcs[Number(t.dataset.i)].says.splice(Number(t.dataset.j), 1); save(); render(); return; }
   if (del === "companion") { cf.companions.splice(Number(t.dataset.i), 1); save(); render(); return; }
 
   const act = t.dataset.act;

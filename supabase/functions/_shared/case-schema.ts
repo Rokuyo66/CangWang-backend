@@ -56,12 +56,27 @@ export interface ClueFile {
   kind: "knowledge" | "item";
 }
 
+/** NPC 會說的一句話。
+ *
+ *  「若無其他證據，就撬不開他的口」這件事靠 needs 做成真的機制——
+ *  原本的 reactsTo 只會印一句「他的話停了半拍」，玩家出示證據拿不到任何新資訊，
+ *  那是演出來的、不是機制。兩個欄位做同一件事只會讓作者維護兩份，故併為一個。 */
+export interface NpcLine {
+  /** 需先持有這些線索才會說出這句。省略＝一開口就說。 */
+  needs?: string[];
+  /** 說出來會取得的線索 id。省略＝只是反應或場面話，不給新資訊。 */
+  clue?: string;
+  /** 這句要傳達的內容——素材，不是最終台詞。
+   *  正式版由 AI 依 voice 演繹；無 AI 的原型直接呈現。 */
+  text: string;
+}
+
 export interface NpcFile {
   id: string;
   name: string;
   region: number;
-  voice: string;       // 聲口提示，供 AI 演繹
-  reactsTo?: string[]; // 出示這些線索／道具會改變其反應
+  voice: string;       // 聲口提示，供 AI 演繹；不是台詞，不該直接印給玩家看
+  says: NpcLine[];
 }
 
 export interface CompanionFile {
@@ -186,15 +201,23 @@ export function validateCase(cf: CaseFile): string[] {
   // 依賴 ＝ 前置線索 ∪ 取得途徑所需的道具。一條線索若有多個取得途徑，
   // 只要其中一條不需道具就不算被擋，故取各途徑所需道具的交集。
   const sourceDeps = (id: string): Set<string> => {
-    const objSources = cf.regions.flatMap((r) => r.objects.filter((o) => o.clue === id));
     const viaCompanion = cf.companions.some((c) => c.clues.includes(id));
-    if (viaCompanion) return new Set(); // 角色自主搜索不需道具
-    if (!objSources.length) return new Set();
+    if (viaCompanion) return new Set(); // 角色自主搜索不需前置
+
+    // 每個取得途徑各自的前置：物件看 needsItem，NPC 看那句話的 needs
+    const perSource: Set<string>[] = [];
+    for (const r of cf.regions)
+      for (const o of r.objects)
+        if (o.clue === id) perSource.push(new Set(o.needsItem ? [o.needsItem] : []));
+    for (const n of cf.npcs)
+      for (const l of n.says ?? [])
+        if (l.clue === id) perSource.push(new Set(l.needs ?? []));
+
+    if (!perSource.length) return new Set();
+    // 多個途徑只要其中一條不需前置就不算被擋，故取交集
     let inter: Set<string> | null = null;
-    for (const o of objSources) {
-      const d = new Set(o.needsItem ? [o.needsItem] : []);
+    for (const d of perSource)
       inter = inter == null ? d : new Set([...inter].filter((x) => d.has(x)));
-    }
     return inter ?? new Set();
   };
   const depsOf = (id: string): string[] =>
@@ -215,16 +238,27 @@ export function validateCase(cf: CaseFile): string[] {
   const reachable = new Set<string>([
     ...cf.regions.flatMap((r) => r.objects.map((o) => o.clue).filter(Boolean) as string[]),
     ...cf.companions.flatMap((c) => c.clues),
+    ...cf.npcs.flatMap((n) => (n.says ?? []).map((l) => l.clue).filter(Boolean) as string[]),
   ]);
   for (const c of cf.clues)
-    if (!reachable.has(c.id)) push(`線索 ${c.id}「${c.name}」無任何取得途徑（沒有物件也沒有角色能拿到）`);
+    if (!reachable.has(c.id))
+      push(`線索 ${c.id}「${c.name}」無任何取得途徑（沒有物件、沒有角色、也沒有 NPC 會說）`);
 
   // NPC
   for (const n of cf.npcs) {
     if (n.region < 1 || n.region > 6) push(`NPC ${n.id} 的 region 越界：${n.region}`);
     if (!n.voice?.trim()) push(`NPC ${n.id} 缺 voice（聲口提示）`);
-    for (const r of n.reactsTo ?? [])
-      if (!clueIds.has(r)) push(`NPC ${n.id} 的 reactsTo 指向不存在的線索 ${r}`);
+    if (!Array.isArray(n.says) || !n.says.length)
+      push(`NPC ${n.id} 沒有任何 says——一個開口說不出話的人，玩家攀談只會得到空氣`);
+    (n.says ?? []).forEach((l, i) => {
+      const at = `NPC ${n.id} 第 ${i + 1} 句`;
+      if (!l.text?.trim()) push(`${at}缺 text`);
+      if (l.clue && !clueIds.has(l.clue)) push(`${at}指向不存在的線索 ${l.clue}`);
+      for (const r of l.needs ?? [])
+        if (!clueIds.has(r)) push(`${at}的 needs 指向不存在的線索 ${r}`);
+      if (l.clue && (l.needs ?? []).includes(l.clue))
+        push(`${at}要先持有 ${l.clue} 才肯說出 ${l.clue}——自己擋自己`);
+    });
   }
 
   // 同行角色

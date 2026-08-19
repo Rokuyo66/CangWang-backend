@@ -10,7 +10,7 @@ import { HUANGCUN } from "../supabase/functions/_shared/cases/huangcun.ts";
 
 const clone = (): CaseFile => structuredClone(HUANGCUN);
 
-type Case = { name: string; broken: () => CaseFile; expect: RegExp };
+type Case = { name: string; broken: () => CaseFile; expect: RegExp; negate?: boolean };
 
 const CASES: Case[] = [
   {
@@ -85,9 +85,61 @@ const CASES: Case[] = [
     expect: /需要不存在的道具 c_ghost/,
   },
   {
-    name: "NPC 反應指向不存在的線索",
-    broken: () => { const c = clone(); c.npcs[0].reactsTo = ["c_ghost"]; return c; },
-    expect: /reactsTo 指向不存在的線索 c_ghost/,
+    name: "NPC 台詞給的線索不存在",
+    broken: () => { const c = clone(); c.npcs[0].says.push({ text: "……", clue: "c_ghost" }); return c; },
+    expect: /指向不存在的線索 c_ghost/,
+  },
+  {
+    name: "NPC 台詞的 needs 指向不存在的線索",
+    broken: () => { const c = clone(); c.npcs[0].says.push({ text: "……", needs: ["c_ghost"] }); return c; },
+    expect: /needs 指向不存在的線索 c_ghost/,
+  },
+  {
+    name: "NPC 要先有這條線索才肯說出這條線索（自己擋自己）",
+    broken: () => {
+      const c = clone();
+      c.npcs[0].says.push({ text: "……", clue: "c_ash", needs: ["c_ash"] });
+      return c;
+    },
+    expect: /自己擋自己/,
+  },
+  {
+    name: "NPC 開不了口（says 空）",
+    broken: () => { const c = clone(); c.npcs[0].says = []; return c; },
+    expect: /沒有任何 says/,
+  },
+  {
+    name: "口供互鎖：甲要證據才說，證據又只有乙在有甲的口供後才給",
+    broken: () => {
+      const c = clone();
+      // 只留下互鎖的兩條路：先拔掉物件與同行角色這兩個旁路，
+      // 否則師妹／觀喵照樣拿得到 c_well_cloth，那就不是死鎖（驗證器判對）。
+      c.regions.find((r) => r.pos === 1)!.objects.find((o) => o.id === "o_well")!.clue = undefined;
+      for (const comp of c.companions)
+        comp.clues = comp.clues.filter((x) => x !== "c_well_cloth" && x !== "c_villager_lie");
+      // n_widow 要先有 c_villager_lie 才說得出 c_well_cloth
+      c.npcs.find((n) => n.id === "n_widow")!.says.push(
+        { text: "……", clue: "c_well_cloth", needs: ["c_villager_lie"] });
+      // 而 c_villager_lie 又要先有 c_well_cloth 才問得出來
+      c.npcs.find((n) => n.id === "n_brother")!.says =
+        [{ text: "……", clue: "c_villager_lie", needs: ["c_well_cloth"] }];
+      return c;
+    },
+    expect: /線索依賴成環/,
+  },
+  {
+    name: "旁路仍在時不該誤報死鎖（互鎖但同行角色拿得到）",
+    broken: () => {
+      const c = clone();
+      c.regions.find((r) => r.pos === 1)!.objects.find((o) => o.id === "o_well")!.clue = undefined;
+      c.npcs.find((n) => n.id === "n_widow")!.says.push(
+        { text: "……", clue: "c_well_cloth", needs: ["c_villager_lie"] });
+      c.npcs.find((n) => n.id === "n_brother")!.says =
+        [{ text: "……", clue: "c_villager_lie", needs: ["c_well_cloth"] }];
+      return c;  // 師妹／觀喵沒動，兩條線索都還拿得到
+    },
+    expect: /^(?!.*依賴成環).*$/,   // 期望「不報死鎖」——見下方 negate
+    negate: true,
   },
   {
     name: "同行角色能拿到自己搜不到的區的線索",
@@ -145,11 +197,15 @@ console.log("✅ 基準：荒村借宿結構乾淨\n");
 
 for (const c of CASES) {
   const errs = validateCase(c.broken());
-  const hit = errs.some((e) => c.expect.test(e));
+  // negate 是反向的反向：確認驗證器在旁路仍在時「不要」誤報死鎖。
+  // 只驗死鎖這一類，其他無關的錯不影響判定。
+  const hit = c.negate
+    ? !errs.some((e) => /依賴成環/.test(e))
+    : errs.some((e) => c.expect.test(e));
   if (hit) { pass++; console.log(`  ✅ ${c.name}`); }
   else {
     fail++;
-    console.log(`  ❌ ${c.name}\n       期望符合 ${c.expect}\n       實際：${errs.length ? errs.join(" ／ ") : "（驗證器什麼都沒抓到）"}`);
+    console.log(`  ❌ ${c.name}\n       期望${c.negate ? "不報死鎖" : "符合 " + c.expect}\n       實際：${errs.length ? errs.join(" ／ ") : "（驗證器什麼都沒抓到）"}`);
   }
 }
 
