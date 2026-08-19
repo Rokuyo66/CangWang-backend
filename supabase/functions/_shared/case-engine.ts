@@ -32,12 +32,23 @@ export interface RunState {
   compFinds: string[];        // 同行角色取得之線索
   lostClues: string[];        // 因時限錯失、本局再也拿不到的線索
   worldMarks: string[];       // 已觸發的時間事件
+  /** 同行角色外出中。null＝人在你身邊。
+   *
+   *  玩家不知道他去了哪一區——told 決定他出門前有沒有順口說。這不是省事，
+   *  是玩法本身：不知道他在哪，你才會為了「要不要自己也去後山」猶豫；
+   *  兩人撞在同一區也不特別處理，反正有些東西本來就只有他找得到。 */
+  errand: { region: number; returnAt: number; told: boolean } | null;
   log: LogEntry[];
   ended: boolean;
 }
 
-/* 行動時間成本（規格書第七節） */
-export const COST = { move: 5, search: 3, inspect: 1, talk: 5, companion: 10 } as const;
+/* 行動時間成本（規格書第七節）。
+   companion 是「開口拜託一句」的成本，不是他跑一趟的時間——
+   那一趟走的是世界時間，玩家在這期間可以做別的事。 */
+export const COST = { move: 5, search: 3, inspect: 1, talk: 5, companion: 1 } as const;
+
+/** 一刻。角色台詞裡講的也是這個數字，機制與口語不能各說各話。 */
+export const ERRAND_MINUTES = 15;
 
 export type Action =
   | { kind: "move"; to: number }
@@ -185,7 +196,7 @@ export function startRun(cf: CaseFile, st: CaseState, companion: string | null, 
     caseId: cf.id, companion, minute, startMinute: minute,
     region: st.startPos,  // 世爻 ＝ 玩家立足之處
     clues: [], searched: [], seen: [], talked: [], compFinds: [], lostClues: [],
-    worldMarks: [], log: [], ended: false,
+    worldMarks: [], errand: null, log: [], ended: false,
   };
   const compName = companion ? COMPANION_NAME[companion] ?? companion : null;
   push(run, "system", `【${cf.title}】${cf.question}`);
@@ -228,13 +239,15 @@ export function options(cf: CaseFile, st: CaseState, run: RunState): ActionOptio
       label: `攀談　${n.name}`, cost: COST.talk, note: n.talked ? "已談過" : undefined,
     });
 
-  if (run.companion) {
+  // 外出中就不出這顆鈕——人不在你身邊，沒有人可以拜託。
+  // 剩餘時間由畫面另外顯示，不塞回選項列表裡假裝是個可按的東西。
+  if (run.companion && !run.errand) {
     const comp = cf.companions.find((c) => c.id === run.companion);
     const left = (comp?.clues ?? []).filter((c) => !run.clues.includes(c) && !run.compFinds.includes(c));
     out.push({
       action: { kind: "companion" },
-      label: `請${COMPANION_NAME[run.companion]}分頭去看看`, cost: COST.companion,
-      note: left.length ? undefined : "他這一帶已經看遍了",
+      label: `請${COMPANION_NAME[run.companion]}去看看`, cost: COST.companion,
+      note: left.length ? undefined : "他能找的都找過了",
     });
   }
 
@@ -249,9 +262,21 @@ export function options(cf: CaseFile, st: CaseState, run: RunState): ActionOptio
 
 /* ═══════════════ 執行行動 ═══════════════ */
 
+/** 由局面狀態衍生的偽亂數：同一個盤面重跑必得同一份結果，除錯時才追得回去。 */
+function roll(run: RunState, salt: number): number {
+  const x = Math.sin((run.minute + salt * 97 + run.clues.length * 13) * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 function advance(cf: CaseFile, st: CaseState, run: RunState, mins: number) {
   const before = run.minute;
   run.minute += mins;
+
+  // 同行角色歸來：時間跨過歸期就觸發，玩家人在哪一區都一樣——他是回來找你的
+  if (run.errand && before < run.errand.returnAt && run.minute >= run.errand.returnAt) {
+    returnFromErrand(cf, st, run);
+  }
+
   for (const ev of WORLD_EVENTS)
     if (before < ev.at && run.minute >= ev.at && !run.worldMarks.includes(ev.id)) {
       run.worldMarks.push(ev.id);
@@ -267,6 +292,33 @@ function advance(cf: CaseFile, st: CaseState, run: RunState, mins: number) {
       push(run, "world", "來不及了——有人趕在你前頭把那處清乾淨了。");
     }
   }
+}
+
+/** 歸來。帶得回東西就給，空手也要有話講——只有成功才有內容的話，失敗就只是靜音。 */
+function returnFromErrand(cf: CaseFile, st: CaseState, run: RunState) {
+  const errand = run.errand!;
+  run.errand = null;
+  const name = COMPANION_NAME[run.companion!] ?? run.companion!;
+  const comp = cf.companions.find((c) => c.id === run.companion);
+  const where = cf.regions.find((r) => r.pos === errand.region)?.name ?? "";
+
+  const pick = (comp?.clues ?? []).find((cid) => {
+    const c = cf.clues.find((x) => x.id === cid);
+    if (!c || c.region !== errand.region) return false;
+    if (run.clues.includes(cid) || run.compFinds.includes(cid)) return false;
+    return (c.requires ?? []).every((r) => run.clues.includes(r));
+  });
+
+  if (!pick) {
+    push(run, "companion", errand.told
+      ? `${name}回來了，兩手空空。「${where}那頭沒什麼可看的。」`
+      : `${name}回來了，兩手空空。你問他去了哪，他只說「繞了一圈」。`);
+    return;
+  }
+
+  run.compFinds.push(pick);
+  push(run, "companion", `${name}回來了，臉色與出門時不同。「${where}，你得聽我說。」`);
+  gainClue(cf, run, st, pick, `（${name}帶回來的）`);
 }
 
 function gainClue(cf: CaseFile, run: RunState, st: CaseState, clueId: string, via: string) {
@@ -325,19 +377,29 @@ export function applyAction(cf: CaseFile, st: CaseState, prev: RunState, a: Acti
       break;
     }
     case "companion": {
-      if (!run.companion) break;
-      advance(cf, st, run, COST.companion);
+      if (!run.companion || run.errand) break;
       const comp = cf.companions.find((c) => c.id === run.companion);
       const name = COMPANION_NAME[run.companion];
-      const pick = (comp?.clues ?? []).find((cid) => {
-        if (run.clues.includes(cid) || run.compFinds.includes(cid)) return false;
-        const c = cf.clues.find((x) => x.id === cid)!;
-        return (c.requires ?? []).every((r) => run.clues.includes(r));
-      });
-      if (!pick) { push(run, "companion", `${name}繞了一圈回來，搖搖頭。`); break; }
-      run.compFinds.push(pick);
-      push(run, "companion", `【${name}似乎發現了什麼。】`);
-      gainClue(cf, run, st, pick, `（${name}帶回來的）`);
+      if (!comp?.regions.length) break;
+
+      // 他自己挑去哪：優先挑「那一區還有他拿得到、且前置已滿足的線索」，
+      // 沒有這種區就隨便走一趟。玩家看不到這個判斷。
+      const worth = comp.regions.filter((pos) =>
+        comp.clues.some((cid) => {
+          const c = cf.clues.find((x) => x.id === cid);
+          return c && c.region === pos && !run.clues.includes(cid) && !run.compFinds.includes(cid) &&
+            (c.requires ?? []).every((r) => run.clues.includes(r));
+        }));
+      const pool = worth.length ? worth : comp.regions;
+      const target = pool[Math.floor(roll(run, 1) * pool.length)];
+      const told = roll(run, 2) < 0.5;   // 他不一定會說去哪
+
+      advance(cf, st, run, COST.companion);
+      run.errand = { region: target, returnAt: run.minute + ERRAND_MINUTES, told };
+      const where = cf.regions.find((r) => r.pos === target)?.name ?? "";
+      push(run, "companion", told
+        ? `${name}：「我往${where}走一趟，一刻後歸來，你莫亂跑。」`
+        : `${name}：「我去去就回，一刻。」他沒說要往哪走，轉身就沒入夜色裡了。`);
       break;
     }
     case "end": {

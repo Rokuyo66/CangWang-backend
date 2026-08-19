@@ -138,6 +138,10 @@ export function mountPlay(root: HTMLElement, CF: CaseFile) {
           <span>${esc(view.name)}</span>
           <span class="dim">${esc(view.dir)}　${esc(view.beast)}·${esc(view.mood)}</span>
           ${view.roles.length ? `<span class="role">${esc(view.roles.join(""))}</span>` : ""}
+          ${r.errand
+            ? `<span class="l-world">${esc(COMPANION_NAME[r.companion!] ?? "")}外出中`
+              + `·約 ${Math.max(0, r.errand.returnAt - r.minute)} 分後歸</span>`
+            : ""}
           <button class="mini" data-act="togglegua">${showChart ? "收起卦盤" : "看卦盤"}</button>
         </div>
         ${showChart ? guaPanel(st, true) : ""}
