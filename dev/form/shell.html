@@ -105,6 +105,68 @@
   .todo .cum{margin-left:auto;color:#6e665b;font-variant-numeric:tabular-nums}
   .err{font-size:12px;color:var(--warn);margin:0 0 5px;padding-left:1em;text-indent:-1em}
 
+  /* ── 試玩畫面：與 dev/play 共用同一組 class，樣式由 shell 各自帶 ── */
+  /* 全部加 #playRoot 範圍：.big 在填表是覆蓋率數字、在原型是大按鈕，
+     .bar 在填表是進度條、在原型是狀態列。不分開的話後者會蓋掉前者。 */
+  #playRoot .picks{display:grid;gap:8px}
+  #playRoot .pick{display:block;width:100%;text-align:left;background:var(--panel);
+      border:1px solid var(--line);border-radius:2px;padding:12px 14px}
+  #playRoot .pick:hover{border-color:var(--gold)}
+  #playRoot .pick.on{border-color:var(--gold);background:#221d17}
+  #playRoot .pn{display:block;font-size:15px}
+  #playRoot .pd{display:block;font-size:12px;color:var(--dim);margin-top:3px}
+  #playRoot .row{display:flex;gap:10px;margin-top:20px}
+  #playRoot .big{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:2px;
+      padding:14px;font-size:15px;letter-spacing:.1em}
+  #playRoot .big:hover{border-color:var(--gold)}
+  #playRoot .big.go{border-color:var(--gold);color:var(--gold)}
+  #playRoot .gua{background:var(--panel);border:1px solid var(--line);border-radius:2px;
+      padding:14px 16px;margin:14px 0;font-size:13px}
+  #playRoot .ghead{font-size:15px;margin-bottom:8px}
+  #playRoot .gline{margin:3px 0}
+  #playRoot .acc{color:var(--gold)}
+  #playRoot .acc-void, #playRoot .acc-hiddenHard, #playRoot .acc-contested{color:var(--warn)}
+  #playRoot .acc-open, #playRoot .acc-stirring{color:var(--ok)}
+  #playRoot .gtab{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+  #playRoot .gtab td{padding:3px 6px;border-top:1px solid var(--line);white-space:nowrap}
+  #playRoot .gtab .p{color:var(--gold);width:1em}
+  #playRoot .role{color:var(--gold)}
+  #playRoot .game{display:grid;grid-template-columns:1fr 320px;gap:16px;
+      max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+  #playRoot .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+      padding-bottom:10px;border-bottom:1px solid var(--line);font-size:13px}
+  #playRoot .clock{color:var(--gold);font-size:17px;font-variant-numeric:tabular-nums}
+  #playRoot .mini{margin-left:auto;background:none;border:1px solid var(--line);
+      border-radius:2px;padding:4px 10px;font-size:12px;color:var(--dim)}
+  #playRoot .mini:hover{border-color:var(--gold);color:var(--gold)}
+  #playRoot .scene{margin:16px 0 20px}
+  #playRoot .scene p{margin:0 0 12px}
+  #playRoot .log{border-top:1px solid var(--line);padding-top:14px;
+      max-height:46vh;overflow-y:auto;font-size:14px}
+  #playRoot .l{margin:0 0 9px;color:var(--dim)}
+  #playRoot .lt{display:inline-block;min-width:52px;color:#5f574c;font-size:12px;
+      font-variant-numeric:tabular-nums}
+  #playRoot .l-gain{color:var(--gold)}
+  #playRoot .l-world{color:var(--warn)}
+  #playRoot .l-talk, #playRoot .l-companion{color:var(--ink)}
+  #playRoot .l-system{color:#6e665b;font-style:italic}
+  #playRoot .right{display:flex;flex-direction:column;gap:12px}
+  #playRoot .panel{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:14px}
+  #playRoot .act{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+      width:100%;text-align:left;background:none;border:1px solid var(--line);
+      border-radius:2px;padding:9px 11px;margin-bottom:6px;font-size:14px}
+  #playRoot .act:hover{border-color:var(--gold)}
+  #playRoot .act.warn{border-color:#4a352a}
+  #playRoot .cost{font-size:11px;color:var(--dim);white-space:nowrap}
+  #playRoot .itm{margin:0 0 6px;font-size:13px}
+  #playRoot .itm.lost{color:var(--warn);text-decoration:line-through}
+  #playRoot .truth{background:var(--panel);border-left:2px solid var(--gold);padding:12px 16px}
+  #playRoot .truth.hid{border-left-color:var(--line);color:var(--dim)}
+  @media(max-width:900px) {
+  #playRoot .game{grid-template-columns:1fr}
+  #playRoot .log{max-height:30vh}
+  }
+
   @media(max-width:1040px){
     .app{grid-template-columns:1fr}
     .side{position:static;max-height:none}

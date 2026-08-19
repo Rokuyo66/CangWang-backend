@@ -22,6 +22,7 @@ import {
   type CompanionFile, type ObjectFile, type CoverageReport,
 } from "../../supabase/functions/_shared/case-schema.ts";
 import { HUANGCUN } from "../../supabase/functions/_shared/cases/huangcun.ts";
+import { mountPlay } from "../shared/play-ui.ts";
 
 const app = document.getElementById("app")!;
 const STORE_KEY = "guaan.case.draft";
@@ -54,7 +55,7 @@ const ROLE_SLOTS = [
 function blankCase(): CaseFile {
   return {
     id: "", title: "", version: 1, question: "", useQin: "應",
-    truth: "", entryHour: null, voidPolicy: "allow",
+    truth: "", brief: "", entryHour: null, voidPolicy: "allow",
     regions: [1, 2, 3, 4, 5, 6].map((pos): RegionFile => ({
       pos, name: "", image: YAO_IMAGE[pos - 1], desc: "", objects: [], onKey: {},
     })),
@@ -85,6 +86,7 @@ function load(): CaseFile {
 
 let cf: CaseFile = load();
 let openRegion = 1;
+let mode: "form" | "play" = "form";
 
 let savedAt = "";
 let saveErr = "";
@@ -270,7 +272,11 @@ function secCase(): string {
     ${field("用神", "useQin", "useQin", "select", { options: VALID_USE_QIN })}
     ${field("客觀真相", "truth", "truth", "area", {
       rows: 5,
-      hint: "結案時原文呈現給玩家。只寫故事本身，不要寫給 AI 的約束——約束寫在註解，寫進字串玩家會讀到",
+      hint: "玩家看得到。結案時原文呈現，要好看、可留白。只寫故事本身，不要寫給 AI 的交代",
+    })}
+    ${field("事件全貌", "brief", "brief", "area", {
+      rows: 8,
+      hint: "玩家永遠看不到，只給 AI 對齊事實用。誰在什麼時候做了什麼、動機、時間線、各人知道多少又隱瞞什麼——要窮盡、要無趣、要把矛盾寫死。缺這段，AI 只能從零碎素材猜，猜出來的前後會打架",
     })}
     ${field("進案時辰", "entryHour", "entryHour", "select", {
       options: ["依玩家當下", ...Array.from({ length: 24 }, (_, i) => String(i))],
@@ -485,8 +491,10 @@ function sidePanel(rep: CoverageReport): string {
       區 ${cf.regions.length}　物件 ${cf.regions.reduce((s, r) => s + r.objects.length, 0)}<br>
       線索 ${cf.clues.length}（道具 ${cf.clues.filter((c) => c.kind === "item").length}）<br>
       NPC ${cf.npcs.length}　同行 ${cf.companions.length}<br>
-      真相 ${cf.truth.length} 字
+      真相 ${cf.truth.length} 字　事件全貌 ${(cf.brief ?? "").length} 字
     </p>
+    ${(cf.brief ?? "").trim() ? "" :
+      `<p class="err" style="margin-top:8px">・事件全貌還空著——AI 生成時沒有事實可對齊</p>`}
   </div>`;
 }
 
@@ -593,6 +601,7 @@ function renderSide() {
 }
 
 function render() {
+  if (mode === "play") { renderPlay(); return; }
   const rep = coverage();
   app.innerHTML = `
   <div class="top">
@@ -600,6 +609,8 @@ function render() {
     <button class="tb" data-act="load-huangcun">載入荒村借宿</button>
     <button class="tb" data-act="blank">空白新案</button>
     <button class="tb" data-act="import">匯入 JSON</button>
+    <button class="tb" data-act="play">試玩</button>
+    <button class="tb" data-act="prompt">生成初稿指令</button>
     ${CAP.artifact ? `<button class="tb on" data-act="cloud-save">存到雲端</button>` : ""}
     <span class="sp"></span>
     <span class="saved" id="cloudMsg">${esc(cloudMsg)}</span>
@@ -618,6 +629,115 @@ function render() {
     <div class="side" id="side">${sidePanel(rep)}</div>
   </div>`;
   paintStatus();
+}
+
+
+
+/* ═══════════════ 生成初稿指令 ═══════════════ */
+
+// 這支工具裡沒有模型，也不該有——填表是本機／沙箱環境，塞 API key 進去等於把金鑰
+// 發佈出去。所以這顆按鈕產的是「指令稿」：把事件全貌、已定的六區、以及線索與物件
+// 該長什麼樣的規格，一次寫成一份完整的 prompt，你貼給 Claude，拿回 JSON 再匯入。
+// 中間多一手，換到的是你逐條看過才進檔——AI 生的線索本來就該過人眼。
+function draftPrompt(): string {
+  const regions = cf.regions
+    .map((r) => `- 第 ${r.pos} 爻「${r.name || "（未命名）"}」　取象：${r.image}\n  場景：${r.desc || "（未寫）"}`)
+    .join("\n");
+  const haveClues = cf.clues.length
+    ? cf.clues.map((c) => `- ${c.id}（${c.kind}）${c.name}：${c.text}`).join("\n")
+    : "（目前沒有）";
+  const haveObjects = cf.regions.flatMap((r) =>
+    r.objects.map((o) => `- ${r.pos} 區 ${o.id} ${o.name}${o.clue ? ` → ${o.clue}` : ""}`)).join("\n") || "（目前沒有）";
+
+  return `# 卦案線索初稿：《${cf.title || "未命名"}》
+
+我在寫一個六爻卦案。以下是這個案子的設定，請依規格產出**線索（clues）與可調查物件（objects）**的初稿 JSON。
+
+## 事件全貌（只給你看，玩家看不到）
+
+${cf.brief?.trim() || "⚠ 這一欄還沒寫。沒有事件全貌就編不出彼此對得上的線索，請先回去補。"}
+
+## 結案時給玩家看的那段（口吻參考）
+
+${cf.truth || "（未寫）"}
+
+## 進案問句與用神
+
+問句：${cf.question || "（未寫）"}　用神：${cf.useQin}
+
+## 六區（爻位固定，不能增減）
+
+${regions}
+
+## 目前已有的線索
+
+${haveClues}
+
+## 目前已有的物件
+
+${haveObjects}
+
+## 規格
+
+線索 clue：
+- \`id\`：\`c_\` 開頭的英數小寫，全案唯一
+- \`name\`：四到八字的短名，玩家在「手上／已看出」清單裡看到的就是這個
+- \`region\`：1..6，線索所在的爻位區
+- \`kind\`：\`knowledge\`（你知道了什麼）或 \`item\`（你手上有什麼，可攜帶、可撬、可出示）
+- \`text\`：一到兩句，寫「這條線索告訴玩家什麼事實」，不要寫玩家的反應或心情
+- \`requires\`（可省）：前置線索 id 陣列。**不得成環**——A 需要 B、B 需要 A 就是死鎖，玩家永遠解不開
+
+物件 object（掛在某一區底下）：
+- \`id\`：\`o_\` 開頭
+- \`name\`：兩到四字，玩家在「此處」看到的按鈕字樣
+- \`desc\`：一句，調查它會看到什麼
+- \`clue\`（可省）：調查後取得的線索 id
+- \`needsItem\`（可省）：要先持有的道具 id。**只能指向 kind 為 item 的線索**——知識撬不開門
+
+硬性規則：
+1. 每一條線索都必須至少有一個物件指向它（\`clue\` 欄），否則玩家沒有取得途徑，是孤兒線索
+2. 六區都要有東西可查，不要讓某一區空著
+3. 所有線索合起來要能推到事件全貌的核心，但**單獨任何一條都不足以推出結論**
+4. 線索之間要能互相印證或互相矛盾，矛盾是好的——那是玩家判斷的依據
+5. 不要寫玩家的動作與情緒（不要出現「你感到不安」「你決定」），只寫客觀所見
+
+## 輸出
+
+只輸出一段 JSON，格式如下，不要其他說明：
+
+\`\`\`json
+{
+  "clues": [ { "id": "...", "name": "...", "region": 1, "kind": "knowledge", "text": "..." } ],
+  "objectsByRegion": { "1": [ { "id": "...", "name": "...", "desc": "...", "clue": "..." } ] }
+}
+\`\`\`
+`;
+}
+
+/* ═══════════════ 試玩 ═══════════════ */
+
+// 直接拿當下的草稿開跑，不必匯出再匯入——改一句、試一次，才追得動手感。
+function renderPlay() {
+  const errs = validateCase(cf);
+  app.innerHTML = `
+  <div class="top">
+    <h1>試玩　<span class="dim" style="font-size:13px">${esc(cf.title || "未命名")}</span></h1>
+    <button class="tb" data-act="back">回填表</button>
+    <span class="sp"></span>
+    <span class="saved">起卦是真隨機的：同一份案件，每次進來的代價都不一樣</span>
+  </div>
+  <div id="playRoot"></div>`;
+
+  const root = document.getElementById("playRoot")!;
+  if (errs.length) {
+    // 結構壞掉還硬跑，會在玩到一半才炸，且看不出是資料問題還是引擎問題
+    root.innerHTML = `<div class="wrap" style="max-width:760px;margin:0 auto;padding:32px 24px">
+      <p class="err">案件檔有 ${errs.length} 項結構錯誤，先修好才試得動：</p>
+      ${errs.map((e) => `<p class="err">・${esc(e)}</p>`).join("")}
+    </div>`;
+    return;
+  }
+  mountPlay(root, cf);
 }
 
 /* ═══════════════ 事件 ═══════════════ */
@@ -705,6 +825,9 @@ app.addEventListener("click", (e) => {
     if (!confirm("清成空白新案？目前草稿會被覆蓋（先匯出比較保險）。")) return;
     cf = blankCase(); probCache = null; save(); render(); return;
   }
+  if (act === "play") { mode = "play"; render(); return; }
+  if (act === "back") { mode = "form"; render(); return; }
+  if (act === "prompt") { void offerFile(`${cf.id || "case"}-初稿指令`, "md", draftPrompt()); return; }
   if (act === "cloud-save") { void cloudSave(); return; }
   if (act === "export-json") { void offerFile(cf.id || "case", "json", JSON.stringify(cf, null, 2)); return; }
   if (act === "export-ts") { void offerFile(cf.id || "case", "ts", toTS()); return; }
