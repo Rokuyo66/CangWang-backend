@@ -1,0 +1,387 @@
+// _shared/case-engine.ts — 卦案局內狀態機。
+//
+// 純函數：applyAction(舊狀態) → 新狀態，不改參數、不碰 I/O、不呼叫 AI。
+// 這一層決定「玩家做了什麼、世界因此變成什麼樣」；AI 之後只負責把這裡吐出的
+// 結構化結果演繹成文字。現階段完全不接 AI，直接用案件檔的文本槽——
+// 這樣才驗得出「骨架本身好不好玩」，而不是驗 AI 的包裝能力。
+//
+// 進度規則一律由伺服器判定（同 interpret 的既有做法）：客戶端只送「我做了什麼」，
+// 不送「我因此得到什麼」。RunState 可整包存進 case_runs.state。
+
+import type { CaseState } from "./case.ts";
+import type { CaseFile, ClueFile, ObjectFile } from "./case-schema.ts";
+
+/* ═══════════════ 狀態 ═══════════════ */
+
+export interface LogEntry {
+  clock: string;  // 世界時間 HH:MM
+  kind: "move" | "search" | "inspect" | "talk" | "companion" | "gain" | "world" | "system";
+  text: string;
+}
+
+export interface RunState {
+  caseId: string;
+  companion: string | null;   // daoshi_m／daoshi_f／lingshou／null＝獨自
+  minute: number;             // 世界時間（當日 00:00 起算之分鐘）
+  startMinute: number;
+  region: number;
+  clues: string[];            // 已取得線索（含道具）
+  searched: number[];         // 已搜索過的區
+  seen: string[];             // 已查看過的物件 id
+  talked: string[];           // 已對話過的 npc id
+  compFinds: string[];        // 同行角色取得之線索
+  lostClues: string[];        // 因時限錯失、本局再也拿不到的線索
+  worldMarks: string[];       // 已觸發的時間事件
+  log: LogEntry[];
+  ended: boolean;
+}
+
+/* 行動時間成本（規格書第七節） */
+export const COST = { move: 5, search: 3, inspect: 1, talk: 5, companion: 10 } as const;
+
+export type Action =
+  | { kind: "move"; to: number }
+  | { kind: "search" }
+  | { kind: "inspect"; objectId: string }
+  | { kind: "talk"; npcId: string }
+  | { kind: "companion" }
+  | { kind: "end" };
+
+export interface ActionOption { action: Action; label: string; cost: number; note?: string }
+
+/* ═══════════════ 世界時間 ═══════════════ */
+
+export const clockOf = (minute: number) =>
+  `${String(Math.floor(minute / 60) % 24).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+
+/** 時間推進造成的世界變化。同一張地圖靠這個產生不同體驗，不需新美術。 */
+const WORLD_EVENTS: { at: number; id: string; text: string }[] = [
+  { at: 20 * 60, id: "w_home", text: "院子裡的人陸續回屋去了。村子安靜下來。" },
+  { at: 21 * 60, id: "w_incense", text: "廢廟那頭飄來香火味——有人這時候還去上香。" },
+  { at: 22 * 60, id: "w_fog", text: "山路起霧了。往後山的路開始看不清楚。" },
+  { at: 23 * 60, id: "w_leave", text: "一個人影從村長家後門出去，往後山方向沒入霧裡。" },
+];
+
+/* ═══════════════ 投射結果 → 區域呈現 ═══════════════ */
+
+export interface RegionView {
+  pos: number; name: string; image: string; dir: string; beast: string; mood: string;
+  paragraphs: string[];        // 依當局投射組出的描述段落
+  roles: string[];             // 世／應／用神／元神／忌神
+  objects: { obj: ObjectFile; seen: boolean; blocked: string | null }[];
+  npcs: { id: string; name: string; talked: boolean }[];
+  searched: boolean;
+}
+
+/** onKey 取用的退讓鏈：作者沒填該代價時，退到語意最接近的已填槽，都沒有就略過。 */
+const KEY_FALLBACK: Record<string, string[]> = {
+  open: ["open", "normal"],
+  normal: ["normal", "open"],
+  stirring: ["stirring", "open", "normal"],
+  timed: ["timed", "normal", "open"],
+  sealed: ["sealed", "timed", "normal"],
+  void: ["void", "sealed", "timed", "normal"],
+  broken: ["broken", "normal"],
+  contested: ["contested", "normal", "open"],
+  hidden: ["hidden", "sealed", "normal"],
+  hiddenHard: ["hiddenHard", "hidden", "sealed", "normal"],
+  noCase: ["noCase"],
+};
+
+function keyText(cf: CaseFile, st: CaseState, pos: number): string | null {
+  const r = cf.regions.find((x) => x.pos === pos);
+  if (!r) return null;
+  for (const k of KEY_FALLBACK[st.access] ?? [st.access]) {
+    const t = r.onKey[k as keyof typeof r.onKey];
+    if (t?.trim()) return t;
+  }
+  return null;
+}
+
+/** 關鍵物件：關鍵線索區裡第一個會給線索的物件。卦決定它多難拿，不決定它在不在。 */
+function keyObjectId(cf: CaseFile, st: CaseState): string | null {
+  if (st.key.pos == null) return null;
+  const r = cf.regions.find((x) => x.pos === st.key.pos);
+  return r?.objects.find((o) => o.clue)?.id ?? null;
+}
+
+/** 取得阻礙：回傳擋住的理由，null＝可取。代價（access）只作用在關鍵物件上。 */
+export function blockedReason(
+  cf: CaseFile, st: CaseState, run: RunState, o: ObjectFile,
+): string | null {
+  const clue = o.clue ? cf.clues.find((c) => c.id === o.clue) : null;
+  if (clue) {
+    const missing = (clue.requires ?? []).filter((r) => !run.clues.includes(r));
+    if (missing.length) {
+      const names = missing.map((m) => cf.clues.find((c) => c.id === m)?.name ?? m);
+      return `你還看不出這代表什麼——得先弄清楚：${names.join("、")}`;
+    }
+  }
+  if (o.needsItem && !run.clues.includes(o.needsItem)) {
+    const it = cf.clues.find((c) => c.id === o.needsItem);
+    return `徒手辦不到，需要${it?.name ?? o.needsItem}。`;
+  }
+  if (o.clue && run.lostClues.includes(o.clue)) return "來遲了。原本在這裡的東西已經不在了。";
+
+  if (o.id === keyObjectId(cf, st)) {
+    switch (st.access) {
+      case "void":
+        return "怎麼找都是空的。這一趟，這條線索不在你能拿到的地方。";
+      case "timed": {
+        const due = run.startMinute + 60;
+        if (run.minute < due) return `現在還取不出來，得再等一陣（約 ${clockOf(due)} 之後）。`;
+        return null;
+      }
+      case "sealed":
+        if (!cf.clues.some((c) => c.kind === "item" && run.clues.includes(c.id)))
+          return "被封死了，徒手撬不開——手上得先有個能使力的東西。";
+        return null;
+      case "hidden":
+      case "hiddenHard": {
+        const fly = st.key.flyPos;
+        if (fly && !run.searched.includes(fly))
+          return `這東西藏在別的事底下。得先把第 ${fly} 區翻過一遍，才掀得開。`;
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
+export function regionView(cf: CaseFile, st: CaseState, run: RunState): RegionView {
+  const pos = run.region;
+  const rf = cf.regions.find((x) => x.pos === pos)!;
+  const rs = st.regions.find((x) => x.pos === pos)!;
+  const searched = run.searched.includes(pos);
+
+  const paragraphs = [rf.desc];
+  if (st.key.pos === pos) { const t = keyText(cf, st, pos); if (t) paragraphs.push(t); }
+  if (st.startPos === pos && rf.onStart) paragraphs.push(rf.onStart);
+  if (st.rivalPos === pos && rf.onRival) paragraphs.push(rf.onRival);
+  if (st.support.yuanPos.includes(pos) && rf.onYuan) paragraphs.push(rf.onYuan);
+  if (st.support.jiPos.includes(pos) && rf.onJi) paragraphs.push(rf.onJi);
+
+  const npcHere = cf.npcs.filter((n) => n.region === pos)
+    .filter((n) => !(n.id === "n_brother" && run.worldMarks.includes("w_leave")));
+
+  return {
+    pos, name: rf.name, image: rf.image, dir: rs.dir, beast: rs.beast, mood: rs.mood,
+    paragraphs, roles: rs.roles, searched,
+    objects: rf.objects.map((obj) => ({
+      obj, seen: run.seen.includes(obj.id), blocked: blockedReason(cf, st, run, obj),
+    })),
+    npcs: npcHere.map((n) => ({ id: n.id, name: n.name, talked: run.talked.includes(n.id) })),
+  };
+}
+
+/* ═══════════════ 開局 ═══════════════ */
+
+export function startRun(cf: CaseFile, st: CaseState, companion: string | null, nowHour?: number): RunState {
+  const hour = cf.entryHour ?? nowHour ?? 19;
+  const minute = hour * 60 + 30;
+  const run: RunState = {
+    caseId: cf.id, companion, minute, startMinute: minute,
+    region: st.startPos,  // 世爻 ＝ 玩家立足之處
+    clues: [], searched: [], seen: [], talked: [], compFinds: [], lostClues: [],
+    worldMarks: [], log: [], ended: false,
+  };
+  const compName = companion ? COMPANION_NAME[companion] ?? companion : null;
+  push(run, "system", `【${cf.title}】${cf.question}`);
+  push(run, "system", `起卦：${st.benName}${st.turnTo ? ` 之 ${st.turnTo}` : ""}（${st.palace}宮${st.guaType}）　主軸方位 ${st.palaceDir}`);
+  push(run, "system", compName ? `同行：${compName}` : "獨自前往。");
+  push(run, "move", `你落腳在${cf.regions.find((r) => r.pos === st.startPos)!.name}。`);
+  return run;
+}
+
+export const COMPANION_NAME: Record<string, string> = {
+  daoshi_m: "師兄", daoshi_f: "師妹", lingshou: "觀喵",
+};
+
+function push(run: RunState, kind: LogEntry["kind"], text: string) {
+  run.log.push({ clock: clockOf(run.minute), kind, text });
+}
+
+/* ═══════════════ 可選行動 ═══════════════ */
+
+export function options(cf: CaseFile, st: CaseState, run: RunState): ActionOption[] {
+  if (run.ended) return [];
+  const out: ActionOption[] = [];
+  const view = regionView(cf, st, run);
+
+  if (!view.searched)
+    out.push({ action: { kind: "search" }, label: `搜索${view.name}`, cost: COST.search });
+
+  for (const { obj, seen, blocked } of view.objects) {
+    if (!view.searched) continue;
+    out.push({
+      action: { kind: "inspect", objectId: obj.id },
+      label: `查看　${obj.name}`, cost: COST.inspect,
+      note: seen ? "已看過" : blocked ?? undefined,
+    });
+  }
+
+  for (const n of view.npcs)
+    out.push({
+      action: { kind: "talk", npcId: n.id },
+      label: `攀談　${n.name}`, cost: COST.talk, note: n.talked ? "已談過" : undefined,
+    });
+
+  if (run.companion) {
+    const comp = cf.companions.find((c) => c.id === run.companion);
+    const left = (comp?.clues ?? []).filter((c) => !run.clues.includes(c) && !run.compFinds.includes(c));
+    out.push({
+      action: { kind: "companion" },
+      label: `請${COMPANION_NAME[run.companion]}分頭去看看`, cost: COST.companion,
+      note: left.length ? undefined : "他這一帶已經看遍了",
+    });
+  }
+
+  for (const r of cf.regions) {
+    if (r.pos === run.region) continue;
+    out.push({ action: { kind: "move", to: r.pos }, label: `前往　${r.name}`, cost: COST.move });
+  }
+
+  out.push({ action: { kind: "end" }, label: "結案（收工回觀）", cost: 0 });
+  return out;
+}
+
+/* ═══════════════ 執行行動 ═══════════════ */
+
+function advance(cf: CaseFile, st: CaseState, run: RunState, mins: number) {
+  const before = run.minute;
+  run.minute += mins;
+  for (const ev of WORLD_EVENTS)
+    if (before < ev.at && run.minute >= ev.at && !run.worldMarks.includes(ev.id)) {
+      run.worldMarks.push(ev.id);
+      push(run, "world", ev.text);
+    }
+  // contested：忌神旺動剋用，關鍵線索正在被毀，過時不候
+  if (st.access === "contested" && st.key.pos != null) {
+    const deadline = run.startMinute + 45;
+    const keyObj = keyObjectId(cf, st);
+    const keyClue = keyObj ? cf.regions.flatMap((r) => r.objects).find((o) => o.id === keyObj)?.clue : null;
+    if (keyClue && run.minute >= deadline && !run.clues.includes(keyClue) && !run.lostClues.includes(keyClue)) {
+      run.lostClues.push(keyClue);
+      push(run, "world", "來不及了——有人趕在你前頭把那處清乾淨了。");
+    }
+  }
+}
+
+function gainClue(cf: CaseFile, run: RunState, st: CaseState, clueId: string, via: string) {
+  if (run.clues.includes(clueId)) return;
+  const c = cf.clues.find((x) => x.id === clueId);
+  if (!c) return;
+  run.clues.push(clueId);
+  const broken = st.access === "broken" && st.key.pos === c.region;
+  const tail = broken ? "（殘缺不全，只認得出一半）" : "";
+  push(run, "gain", `${c.kind === "item" ? "取得" : "看出"}【${c.name}】${via}　${c.text}${tail}`);
+  if (st.access === "stirring" && st.key.pos === c.region)
+    push(run, "gain", "而且不只如此——這處早就被人動過，只是表面看不出來。");
+}
+
+export function applyAction(cf: CaseFile, st: CaseState, prev: RunState, a: Action): RunState {
+  const run: RunState = structuredClone(prev);
+  if (run.ended) return run;
+
+  switch (a.kind) {
+    case "move": {
+      advance(cf, st, run, COST.move);
+      run.region = a.to;
+      push(run, "move", `你走到${cf.regions.find((r) => r.pos === a.to)!.name}。`);
+      break;
+    }
+    case "search": {
+      advance(cf, st, run, COST.search);
+      if (!run.searched.includes(run.region)) run.searched.push(run.region);
+      const rf = cf.regions.find((r) => r.pos === run.region)!;
+      push(run, "search", `你把${rf.name}翻了一遍。${rf.objects.map((o) => o.name).join("、")}——都值得再看看。`);
+      break;
+    }
+    case "inspect": {
+      const rf = cf.regions.find((r) => r.pos === run.region)!;
+      const obj = rf.objects.find((o) => o.id === a.objectId);
+      if (!obj) break;
+      advance(cf, st, run, COST.inspect);
+      if (!run.seen.includes(obj.id)) run.seen.push(obj.id);
+      const blocked = blockedReason(cf, st, run, obj);
+      push(run, "inspect", `${obj.name}：${obj.desc}`);
+      if (blocked) push(run, "system", blocked);
+      else if (obj.clue) gainClue(cf, run, st, obj.clue, `（${obj.name}）`);
+      break;
+    }
+    case "talk": {
+      const npc = cf.npcs.find((n) => n.id === a.npcId);
+      if (!npc) break;
+      advance(cf, st, run, COST.talk);
+      if (!run.talked.includes(npc.id)) run.talked.push(npc.id);
+      const shown = (npc.reactsTo ?? []).filter((c) => run.clues.includes(c));
+      push(run, "talk", `${npc.name}：${npc.voice}`);
+      if (shown.length) {
+        const names = shown.map((c) => cf.clues.find((x) => x.id === c)?.name).join("、");
+        push(run, "talk", `你把【${names}】擺到他面前。他的話停了半拍——那半拍比他說的任何一句都清楚。`);
+      }
+      break;
+    }
+    case "companion": {
+      if (!run.companion) break;
+      advance(cf, st, run, COST.companion);
+      const comp = cf.companions.find((c) => c.id === run.companion);
+      const name = COMPANION_NAME[run.companion];
+      const pick = (comp?.clues ?? []).find((cid) => {
+        if (run.clues.includes(cid) || run.compFinds.includes(cid)) return false;
+        const c = cf.clues.find((x) => x.id === cid)!;
+        return (c.requires ?? []).every((r) => run.clues.includes(r));
+      });
+      if (!pick) { push(run, "companion", `${name}繞了一圈回來，搖搖頭。`); break; }
+      run.compFinds.push(pick);
+      push(run, "companion", `【${name}似乎發現了什麼。】`);
+      gainClue(cf, run, st, pick, `（${name}帶回來的）`);
+      break;
+    }
+    case "end": {
+      run.ended = true;
+      push(run, "system", "你收拾東西，離開了這座村子。");
+      break;
+    }
+  }
+  return run;
+}
+
+/* ═══════════════ 案件回顧（規格書第十七節） ═══════════════ */
+
+export interface Review {
+  title: string; spent: number; clock: string;
+  companion: string | null; companionFinds: number; companionTotal: number;
+  found: ClueFile[]; missed: ClueFile[]; lost: ClueFile[];
+  solved: boolean;
+  gua: { ben: string; bian: string | null; palace: string; access: string; keyPos: number | null };
+  truthShown: boolean;
+}
+
+/** 破案條件：找到地窖入口。找不到不代表真相不同——真相一直都在那裡。 */
+export const SOLVE_CLUE = "c_cellar";
+
+export function review(cf: CaseFile, st: CaseState, run: RunState): Review {
+  const byId = new Map(cf.clues.map((c) => [c.id, c]));
+  const found = run.clues.map((c) => byId.get(c)!).filter(Boolean);
+  const lost = run.lostClues.map((c) => byId.get(c)!).filter(Boolean);
+  const missed = cf.clues.filter((c) => !run.clues.includes(c.id) && !run.lostClues.includes(c.id));
+  const comp = cf.companions.find((c) => c.id === run.companion);
+  return {
+    title: cf.title,
+    spent: run.minute - run.startMinute,
+    clock: clockOf(run.minute),
+    companion: run.companion ? COMPANION_NAME[run.companion] : null,
+    companionFinds: run.compFinds.length,
+    companionTotal: comp?.clues.length ?? 0,
+    found, missed, lost,
+    solved: run.clues.includes(SOLVE_CLUE),
+    gua: {
+      ben: st.benName, bian: st.turnTo, palace: `${st.palace}宮${st.guaType}`,
+      access: st.access, keyPos: st.key.pos,
+    },
+    truthShown: run.clues.includes(SOLVE_CLUE),
+  };
+}
