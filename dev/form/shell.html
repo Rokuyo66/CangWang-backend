@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>案件填表｜卦案</title>
-<style>
+<style id="styles">
   :root{
     --bg:#12100e; --panel:#1a1714; --line:#332c25; --ink:#e8e0d4; --dim:#8b8073;
     --gold:#c8a86b; --warn:#a8623f; --ok:#7d9a6a;
@@ -113,6 +113,9 @@
 </head>
 <body>
 <div id="app"></div>
-<script>/*BUNDLE*/</script>
+<!-- 草稿：線上版靠這格帶著走。頁面自行改寫此處內容再整頁重發，就等於存檔。
+     本機開啟時這裡是 null，改用 localStorage。 -->
+<script id="draft" type="application/json">null</script>
+<script id="bundle">/*BUNDLE*/</script>
 </body>
 </html>

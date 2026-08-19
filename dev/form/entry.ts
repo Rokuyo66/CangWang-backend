@@ -63,10 +63,23 @@ function blankCase(): CaseFile {
 }
 
 function load(): CaseFile {
+  // 撞版重載後留下的暫存最優先——那是還沒存成功的改動，丟了最痛
+  try {
+    const stash = sessionStorage.getItem(STORE_KEY);
+    if (stash) { sessionStorage.removeItem(STORE_KEY); return JSON.parse(stash) as CaseFile; }
+  } catch { /* 存取不到就算了 */ }
+
+  // 線上版：草稿隨頁面一起發佈，換裝置打開就在
+  try {
+    const raw = document.getElementById("draft")?.textContent?.trim();
+    if (raw && raw !== "null") return JSON.parse(raw) as CaseFile;
+  } catch { /* 草稿壞掉不該擋住開啟 */ }
+
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) return JSON.parse(raw) as CaseFile;
   } catch { /* 壞掉的草稿不值得中斷開啟，直接當沒有 */ }
+
   return structuredClone(HUANGCUN) as CaseFile;
 }
 
@@ -90,6 +103,98 @@ function save() {
 }
 function saveLabel(): string {
   return saveErr || (savedAt ? `已存 ${savedAt}` : "");
+}
+
+/* ═══════════════ 線上版：雲端存檔與存成檔案 ═══════════════ */
+
+// 兩個能力都可能不在（本機開檔就一定沒有），一律當作可能為 null 來寫。
+interface DownloadsCap { save(r: { filename: string; data: string }): Promise<unknown> }
+interface ArtifactCap { publish(html: string): Promise<{ version: string }> }
+const CAP: { artifact: ArtifactCap | null; downloads: DownloadsCap | null } =
+  { artifact: null, downloads: null };
+
+let cloudMsg = "";
+
+async function initCaps() {
+  const c = (globalThis as { claude?: { use?(n: string): Promise<unknown> } }).claude;
+  if (!c?.use) return;
+  CAP.artifact = await c.use("artifact").catch(() => null) as ArtifactCap | null;
+  CAP.downloads = await c.use("downloads").catch(() => null) as DownloadsCap | null;
+  render();
+}
+
+// 重建整頁原始碼。不能直接序列化現場 DOM——那裡面有 viewer session 狀態與
+// 平台注入的 script。樣式與 bundle 各自從自己那顆標籤取原文，其餘由這裡寫死。
+function pageSource(draftJson: string): string {
+  const styles = document.getElementById("styles")?.textContent ?? "";
+  const bundle = document.getElementById("bundle")?.textContent ?? "";
+  // 內容裡若出現 </script 會提前關掉標籤；JSON 與 JS 字串裡的 <\/script 意義不變
+  const safe = (s: string) => s.replace(/<\/script/gi, "<\\/script");
+  return `<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>案件填表｜卦案</title>
+<style id="styles">${styles}</style>
+</head>
+<body>
+<div id="app"></div>
+<script id="draft" type="application/json">${safe(draftJson)}</script>
+<script id="bundle">${safe(bundle)}</script>
+</body>
+</html>
+`;
+}
+
+async function cloudSave() {
+  if (!CAP.artifact) return;
+  cloudMsg = "存檔中…";
+  paintStatus();
+  // 撞版時整頁會被重載，JS 變數活不過去——先把稿子擱在 sessionStorage
+  try { sessionStorage.setItem(STORE_KEY, JSON.stringify(cf)); } catch { /* 存不了就算了 */ }
+  try {
+    await CAP.artifact.publish(pageSource(JSON.stringify(cf)));
+    try { sessionStorage.removeItem(STORE_KEY); } catch { /* 同上 */ }
+    const d = new Date();
+    cloudMsg = `已存到雲端 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? "";
+    cloudMsg =
+      code === "conflict" ? "另一處先存了，畫面即將重載——你這邊的改動已暫存，重載後還在" :
+      code === "not_writer" || code === "not_granted" ? "這個視窗是唯讀的，存不了" :
+      code === "rate_limited" ? "存得太密，等一下再存" :
+      code === "too_large" ? "頁面太大，存不進去" :
+      `存不進去（${code || (e as Error).message}）`;
+  }
+  paintStatus();
+}
+
+// 匯出。線上版走 downloads 能力（沙箱擋掉一般的 <a download>）；
+// 該能力的副檔名白名單沒有 .ts，所以線上版一律加 .txt，存下來自己改名。
+async function offerFile(base: string, ext: string, body: string) {
+  if (CAP.downloads) {
+    const filename = ext === "ts" ? `${base}.ts.txt` : `${base}.${ext}`;
+    cloudMsg = "";
+    paintStatus();
+    try {
+      await CAP.downloads.save({ filename, data: body });
+      cloudMsg = `已交給你存成 ${filename}`;
+    } catch (e) {
+      const code = (e as { code?: string }).code ?? "";
+      cloudMsg = code === "declined" ? "你取消了存檔" : `存檔失敗（${code || (e as Error).message}）`;
+    }
+    paintStatus();
+    return;
+  }
+  download(`${base}.${ext}`, body);
+}
+
+function paintStatus() {
+  const s = document.getElementById("savedAt");
+  if (s) s.textContent = saveLabel();
+  const c = document.getElementById("cloudMsg");
+  if (c) c.textContent = cloudMsg;
 }
 
 /* ═══════════════ 路徑存取 ═══════════════ */
@@ -468,8 +573,7 @@ function renderSide() {
   const rep = coverage();
   const el = document.getElementById("side");
   if (el) el.innerHTML = sidePanel(rep);
-  const s = document.getElementById("savedAt");
-  if (s) s.textContent = saveLabel();
+  paintStatus();
 
   // 表單本身不重繪（會踢掉游標），但「下一個該填哪個」的標記要跟著右盤走，
   // 否則剛填完的那格還掛著「← 下一個」，兩邊講的話不一樣。
@@ -496,10 +600,12 @@ function render() {
     <button class="tb" data-act="load-huangcun">載入荒村借宿</button>
     <button class="tb" data-act="blank">空白新案</button>
     <button class="tb" data-act="import">匯入 JSON</button>
+    ${CAP.artifact ? `<button class="tb on" data-act="cloud-save">存到雲端</button>` : ""}
     <span class="sp"></span>
+    <span class="saved" id="cloudMsg">${esc(cloudMsg)}</span>
     <span class="saved" id="savedAt"></span>
     <button class="tb" data-act="export-json">匯出 JSON</button>
-    <button class="tb" data-act="export-ts">匯出 .ts</button>
+    <button class="tb" data-act="export-ts">匯出 ${CAP.downloads ? ".ts.txt" : ".ts"}</button>
   </div>
   <div class="app">
     <div class="form">
@@ -511,8 +617,7 @@ function render() {
     </div>
     <div class="side" id="side">${sidePanel(rep)}</div>
   </div>`;
-  const s = document.getElementById("savedAt");
-  if (s) s.textContent = saveLabel();
+  paintStatus();
 }
 
 /* ═══════════════ 事件 ═══════════════ */
@@ -600,8 +705,9 @@ app.addEventListener("click", (e) => {
     if (!confirm("清成空白新案？目前草稿會被覆蓋（先匯出比較保險）。")) return;
     cf = blankCase(); probCache = null; save(); render(); return;
   }
-  if (act === "export-json") { download(`${cf.id || "case"}.json`, JSON.stringify(cf, null, 2)); return; }
-  if (act === "export-ts") { download(`${cf.id || "case"}.ts`, toTS()); return; }
+  if (act === "cloud-save") { void cloudSave(); return; }
+  if (act === "export-json") { void offerFile(cf.id || "case", "json", JSON.stringify(cf, null, 2)); return; }
+  if (act === "export-ts") { void offerFile(cf.id || "case", "ts", toTS()); return; }
   if (act === "import") {
     const inp = document.createElement("input");
     inp.type = "file"; inp.accept = ".json,application/json";
@@ -621,3 +727,4 @@ app.addEventListener("click", (e) => {
 });
 
 render();
+void initCaps();
