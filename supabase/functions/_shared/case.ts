@@ -212,8 +212,9 @@ function factTags(zhi: string, wx: string, c: Chart, moving: boolean): string[] 
   if (zhi === monZhi) t.push("臨月建");
   if (zhi === dayZhi) t.push("臨日建");
   if (CHONG[monZhi] === zhi) t.push("月破");
-  // 日沖：旺靜爻＝暗動（有用）；沖休囚爻＝日破
-  if (CHONG[dayZhi] === zhi) t.push(moving ? "日沖" : vig ? "暗動" : "日破");
+  // 日沖：旺相靜爻＝暗動（有用）；沖休囚靜爻＝日破。
+  // 此處的旺相只看月令，理由見 isAnDong()：日辰在沖它，就不可能同時生扶它。
+  if (CHONG[dayZhi] === zhi) t.push(moving ? "日沖" : isWangXiang(w) ? "暗動" : "日破");
   if (HE6[monZhi] === zhi) t.push("月合");
   if (HE6[dayZhi] === zhi) t.push("日合");
   // 入墓：唯休囚之爻才被關，旺相不入
@@ -224,9 +225,19 @@ function factTags(zhi: string, wx: string, c: Chart, moving: boolean): string[] 
   return t;
 }
 
+/** 暗動：日沖旺相之靜爻（rules.ts 第 33／37 行）。
+ *
+ *  「旺」取月令旺相二等，不併入日辰生扶——不是選擇從嚴，是日辰項在此結構上不可達：
+ *  六組地支相沖（子午、丑未、寅申、卯酉、辰戌、巳亥）的五行關係只有相剋與比和兩種，
+ *  沒有一組相生；同支更不可能相沖，故「臨日建」亦不成立。
+ *  換言之日辰既然在沖它，就不可能同時生扶它，暗動的旺只能由月令決定。
+ *
+ *  真假空與入墓仍用 vigorous()（含日辰生扶）——那兩處沒有相沖的前提，
+ *  rules.ts 明寫「日、月其一旺相」，日辰項在那裡是可達且必要的。 */
 function isAnDong(zhi: string, wx: string, c: Chart, moving: boolean): boolean {
   if (moving) return false;
-  return CHONG[c.ganzhi.day[1]] === zhi && vigorous(wx, zhi, c);
+  if (CHONG[c.ganzhi.day[1]] !== zhi) return false;
+  return isWangXiang(monthWang(wx, c.ganzhi.month[1]));
 }
 
 function fluxOf(c: Chart, i: number): string[] {
@@ -270,7 +281,7 @@ function keyStateOf(c: Chart, keyIdx: number | null, hidden: boolean,
   }
   let po: "月破" | "日破" | null = null;
   if (CHONG[monZhi] === zhi) po = "月破";
-  else if (!moving && CHONG[dayZhi] === zhi && !vig) po = "日破";
+  else if (!moving && CHONG[dayZhi] === zhi && !isWangXiang(w)) po = "日破";
   // 月破之「近乎無用」依 rules.ts 第 33 行限於休囚靜爻；旺相之爻或動爻逢月破不作廢論
   const poFatal = po === "日破" || (po === "月破" && !isWangXiang(w) && !moving);
   const anDong = !hidden && isAnDong(zhi, wx, c, moving);
@@ -507,7 +518,16 @@ export function selfCheck(): string[] {
   if (chou !== "金") e.push(`仇神錯：火之仇神應為金，得${chou}`);
   if (KE[chou!] !== yuan) e.push(`仇神須剋元神：${chou}剋${KE[chou!]}，應剋${yuan}`);
 
-  // 7. 旬空格式與八方位
+  // 7. 暗動判定的前提：六組相沖的五行關係只有相剋與比和，沒有一組相生。
+  //    這是「暗動之旺只由月令決定、不併入日辰生扶」的依據；前提若破，判定就要重寫。
+  for (const z of ZHI) {
+    const o = CHONG[z], a = ZHI_WX[z], b = ZHI_WX[o];
+    if (SHENG[a] === b || SHENG[b] === a)
+      e.push(`相沖竟相生：${z}(${a}) 沖 ${o}(${b})——暗動判定的前提被破壞，isAnDong 須重寫`);
+    if (z === o) e.push(`自沖：${z}`);
+  }
+
+  // 8. 旬空格式與八方位
   for (let i = 0; i < 60; i++) if (xunKong(i).length !== 2) e.push(`旬空格式錯 idx=${i}`);
   for (const t of ["乾","兌","離","震","巽","坎","艮","坤"]) if (!HOUTIAN_DIR[t]) e.push(`缺方位：${t}`);
 
