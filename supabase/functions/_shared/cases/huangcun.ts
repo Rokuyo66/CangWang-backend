@@ -102,7 +102,7 @@ export const HUANGCUN: CaseFile = {
       desc: "通往後山的土路從村長家門前經過。院裡燈還亮著，門卻閂上了。",
       objects: [
         { id: "o_road", name: "山路泥地", desc: "泥地上有一道拖痕，往後山去，旁邊跟著一雙深腳印。", clue: "c_road_track" },
-        { id: "o_gate", name: "村長家門", desc: "叩門後，開門的說法與他方才在村口講的對不上。", clue: "c_villager_lie" },
+        { id: "o_gate", name: "村長家門", desc: "門閂上了，門縫底下透出燈光。裡頭有兩個人的說話聲，一個壓著一個。" },
       ],
       onKey: {
         open: "拖痕在泥地上清清楚楚，一路指向後山，連遮都沒遮。",
@@ -131,10 +131,34 @@ export const HUANGCUN: CaseFile = {
     },
   ],
 
+  // says 依序判定：needs 都在手上、且尚未聽過，才會說出來。
+  // 「若無其他證據就撬不開他的口」是靠 needs 做成真的機制，不是氛圍文字。
   npcs: [
-    { id: "n_chief", name: "村長", region: 5, voice: "話少，答得慢，每一句都先想過。被問急了就說「山裡的事，山裡了」。", reactsTo: ["c_villager_lie", "c_temple_paper"] },
-    { id: "n_brother", name: "村長之弟", region: 4, voice: "話多、搶著解釋，手不肯放下來。越是無關的事講得越細。", reactsTo: ["c_road_track", "c_bed_hair"] },
-    { id: "n_widow", name: "井邊老婦", region: 1, voice: "耳背，講話大聲，翻來覆去講二十年前那樁溺井的事，沒人愛聽。", reactsTo: ["c_well_cloth"] },
+    {
+      id: "n_chief", name: "村長", region: 5,
+      voice: "話少，答得慢，每一句都先想過。被問急了就說「山裡的事，山裡了」。",
+      says: [
+        { text: "村裡近來太平，沒見過什麼外地姑娘。天黑了，客人早些歇著。" },
+        { needs: ["c_villager_lie"], text: "他沉默了很久，才說弟弟那晚確實出過門——去山上收柴，回來得晚，他親眼看見的。話說得太順，像預先想好的。" },
+        { needs: ["c_temple_paper", "c_villager_lie"], text: "看見那張黃紙上的日子，他把茶杯放下了。「那年的事，村裡不提。」再問就不肯開口。" },
+      ],
+    },
+    {
+      id: "n_brother", name: "村長之弟", region: 4,
+      voice: "話多、搶著解釋，手不肯放下來。越是無關的事講得越細。",
+      says: [
+        { text: "他一口氣講了半刻鐘的收成與山路難走，沒有一句和人有關。" },
+        { needs: ["c_road_track"], clue: "c_villager_lie", text: "提起山路上的拖痕，他的手停了一下，隨即說整晚沒出過門。說得太快，快得像早就備著。" },
+      ],
+    },
+    {
+      id: "n_widow", name: "井邊老婦", region: 1,
+      voice: "耳背，講話大聲，翻來覆去講二十年前那樁溺井的事，沒人愛聽。",
+      says: [
+        { text: "「那井裡的，不是自己跳的。」她說了三遍，村裡人繞著走。" },
+        { needs: ["c_well_cloth"], text: "她盯著那片布看了很久，說徐娘那日穿的就是這個顏色。然後笑了一下，那個笑不像瘋子。" },
+      ],
+    },
   ],
 
   clues: [
