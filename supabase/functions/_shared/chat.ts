@@ -36,7 +36,7 @@ function normalizeNarration(text: string, characterId: string): string {
 }
 const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
-const FREE_GUARD = "\n\n【絕對禁止·最高優先】你只記得上面實際列出的卦。不可虛構任何你與他的往事，不可提到上面沒列出的卦、個股或事件，不可說「去年」「上次」「之前你說過」這類話——沒列出的，就是從沒發生過。不確定就只聊當下這句，絕不腦補。";
+const FREE_GUARD = "\n\n【絕對禁止·最高優先】你只記得上面實際列出的卦。不可虛構任何你與他的往事，不可提到上面沒列出的卦、個股或事件，不可說「去年」「上次」「之前你說過」這類話——沒列出的，就是從沒發生過。不確定就只聊當下這句，絕不腦補。（例外：上面若附了卦紙原文，那段是真的，該認就認，不可否認自己寫過的卦理。）";
 // 下列數字是「八成目標」——期望的可見回覆長度，不是硬上限。實際 max_tokens = 目標 ÷ 0.8，
 // 多留兩成餘裕：乖乖照人設寫的回覆落在八成、自然收尾永不截斷；小幅超出仍在餘裕內能講完；
 // 只有暴衝才會撞到 ÷0.8 的天花板，交給 trimIncomplete 乾淨收束。天花板只是保險、模型不會去湊滿它，
@@ -273,6 +273,89 @@ async function titleVoiceHint(db: SupabaseClient, userId: string, characterId: s
   return `【你此刻的身分】${t.label}${t.voice_hint ? `——${t.voice_hint}` : ""}`;
 }
 
+// ── 引述橋接：把「他引的那句」接回卦紙原文 ──────────────────────────────
+// 起因：卦理正文（casts.reading／deep_reading）從不進聊天，使用者引卦紙上的原句來問，
+// 角色不但接不上，還被【不可捏造】那條鐵則逼著否認「我沒說過」——那句往往正是他自己寫的。
+// 做法：純字串比對（零模型成本），命中才注入那一段。沒命中就什麼都不加，不影響原本的成本。
+// 刻意不注入整篇卦理：一來每則多燒一整篇的 input，二來 Haiku 拿到全文就會就地重解卦，
+// 等於把「追問」與「完整卦理」白送——這裡只認句、只點一句，要細講一律引回追問。
+const MIN_QUOTE_RUN = 8;      // 連續幾字相符才算引述（中文 8 字連號已極具指向性，不致誤命中）
+const QUOTE_CTX_MAX = 220;    // 注入的原文上限：命中段落過長就以命中處為中心裁一段
+const QUOTE_SCAN_CASTS = 3;   // 只掃最近幾卦（引述幾乎都發生在剛看完的那張卦紙上）
+
+// 正規化：剝掉標點、空白與標記，只留可比對的字元；map 記下每個保留字元在原文的位置
+function normForQuote(s: string): { text: string; map: number[] } {
+  const map: number[] = [];
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (/[\p{Script=Han}A-Za-z0-9]/u.test(s[i])) { out += s[i]; map.push(i); }
+  }
+  return { text: out, map };
+}
+
+// 最長連續相符：只找「比目前最佳更長」的，找不到就早退，故實際比對次數遠低於 n×m
+function longestRun(msg: string, src: string, min: number): { len: number; at: number } | null {
+  let best: { len: number; at: number } | null = null;
+  for (let i = 0; i < msg.length; i++) {
+    let len = Math.max(min, (best?.len ?? 0) + 1) - 1;   // 從「要贏就得達到的長度」的前一格起跳
+    let at = -1;
+    while (i + len + 1 <= msg.length) {
+      const found = src.indexOf(msg.slice(i, i + len + 1));
+      if (found < 0) break;
+      at = found; len++;
+    }
+    if (at >= 0 && len >= min && len > (best?.len ?? 0)) best = { len, at };
+  }
+  return best;
+}
+
+// 取命中處所在的段落；段落過長則以命中處為中心裁一段（別把整篇卦理拖進來）
+function paragraphAt(src: string, idx: number, len: number): string {
+  const s = src.lastIndexOf("\n", idx) + 1;              // lastIndexOf 回 -1 時剛好成為 0
+  const e = src.indexOf("\n", idx + len) < 0 ? src.length : src.indexOf("\n", idx + len);
+  const raw = src.slice(s, e);
+  if (raw.length <= QUOTE_CTX_MAX) return raw.trim();
+  const half = Math.floor((QUOTE_CTX_MAX - len) / 2);
+  const from = Math.max(0, Math.min(idx - s - half, raw.length - QUOTE_CTX_MAX));
+  return (from > 0 ? "…" : "") + raw.slice(from, from + QUOTE_CTX_MAX).trim() +
+         (from + QUOTE_CTX_MAX < raw.length ? "…" : "");
+}
+
+/** 這句話裡有沒有引到卦紙原文？有就回傳可直接注入 system tail 的一段；沒有回空字串。 */
+async function quotedFromReadings(db: SupabaseClient, userId: string, characterId: string, message: string): Promise<string> {
+  // 只掃前 600 字：引述都很短，長貼文再往下比對純屬白燒 CPU（比對是 O(訊息×卦理)）
+  const msg = normForQuote(s2t(message.slice(0, 600)));
+  if (msg.text.length < MIN_QUOTE_RUN) return "";
+  const { data: casts } = await db.from("casts")
+    .select("id, question, gua_ben, reading, deep_reading, character_id")
+    .eq("user_id", userId).order("created_at", { ascending: false }).limit(QUOTE_SCAN_CASTS);
+  type Cast = { question: string | null; gua_ben: string | null; reading: string | null; deep_reading: string | null; character_id: string };
+  let best: { len: number; cast: Cast; label: string; text: string } | null = null;
+  for (const c of (casts ?? []) as Cast[]) {
+    for (const [label, src] of [["完整卦理", c.deep_reading], ["卦紙上的結論", c.reading]] as const) {
+      if (!src) continue;
+      const plain = src.replace(/<[^>]+>/g, "");          // 去掉附語等標記，免得留下裸字母干擾比對
+      const n = normForQuote(plain);
+      const hit = longestRun(msg.text, n.text, Math.max(MIN_QUOTE_RUN, (best?.len ?? 0) + 1));
+      if (!hit) continue;
+      const start = n.map[hit.at];
+      const end = n.map[hit.at + hit.len - 1];
+      best = { len: hit.len, cast: c, label, text: paragraphAt(plain, start, end - start + 1) };
+    }
+  }
+  if (!best) return "";
+  const where = `《${best.cast.gua_ben ?? "？"}》（他問「${(best.cast.question ?? "").slice(0, 20)}」那一卦）的${best.label}`;
+  if (best.cast.character_id === characterId) {
+    return `\n【他這句引的是你寫過的字】他剛才那句話裡，有一段與你先前落在卦紙上的原文逐字相符。出處是${where}，你在那裡寫過：
+「${best.text}」
+這確實是你寫的，坦然認下即可——**絕不可說「我沒說過」「我不記得」「你在哪聽的」**。可以就這一句點一兩句你的看法，但這裡是閒聊不是解卦：不重推卦理、不複述整段、不另起新論；他若想細究，請他去揭那道追問。\n`;
+  }
+  const { data: author } = await db.from("characters").select("name").eq("id", best.cast.character_id).maybeSingle();
+  return `\n【他這句引的是別人寫的卦理】他剛才那句話，與${where}裡的原文逐字相符，而那一卦是${author?.name ?? "觀中另一位"}評的、不是你寫的。原文：
+「${best.text}」
+那張卦紙你看得見，所以絕不可裝作不知情；但也**不可認作自己說的**——要提就說明白那是誰寫的。可以就這句給一句你自己的看法，但不重解此卦，要細究請他去揭追問或換人評卦。\n`;
+}
+
 async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
@@ -406,7 +489,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
-function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "") {
+function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "") {
   // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
   const probeRule = probeStreak >= MAX_PROBE_ROUNDS
     ? `
@@ -479,7 +562,10 @@ ${castLines || "（他還沒問過卦。）"}
 聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
 【鐵則·不可捏造】你對他的記憶，**只有上面實際列出的卦與記憶**。除此之外，你不知道他問過什麼、買過什麼、投資什麼，也沒有「去年」「上次」「之前你說過」這類往事——上面沒列的，就是沒發生過。絕不可虛構任何過往對話、個股名稱、時間或細節。若不記得，就老實順著當下聊，不要編。
-${favorLine}${probeRule}`;
+【但要分清兩件事·別把自己寫過的字也否認掉】上面那條管的是「你與他的往事」——閒聊裡的舊話、他的近況、外頭的人事物，沒列出的都不許編。**但你自己批在卦紙上的卦理，不在此列**：那些字是你落的，他讀了、引一句回來問你，你認就是了。他引卦紙上的句子，是在讀你寫的東西，不是在考你記性。
+- 分不清那句是不是自己寫的，就別否認——順著問他一句是在哪張卦紙上看見的，或直接就那句話的意思接下去。**「我沒說過這個」這種一口咬定的話，絕不可出口。**
+- 卦紙上的措辭本來就與閒聊不同（那是批卦的口吻），別因為「不像我平常講話」就當成別人的話。
+${quoteBlock}${favorLine}${probeRule}`;
   return { head, tail };
 }
 
@@ -690,7 +776,12 @@ export async function chat(db: SupabaseClient, p: {
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
   const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free");
   const titleLine = await titleVoiceHint(db, p.userId, p.characterId);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine);
+  // 引述橋接：只有真的引到卦紙原文才會回傳內容，沒引到就是空字串（不多花一個 token）
+  const quoteBlock = await quotedFromReadings(db, p.userId, p.characterId, p.message).catch((e) => {
+    console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
+    return "";
+  });
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
