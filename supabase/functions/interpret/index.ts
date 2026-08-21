@@ -10,6 +10,7 @@ import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } fr
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP } from "../_shared/services.ts";
+import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -102,6 +103,14 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-internal-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+// 卦案服務層的 Result → HTTP。錯誤一律 200＋kind:"err"，與站內既有做法一致
+// （前端那支 callInterpret 只有非 2xx 才丟例外，訊息要能顯示就不能走 4xx）。
+function caseResult(r: CaseResult): Response {
+  return r.ok
+    ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
+    : Response.json({ kind: "err", msg: r.msg }, { headers: CORS });
+}
 
 // 網頁 Auth 用戶 → 內部 user_id（鏡像 webhook-tg 的 ensureUser）
 async function ensureWebUser(authUserId: string, name?: string): Promise<string> {
@@ -458,6 +467,44 @@ Deno.serve(async (req) => {
       }
       await db.from("user_character").upsert({ user_id: uid, character_id: cid, avatar: val }, { onConflict: "user_id,character_id" });
       return Response.json({ kind: "ok", character_id: cid, avatar: val }, { headers: CORS });
+    }
+
+    /* ═══ 卦案 ═══
+       整局由伺服器判定：客戶端只送「我做了什麼」（一個 action），拿回一份重畫用的畫面。
+       它不送 state、不送 lines、也拿不到還沒挖出來的線索與 truth——過濾在 case-run.ts。
+
+       這一段刻意不套 rateLimited()：那支是給 AI 請求用的（每分鐘 6 次），
+       而卦案零 AI、零 token，一個行動就是一次點擊，套上去等於十秒後就不能玩了。
+       這裡的成本是一次 select ＋ 一次 update，該擋的是濫寫不是頻率。 */
+
+    // 卦案清單、進行中的局、已封存的記憶檔案（含配額）
+    if (body.mode === "case_list") {
+      return caseResult(await listCases(db, uid, await planOf(db, uid)));
+    }
+
+    // 進案：伺服器擲卦並開局。已有進行中的局就把那一局讀回來（resumed:true），不另開一局。
+    if (body.mode === "case_start") {
+      return caseResult(await startCase(db, uid, body.case_id, body.companion));
+    }
+
+    // 讀檔：重建當前畫面（切頁、重開 App、換裝置都走這支）
+    if (body.mode === "case_state") {
+      return caseResult(await caseStateOf(db, uid, body.run_id));
+    }
+
+    // 行動：搜索／查看／攀談／請同行／移動／結案，全由 action.kind 分派
+    if (body.mode === "case_action") {
+      return caseResult(await actOnCase(db, uid, body.run_id, body.action));
+    }
+
+    // 封存／取消封存為記憶檔案（免費 1 格、付費 3 格）
+    if (body.mode === "case_keep") {
+      return caseResult(await keepRun(db, uid, body.run_id, body.keep !== false, await planOf(db, uid)));
+    }
+
+    // 捨棄存檔
+    if (body.mode === "case_delete") {
+      return caseResult(await deleteRun(db, uid, body.run_id));
     }
 
     /* ═══ 道緣事件 ═══
