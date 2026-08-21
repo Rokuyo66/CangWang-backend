@@ -31,8 +31,22 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Token) {
   Write-Host "找不到 Management API token。" -ForegroundColor Red
-  Write-Host '設定方式：$env:SUPABASE_ACCESS_TOKEN = "sbp_..."（本 session 有效）'
+  Write-Host '設定方式：$env:SUPABASE_ACCESS_TOKEN = "sbp_你自己那串"（本 session 有效）'
   Write-Host '取得方式：supabase.com → Account → Access Tokens'
+  exit 1
+}
+
+# 佔位字串照抄很常見（說明裡寫 sbp_... 就真的貼了 sbp_...），
+# 讓它在這裡停，比讓 API 回一句 JWT could not be decoded 好懂。
+if ($Token -match '^\s*sbp_\.+\s*$') {
+  Write-Host "token 還是佔位字串（$Token）。" -ForegroundColor Red
+  Write-Host '換成你自己那串：$env:SUPABASE_ACCESS_TOKEN = "sbp_……"'
+  exit 1
+}
+if ($Token -notmatch '^sbp_') {
+  Write-Host "這不像 Management API token——它是 sbp_ 開頭的那串。" -ForegroundColor Red
+  Write-Host "（anon / service_role key 是 eyJ 開頭的 JWT，那兩把在這裡不能用。）"
+  Write-Host "拿法：supabase.com → Account → Access Tokens"
   exit 1
 }
 
@@ -48,6 +62,10 @@ function Invoke-Sql {
   } catch {
     $detail = $_.ErrorDetails.Message
     if (-not $detail) { $detail = $_.Exception.Message }
+    # 這句是 token 的問題，不是 SQL 的問題——照字面去查 SQL 會查錯方向
+    if ($detail -match 'JWT could not be decoded|Unauthorized|Invalid authentication') {
+      throw "Token 不被接受（$detail）。要的是 supabase.com → Account → Access Tokens 那把 sbp_ 開頭的整串。"
+    }
     throw "SQL 失敗：$detail"
   }
 }
