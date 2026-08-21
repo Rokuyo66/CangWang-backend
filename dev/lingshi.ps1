@@ -1,4 +1,4 @@
-# dev/lingshi.ps1 — 指定帳號調靈石（測試用），走 Supabase Management API。
+﻿# dev/lingshi.ps1 — 指定帳號調靈石（測試用），走 Supabase Management API。
 #
 # 為什麼不是直接 update profiles.lingshi：餘額的真相在 ledger，profiles.lingshi 只是快取。
 # 手改快取，帳就從此對不起來（/stats 的「發放／消耗」永遠少這一筆）。
@@ -55,27 +55,26 @@ function Invoke-Sql {
 # SQL 字面值：單引號成雙，不讓暱稱裡的 ' 把語句掰開
 function Q { param([string]$s) "'" + ($s -replace "'", "''") + "'" }
 
+# SQL 一律用字串相接組，整支不用 here-string。
+# Windows PowerShell 5.1 的解析器對 here-string 挑剔得多，PowerShell 7 能過的它未必吃；
+# 這支就是要在 5.1 上跑，少一個會炸的語法就少一次「拉下來卻跑不動」。
+
 # 一個 profile 可能同時綁 tg 與 web，聚合成一列，才不會同一個人出現兩次
-$IDENT_VIEW = @"
-select pr.id, pr.display_name, pr.dao_name, pr.lingshi,
-       max(case when i.provider = 'web' then u.email       end) as email,
-       max(case when i.provider = 'tg'  then i.external_id end) as tg_id
-  from profiles pr
-  left join identities i on i.user_id = pr.id
-  left join auth.users u on i.provider = 'web' and u.id::text = i.external_id
-"@
+$IDENT_VIEW =
+  "select pr.id, pr.display_name, pr.dao_name, pr.lingshi, " +
+  "max(case when i.provider = 'web' then u.email end) as email, " +
+  "max(case when i.provider = 'tg' then i.external_id end) as tg_id " +
+  "from profiles pr " +
+  "left join identities i on i.user_id = pr.id " +
+  "left join auth.users u on i.provider = 'web' and u.id::text = i.external_id "
 
 # ── 找人 ───────────────────────────────────────────────────────────
 if ($Find) {
   $k = Q "%$Find%"
-  $rows = Invoke-Sql @"
-$IDENT_VIEW
- where pr.display_name ilike $k or pr.dao_name ilike $k
-    or u.email ilike $k or (i.provider = 'tg' and i.external_id ilike $k)
- group by pr.id
- order by pr.created_at desc
- limit 20;
-"@
+  $rows = Invoke-Sql ($IDENT_VIEW +
+    "where pr.display_name ilike $k or pr.dao_name ilike $k " +
+    "or u.email ilike $k or (i.provider = 'tg' and i.external_id ilike $k) " +
+    "group by pr.id order by pr.created_at desc limit 20;")
   if (-not $rows) { Write-Host "找不到符合「$Find」的帳號。" -ForegroundColor Yellow; exit 1 }
   $rows | Format-Table id, display_name, dao_name, email, tg_id, lingshi -AutoSize
   Write-Host "挑一個，再用 -UserId / -Email / -TgId 指定。"
@@ -100,13 +99,11 @@ else             { $where = "i.provider = 'tg' and i.external_id = " + (Q $TgId)
 # 兩段式：先用條件解出 profile id，再用 id 撈完整身分。
 # 一段式會被自己的 where 咬到——用 -TgId 指定時，where 濾掉了 web 那列，
 # 聚合出來的 email 就是空的，畫面上看起來像「這人沒綁網頁」。
-$ids = @(Invoke-Sql @"
-select distinct pr.id
-  from profiles pr
-  left join identities i on i.user_id = pr.id
-  left join auth.users u on i.provider = 'web' and u.id::text = i.external_id
- where $where;
-"@)
+$ids = @(Invoke-Sql (
+  "select distinct pr.id from profiles pr " +
+  "left join identities i on i.user_id = pr.id " +
+  "left join auth.users u on i.provider = 'web' and u.id::text = i.external_id " +
+  "where $where;"))
 if ($ids.Count -eq 0) {
   Write-Host "查無此帳號。網頁帳號要先登入過一次才會有 profile。" -ForegroundColor Yellow
   exit 1
@@ -156,11 +153,11 @@ if ($delta -ne 0) {
 }
 
 # ── 近期流水：這筆發下去有沒有落帳，看這裡 ─────────────────────────
-$led = Invoke-Sql @"
-select action, amount, to_char(created_at at time zone 'Asia/Taipei', 'MM-DD HH24:MI') as at
-  from ledger where user_id = $(Q $t.id)::uuid
- order by created_at desc limit 8;
-"@
+$led = Invoke-Sql (
+  "select action, amount, " +
+  "to_char(created_at at time zone 'Asia/Taipei', 'MM-DD HH24:MI') as at " +
+  "from ledger where user_id = " + (Q $t.id) + "::uuid " +
+  "order by created_at desc limit 8;")
 if ($led) {
   Write-Host ""
   Write-Host "近期流水（台北時間）"
