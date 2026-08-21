@@ -179,6 +179,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     const ACTION_LABELS: Record<string, string> = {
       register: "註冊", signin: "簽到", followup: "追問", extra_cast: "加卦",
       deepen: "展開", deepen_refund: "展開退款", comment: "換評", breakthrough: "突破", feedback: "回評",
+      admin_grant: "後台發放",   // dev/lingshi.ps1 手動調的那些，別讓它在後台顯示成原始代號
     };
     let head = "📊 <b>幾知觀後台</b>\n\n";
     if (s) {
