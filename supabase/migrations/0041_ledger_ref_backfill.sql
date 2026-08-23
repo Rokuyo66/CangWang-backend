@@ -19,7 +19,10 @@ with cand as (
   where l.action = 'extra_cast' and l.ref_id is null
 ),
 one_cast as (                      -- 這筆流水在時窗內只對到一支卦
-  select ledger_id, min(cast_id) as cast_id
+  -- 用 array_agg 取那唯一一筆，不用 min()：Postgres 沒有 min(uuid) 這個聚合，
+  -- 寫 min(cast_id) 會直接 42883 炸掉。having count(*) = 1 已經保證組內只有一筆，
+  -- 本來也不需要「取最小」的語義——要的就是那一筆。
+  select ledger_id, (array_agg(cast_id))[1] as cast_id
   from cand group by ledger_id having count(*) = 1
 ),
 solo as (                          -- 且那支卦也只被這一筆指到
