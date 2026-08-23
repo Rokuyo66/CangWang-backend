@@ -14,7 +14,7 @@
 // 三者任一改變都該是新的音檔，其餘情況一定命中。
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { TTS_MODEL, voiceOf } from "./voices.ts";
+import { TTS_MODEL, VOICE_NARRATOR, voiceOf } from "./voices.ts";
 
 const API_URL = Deno.env.get("MINIMAX_TTS_URL") ?? "https://api.minimax.io/v1/t2a_v2";
 const API_KEY = Deno.env.get("MINIMAX_API_KEY") ?? "";
@@ -36,25 +36,60 @@ export type TtsResult =
    與前端 reading-tts.js 的 ttsPlain 同一套規則，但這裡才是正本：
    快取鍵吃的是整理後的字，規則若兩邊各寫一份，改了其中一邊就會讓
    同一段批文產生兩個鍵、付兩次錢。 */
-const NARRATION_LINE = /^[*＊][\s\S]*[*＊]$/;
-const NARRATION_INLINE = /[*＊]+[^*＊\n]+[*＊]+/g;
+const NARRATION = /[*＊]([^*＊\n]+)[*＊]/g;
 
-/** 只留給耳朵聽的字。＊…＊ 的旁白整段拿掉——一次請求只有一把嗓子，
- *  把旁白與台詞用同一個聲音連著念，聽起來像有人在自言自語地描述自己。
- *  （旁白改由 VOICE_NARRATOR 另外合成是下一步，需要前端排兩軌。） */
+/** 一段話 ＋ 誰來念。narrator 為真＝旁白那把嗓子。 */
+export type Seg = { narrator: boolean; text: string };
+
+/** 洗掉只給眼睛看的記號：HTML、粗體星號、標題井號、清單符號、分隔線。
+ *  ＊…＊ 留著——那是旁白的界線，要留到分軌那一步才處理。 */
+const cleanLine = (l: string) =>
+  l.replace(/<[^>]+>/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/^#{1,4}\s+/, "")
+    .replace(/^[-*+]\s+/, "")
+    .trim();
+
+/** 把批文切成「誰念哪一段」。
+ *
+ *  ＊……＊ 是旁白（「＊他沒有轉身，只是用眼神落在你身上＊」），其餘是角色說的話。
+ *  以前這裡是把旁白整段丟掉的，理由是裝置語音只有一把嗓子——旁白與台詞用同一個
+ *  聲音連著念，聽起來像有人在自言自語地描述自己。現在旁白有自己的嗓子
+ *  （VOICE_NARRATOR），那個理由就不成立了，丟掉反而是把戲丟掉一半。
+ *
+ *  相鄰同一把嗓子的片段會合併。不合併的話，「台詞／旁白／台詞」三行就是三次
+ *  付費請求；合併之後只有真正換嗓子的地方才切，該付的才付。 */
+export function segments(md: string): Seg[] {
+  const raw: Seg[] = [];
+  for (const line of String(md || "").split(/\n+/)) {
+    const l = cleanLine(line);
+    if (!l || /^[-–—]{2,}$/.test(l)) continue;
+    let at = 0;
+    NARRATION.lastIndex = 0;
+    for (let m = NARRATION.exec(l); m; m = NARRATION.exec(l)) {
+      const before = l.slice(at, m.index).trim();
+      if (before) raw.push({ narrator: false, text: before });
+      const inner = m[1].trim();
+      if (inner) raw.push({ narrator: true, text: inner });
+      at = m.index + m[0].length;
+    }
+    const tail = l.slice(at).trim();
+    if (tail) raw.push({ narrator: false, text: tail });
+  }
+  // 相鄰同嗓合併：換行當停頓，跟 chunk() 對段落的處理一致
+  const out: Seg[] = [];
+  for (const s of raw) {
+    const last = out[out.length - 1];
+    if (last && last.narrator === s.narrator) last.text += "\n" + s.text;
+    else out.push({ ...s });
+  }
+  return out;
+}
+
+/** 只留給耳朵聽的字（不分嗓子）。用來判斷「這一段有沒有東西可念」，
+ *  以及在需要一整串純文字時（例如錯誤訊息）取用。 */
 export function speakable(md: string): string {
-  return String(md || "")
-    .replace(/<[^>]+>/g, "")
-    .split(/\n+/)
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => !/^[-–—]{2,}$/.test(l))
-    .map((l) => l.replace(/\*\*/g, ""))
-    .filter((l) => !NARRATION_LINE.test(l))
-    .map((l) => l.replace(NARRATION_INLINE, ""))
-    .map((l) => l.replace(/^#{1,4}\s+/, "").replace(/^[-*+]\s+/, "").trim())
-    .filter(Boolean)
-    .join("\n");
+  return segments(md).map((s) => s.text).join("\n");
 }
 
 /** 切段。只在句末切，不硬切字數——切在句子中間會聽見半句話戛然而止。
@@ -191,41 +226,49 @@ export async function speakCast(
     source = [`所問：${f.question}。`, f.answer].filter(Boolean).join("\n");
   }
 
-  const text = speakable(source);
-  if (!text) return { ok: false, msg: "這一段沒有可念的字" };
+  // 分軌：角色說的話用角色的嗓子，＊…＊ 的旁白用旁白那把。
+  // 段落順序原樣保留——parts 是一串照順序播的音檔，換嗓子不換次序。
+  const segs = segments(source);
+  if (!segs.length) return { ok: false, msg: "這一段沒有可念的字" };
 
-  const voiceId = voiceOf(cast.character_id);
-  const segs = chunk(text);
+  const charVoice = voiceOf(cast.character_id);
   const store = db.storage.from(BUCKET);
-  const parts: { url: string; chars: number }[] = [];
-  let synthesized = 0;
+  const parts: { url: string; chars: number; narrator: boolean }[] = [];
+  let synthesized = 0, total = 0;
 
   for (const seg of segs) {
-    const key = await sha256(`${MODEL}|${voiceId}|${seg}`);
-    const path = `${key}.mp3`;
-    const { data: hit } = await store.list("", { search: path, limit: 1 });
-    if (!hit?.length) {
-      // 額度只在真的要合成時才扣——重聽命中快取不該算在使用者頭上
-      if (!await spendQuota(db, uid, seg.length)) {
-        return { ok: false, msg: "今天的語音額度用完了，明天再來" };
+    const voiceId = seg.narrator ? VOICE_NARRATOR : charVoice;
+    for (const piece of chunk(seg.text)) {
+      total += piece.length;
+      const key = await sha256(`${MODEL}|${voiceId}|${piece}`);
+      const path = `${key}.mp3`;
+      const { data: hit } = await store.list("", { search: path, limit: 1 });
+      if (!hit?.length) {
+        // 額度只在真的要合成時才扣——重聽命中快取不該算在使用者頭上
+        if (!await spendQuota(db, uid, piece.length)) {
+          return { ok: false, msg: "今天的語音額度用完了，明天再來" };
+        }
+        let bytes: Uint8Array;
+        try { bytes = await synth(piece, voiceId, doFetch); }
+        catch (e) { return { ok: false, msg: String((e as Error).message ?? e) }; }
+        const { error } = await store.upload(path, bytes, {
+          contentType: "audio/mpeg", upsert: true, cacheControl: "31536000",
+        });
+        if (error) return { ok: false, msg: `音檔存不進去：${error.message}` };
+        synthesized++;
       }
-      let bytes: Uint8Array;
-      try { bytes = await synth(seg, voiceId, doFetch); }
-      catch (e) { return { ok: false, msg: String((e as Error).message ?? e) }; }
-      const { error } = await store.upload(path, bytes, {
-        contentType: "audio/mpeg", upsert: true, cacheControl: "31536000",
+      parts.push({
+        url: store.getPublicUrl(path).data.publicUrl,
+        chars: piece.length, narrator: seg.narrator,
       });
-      if (error) return { ok: false, msg: `音檔存不進去：${error.message}` };
-      synthesized++;
     }
-    parts.push({ url: store.getPublicUrl(path).data.publicUrl, chars: seg.length });
   }
 
   return {
     ok: true,
     payload: {
-      voice_id: voiceId, model: MODEL, parts,
-      chars: text.length, cached: synthesized === 0,
+      voice_id: charVoice, narrator_voice_id: VOICE_NARRATOR, model: MODEL,
+      parts, chars: total, cached: synthesized === 0,
     },
   };
 }

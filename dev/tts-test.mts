@@ -18,7 +18,7 @@
 };
 
 import { fakeDb } from "./fake-db.mts";
-const { speakable, chunk, decodeAudio, speakCast } =
+const { speakable, segments, chunk, decodeAudio, speakCast } =
   await import("../supabase/functions/_shared/tts.ts");
 
 let pass = 0, fail = 0;
@@ -65,13 +65,34 @@ const seed = () => ({
   tts_usage: [] as any[],
 });
 
-console.log("\n── 文本整理 ──");
-await t("旁白整行拿掉，標題留字、記號去掉", () => {
-  const out = speakable("## 斷語\n---\n事緩則圓。\n＊他沒有轉身＊\n**再等**三日。");
-  eq(out, "斷語\n事緩則圓。\n再等三日。", "整理後的字");
+console.log("\n── 文本整理與分軌 ──");
+await t("標題留字、分隔線與粗體記號去掉", () => {
+  eq(speakable("## 斷語\n---\n事緩則圓。\n**再等**三日。"),
+     "斷語\n事緩則圓。\n再等三日。", "整理後的字");
 });
-await t("整段都是旁白時得到空字串（不是一串空行）", () => {
-  eq(speakable("＊他沒有轉身＊\n＊只是看著你＊"), "", "全旁白");
+await t("旁白不再被丟掉，改分給旁白那把嗓子", () => {
+  const segs = segments("事緩則圓。\n＊他沒有轉身＊\n再等三日。");
+  eq(segs.length, 3, "段數");
+  eq(segs[0].narrator, false, "第一段是台詞");
+  eq(segs[1].narrator, true, "第二段是旁白");
+  eq(segs[1].text, "他沒有轉身", "旁白的字（星號要脫掉）");
+  eq(segs[2].narrator, false, "第三段回台詞");
+});
+await t("夾在句子中間的旁白也切得開，順序不變", () => {
+  const segs = segments("他抬眼。＊指節在案上輕敲＊「這麼晚。」");
+  eq(segs.map((s: any) => (s.narrator ? "旁" : "台")).join(""), "台旁台", "順序");
+  eq(segs[2].text, "「這麼晚。」", "旁白之後那句台詞");
+});
+await t("相鄰同嗓合併——三行台詞是一次請求，不是三次", () => {
+  const segs = segments("一。\n二。\n三。");
+  eq(segs.length, 1, "段數（每一段都是一次付費請求）");
+  eq(segs[0].text, "一。\n二。\n三。", "合併後的字");
+});
+await t("整段都是旁白時全歸旁白，不是空的", () => {
+  const segs = segments("＊他沒有轉身＊\n＊只是看著你＊");
+  eq(segs.length, 1, "段數");
+  eq(segs[0].narrator, true, "全旁白");
+  eq(segs[0].text, "他沒有轉身\n只是看著你", "合併後的字");
 });
 
 console.log("\n── 切段 ──");
@@ -103,7 +124,6 @@ await t("念得到自己那一卦的批文", async () => {
   const p = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
   ok((p.parts as any[]).length >= 1, "該有音檔");
   ok(mm.calls[0].text.includes("所問：問前程"), "提問該念進去：" + mm.calls[0].text);
-  ok(!mm.calls[0].text.includes("沒有轉身"), "旁白不該念：" + mm.calls[0].text);
 });
 await t("念不到別人的卦", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
@@ -118,11 +138,18 @@ await t("追問用序號指名，指到不存在的就是不存在", async () =>
 });
 
 console.log("\n── 聲線 ──");
-await t("批文用該角色的聲線，不是旁白的", async () => {
+await t("台詞用該角色的聲線，旁白用旁白的，順序不變", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
   const p = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
   eq(p.voice_id, "Chinese_bazong", "師兄的聲線");
-  eq(mm.calls[0].voice_setting.voice_id, "Chinese_bazong", "真的送出去的聲線");
+  eq(p.narrator_voice_id, "Chinese_gravelly_storyteller_nv1", "旁白的聲線");
+  // 這一卦的批文是「台詞／旁白／台詞」，所以該送三次、三把嗓子照順序
+  const sent = mm.calls.map((c: any) => c.voice_setting.voice_id);
+  eq(sent.join(" > "),
+     "Chinese_bazong > Chinese_gravelly_storyteller_nv1 > Chinese_bazong",
+     "送出去的聲線順序");
+  ok(mm.calls[1].text.includes("沒有轉身"), "旁白該由旁白那把念：" + mm.calls[1].text);
+  eq((p.parts as any[]).map((x) => (x.narrator ? "旁" : "台")).join(""), "台旁台", "回傳的軌別");
 });
 
 console.log("\n── 快取 ──");
