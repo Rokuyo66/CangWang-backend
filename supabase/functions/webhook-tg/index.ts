@@ -7,6 +7,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf } from "../_shared/services.ts";
+import { labelOf } from "../_shared/ledger.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
@@ -172,11 +173,6 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     const { data: s } = await db.rpc("admin_stats");
     const n = (v: unknown) => Number(v ?? 0).toLocaleString();
     const CHAR_LABELS2: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
-    const ACTION_LABELS: Record<string, string> = {
-      register: "註冊", signin: "簽到", followup: "追問", extra_cast: "加卦",
-      deepen: "展開", deepen_refund: "展開退款", comment: "換評", breakthrough: "突破", feedback: "回評",
-      admin_grant: "後台發放",   // dev/lingshi.ps1 手動調的那些，別讓它在後台顯示成原始代號
-    };
     let head = "📊 <b>幾知觀後台</b>\n\n";
     if (s) {
       const byChar = (s.casts_by_char ?? {}) as Record<string, number>;
@@ -186,7 +182,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       const byAct = (s.ledger_by_action ?? {}) as Record<string, number>;
       const actLine = Object.entries(byAct)
         .sort((a, b) => b[1] - a[1])
-        .map(([a, c]) => `${ACTION_LABELS[a] ?? a} ${n(c)}`).join("　") || "—";
+        .map(([a, c]) => `${labelOf(a)} ${n(c)}`).join("　") || "—";
       head +=
         `<b>👥 規模</b>\n` +
         `總用戶 ${n(s.users_total)}　今日新增 ${n(s.users_today)}　近7日活躍 ${n(s.users_7d_active)}\n\n` +

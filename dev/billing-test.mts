@@ -12,7 +12,7 @@
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
 
 import { fakeDb } from "./fake-db.mts";
-const { billCast, castFreeLeft, castFreeUsed, taipeiToday, FREE_CASTS_PER_DAY, PLAN_CASTS, COST_EXTRA_CAST } =
+const { billCast, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, FREE_CASTS_PER_DAY, PLAN_CASTS, COST_EXTRA_CAST } =
   await import("../supabase/functions/_shared/services.ts");
 
 let pass = 0, fail = 0;
@@ -121,6 +121,28 @@ await t("額度鍵不同就各記各的——TG 與網頁不共用同一份免�
   for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
   eq(await castFreeLeft(db, U, "free"), 0, "網頁那把已用盡");
   eq(await castFreeLeft(db, `tg:123`, "free"), PLAN_CASTS.free, "TG 那把不受影響");
+});
+
+await t("加卦扣款事後接得回它買到的那支卦", async () => {
+  const db = dbWith(100);
+  for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
+  const r = await billCast(db, U, U, "free");
+  eq(r.paid, COST_EXTRA_CAST, "這一卦該是付費的");
+  await linkLedgerRef(db, U, "extra_cast", "cast-1");
+  const led = db._store.ledger.filter((x: any) => x.action === "extra_cast");
+  eq(led.length, 1, "只該有一筆加卦流水");
+  eq(led[0].ref_id, "cast-1", "那筆流水該指向剛起的卦");
+});
+
+await t("接的是最新那一筆，不會去改已經接好的舊帳", async () => {
+  const db = dbWith(100);
+  for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
+  await billCast(db, U, U, "free");
+  await linkLedgerRef(db, U, "extra_cast", "cast-1");
+  await billCast(db, U, U, "free");
+  await linkLedgerRef(db, U, "extra_cast", "cast-2");
+  const led = db._store.ledger.filter((x: any) => x.action === "extra_cast");
+  eq(led.map((x: any) => x.ref_id).join(","), "cast-1,cast-2", "兩筆各自接各自的卦");
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);

@@ -276,20 +276,40 @@ await t("truth 只在破案時出現，其餘一律 null", async () => {
   ok(solvedRuns > 0, "二十局沒有一局破案，機器人或引擎有問題");
 });
 
-await t("真空局：關鍵那條線索本局就是拿不到，翻遍地圖也不給 truth", async () => {
-  // 真空（access:"void"）只作用在「關鍵線索區的那個物件」上。要讓它真的擋死破案，
-  // 得挑關鍵區落在 4 或 6 的局——地窖入口的兩條前置正好在那兩區。
-  // 也刻意獨自前往：同行角色帶回來的線索不經 blockedReason，有人同行就繞得過去。
+await t("沒找到就是沒找到：中途收工，結案不給 truth", async () => {
+  // 這一條刻意不靠「真空局」來製造沒破案。真空（access:"void"）是唯一擋死關鍵
+  // 線索的代價，但它出不出得來要看當天的日辰——2026-08-23 掃過 20 萬顆種子，
+  // 一個真空局都沒有。把服務層的測試綁在那上面，等於讓它每隔幾天自己紅一次，
+  // 而紅的原因與這一層無關。
+  // 玩家半途收工是同一條程式路徑（review 的 solved=false / truth=null），
+  // 而且哪一天跑都成立。真空局的行為由 case-lint／case-sim 那邊負責。
+  const db = fakeDb() as any;
+  const p0 = payloadOf(await startCase(db, U, "huangcun", null, seeded(200)));
+  let p = p0;
+  const act = async (a: any) => { const r: any = await actOnCase(db, U, p0.run_id, a); if (r.ok) p = r.payload; };
+  await act({ kind: "search" });
+  for (const o of p.region.objects.map((x: any) => x.id)) await act({ kind: "inspect", objectId: o });
+  const done = payloadOf(await actOnCase(db, U, p0.run_id, { kind: "end" }));
+
+  eq(done.review.solved, false, "才翻一區就破案了？");
+  eq(done.review.truth, null, "沒破案卻給了 truth");
+  ok(done.review.missed_count > 0, "應該還有一堆沒發現的線索");
+  eq(db._store.case_runs[0].solved, false, "solved 欄位沒跟著寫回");
+});
+
+await t("真空局（今天的日辰有的話才驗）：翻遍地圖仍拿不到關鍵線索", async () => {
+  // 真空只作用在「關鍵線索區的那個物件」上，要擋死破案得讓關鍵區落在 4 或 6
+  // ——地窖入口的兩條前置正好在那兩區。也刻意獨自前往：同行帶回來的線索
+  // 不經 blockedReason，有人同行就繞得過去。
   const now = new Date(Date.now() + 8 * 3600_000);
+  const [y, mo, d] = [now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()];
   let seed = -1;
-  for (let s = 0; s < 3000; s++) {
+  for (let s = 0; s < 20000; s++) {
     const { lines } = castCoins(seeded(s));
-    const st = projectCase(
-      buildChart(lines, now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate(), HUANGCUN.entryHour!),
-      toCaseDef(HUANGCUN));
+    const st = projectCase(buildChart(lines, y, mo, d, HUANGCUN.entryHour!), toCaseDef(HUANGCUN));
     if (st.access === "void" && (st.key.pos === 4 || st.key.pos === 6)) { seed = s; break; }
   }
-  ok(seed >= 0, "今天的日辰下找不到真空局，這個測試需要重想");
+  if (seed < 0) { console.log("     （今天的日辰下沒有真空局，跳過——這是曆法，不是 bug）"); return; }
 
   const db = fakeDb() as any;
   const p0 = payloadOf(await startCase(db, U, "huangcun", null, seeded(seed)));

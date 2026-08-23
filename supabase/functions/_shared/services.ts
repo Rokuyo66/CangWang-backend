@@ -411,6 +411,19 @@ export async function billCast(db: SupabaseClient, userId: string, quotaKey: str
   return { ok: true, paid: COST_EXTRA_CAST, freeLeft: 0 };
 }
 
+/** 把剛扣的那筆流水接回它買到的東西。
+ *  加卦的扣款發生在卦存進資料庫之前（扣不動就不該去呼叫 AI），所以那一刻還沒有 cast id
+ *  可以當 p_ref——ledger 那一列的 ref_id 只能事後補。不補的話，收支列表上的「加卦 −10」
+ *  就永遠只是一個數字，點開也說不出買到的是哪一卦。
+ *  認的是「這個人這個動作、最新一筆還沒接上的」：同一人的扣款是循序發生的，不會認錯。 */
+export async function linkLedgerRef(db: SupabaseClient, userId: string, action: string, refId: string) {
+  const { data } = await db.from("ledger").select("id")
+    .eq("user_id", userId).eq("action", action).is("ref_id", null)
+    .order("id", { ascending: false }).limit(1);
+  const id = (data as { id: number }[] | null)?.[0]?.id;
+  if (id != null) await db.from("ledger").update({ ref_id: refId }).eq("id", id);
+}
+
 /** 當日已用的免費追問次數（key 自帶日期，隔日自然歸零，不必另跑清理） */
 async function followupFreeUsed(db: SupabaseClient, userId: string) {
   const today = taipeiToday();

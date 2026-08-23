@@ -8,7 +8,8 @@
 //   1. 寫入 jsonb 會 JSON round-trip——存不進去的東西（undefined、Map、循環）當場現形；
 //   2. case_runs_one_active 那條唯一索引，違反時吐 23505，而不是靜靜地開出第二局；
 //   3. apply_lingshi 扣成負數時是 raise（整支回捲），所以扣不動＝餘額原封不動。
-// 沒有實作的：RLS、trigger（updated_at 這裡手動蓋）、型別檢查、真正的 order by。
+// 沒有實作的：RLS、trigger（updated_at 這裡手動蓋）、型別檢查、join 與巢狀 select。
+// order 是照欄位值排的簡化版（單欄、比大小），夠 .order(...).limit(1) 這種「取最新一筆」用。
 
 let seq = 0;
 const uid = () => `row_${++seq}`;
@@ -22,6 +23,7 @@ class Query {
     this.table = table;
     this.rows = store[table] ??= [];
     this.filters = [];
+    this.orderBy = null;
     this.op = "select";
     this.payload = null;
     this.wantCount = false;
@@ -41,17 +43,27 @@ class Query {
   upsert(v, opts) { this.op = "upsert"; this.payload = v; this.onConflict = opts?.onConflict; return this; }
   update(v) { this.op = "update"; this.payload = v; return this; }
   delete() { this.op = "delete"; return this; }
-  eq(col, val) { this.filters.push([col, val]); return this; }
-  order() { return this; }
+  eq(col, val) { this.filters.push((r) => r[col] === val); return this; }
+  // is(col, null) 對到的是「沒有值」——undefined（欄位根本沒寫）也算，真資料庫裡兩者同義
+  is(col, val) { this.filters.push((r) => val === null ? (r[col] ?? null) === null : r[col] === val); return this; }
+  in(col, vals) { this.filters.push((r) => vals.includes(r[col])); return this; }
+  gte(col, val) { this.filters.push((r) => r[col] >= val); return this; }
+  lte(col, val) { this.filters.push((r) => r[col] <= val); return this; }
+  not(col, op, val) { this.filters.push((r) => op === "is" && val === null ? (r[col] ?? null) !== null : r[col] !== val); return this; }
+  order(col, opts) { this.orderBy = [col, opts?.ascending !== false]; return this; }
   limit(n) { this.limitN = n; return this; }
 
-  match(r) { return this.filters.every(([c, v]) => r[c] === v); }
+  match(r) { return this.filters.every((f) => f(r)); }
 
   run() {
     const hit = this.rows.filter((r) => this.match(r));
     switch (this.op) {
       case "select": {
         if (this.wantCount) return { data: null, count: hit.length, error: null };
+        if (this.orderBy) {
+          const [col, asc] = this.orderBy;
+          hit.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (asc ? 1 : -1));
+        }
         const out = this.limitN == null ? hit : hit.slice(0, this.limitN);
         return { data: clone(out), count: hit.length, error: null };
       }
