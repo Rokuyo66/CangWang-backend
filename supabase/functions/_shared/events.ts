@@ -32,30 +32,33 @@ const LIST_COLS =
  *  等於開啟事件之前就把整條線劇透完，而且多數章玩家當下根本不會點。
  *  前端判斷「章已規劃、內容還沒寫」用的是 scene_count === 0，與原本讀
  *  ev.scenes.length 等價。 */
+const briefOf = (r: EventRow) => ({
+  id: r.id, chapter: r.chapter, seq: r.seq,
+  title: r.title, summary: r.summary ?? "",
+  require_favor: r.require_favor, require_event: r.require_event,
+  scene_count: Array.isArray(r.scenes) ? r.scenes.length : 0,
+  has_choices: Array.isArray(r.choices) && r.choices.length > 0,
+});
+
+/** 撈目錄。characterId 省略＝全部角色，回一份 { cid: [...] }。
+ *
+ *  會有「全部」這個模式，是因為道緣卡片上那顆「事件」鈕要當場決定亮不亮
+ *  （這角色有沒有章），三個角色各打一次網路只為了三顆鈕的狀態太蠢。 */
 export async function listEvents(
-  db: SupabaseClient, characterId: unknown,
+  db: SupabaseClient, characterId?: unknown,
 ): Promise<EventResult> {
-  const cid = String(characterId ?? "");
-  if (!cid) return { ok: false, msg: "缺角色" };
-  const { data, error } = await db.from("character_events")
-    .select(LIST_COLS)
-    .eq("character_id", cid).eq("published", true)
+  const cid = characterId == null ? null : String(characterId);
+  if (cid === "") return { ok: false, msg: "缺角色" };
+  let q = db.from("character_events").select(LIST_COLS).eq("published", true);
+  if (cid) q = q.eq("character_id", cid);
+  const { data, error } = await q
     .order("chapter", { ascending: true }).order("seq", { ascending: true });
   if (error) { console.error("event_list failed", error); return { ok: false, msg: "事件讀不回來" }; }
   const rows = (data ?? []) as EventRow[];
-  return {
-    ok: true,
-    payload: {
-      character_id: cid,
-      events: rows.map((r) => ({
-        id: r.id, chapter: r.chapter, seq: r.seq,
-        title: r.title, summary: r.summary ?? "",
-        require_favor: r.require_favor, require_event: r.require_event,
-        scene_count: Array.isArray(r.scenes) ? r.scenes.length : 0,
-        has_choices: Array.isArray(r.choices) && r.choices.length > 0,
-      })),
-    },
-  };
+  if (cid) return { ok: true, payload: { character_id: cid, events: rows.map(briefOf) } };
+  const byChar: Record<string, ReturnType<typeof briefOf>[]> = {};
+  for (const r of rows) (byChar[r.character_id] ??= []).push(briefOf(r));
+  return { ok: true, payload: { catalog: byChar } };
 }
 
 /** 開一章：門檻在這裡驗，過了才給 scenes。

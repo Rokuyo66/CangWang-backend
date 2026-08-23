@@ -552,7 +552,13 @@ Deno.serve(async (req) => {
       const titles: Record<string, { id: string; label: string }> = {};
       for (const r of picked as { character_id: string; title_tag: string }[])
         if (labelOf.has(r.title_tag)) titles[r.character_id] = { id: r.title_tag, label: labelOf.get(r.title_tag)! };
-      return Response.json({ kind: "ok", done, titles }, { headers: CORS });
+      // 目錄一併帶下去（不含任何台詞）：道緣卡片上那顆「事件」鈕要當場決定亮不亮，
+      // 為了三顆鈕的狀態再打三次網路太蠢——與 titles 併在這裡是同一個理由。
+      const cat = await listEvents(db);
+      return Response.json({
+        kind: "ok", done, titles,
+        catalog: cat.ok ? (cat.payload as { catalog: unknown }).catalog : {},
+      }, { headers: CORS });
     }
 
     // 完成一章。獎勵只在 completed_at 由 null 轉 now() 的那一次發放——

@@ -112,5 +112,16 @@ await t("查無角色的目錄回空陣列，不是錯誤", async () => {
   eq(errOf(await listEvents(db, "")), "缺角色", "空角色 id 應回錯");
 });
 
+await t("省略角色＝一次撈全部，依角色分組，同樣不含台詞", async () => {
+  const db = fakeDb(seed()) as any;
+  const p = payloadOf(await listEvents(db));
+  ok(p.catalog, "應回 catalog");
+  eq(Object.keys(p.catalog).sort().join(","), "daoshi_f,daoshi_m", "分組的角色不對");
+  eq(p.catalog.daoshi_m.length, 3, "師兄應有三章");
+  eq(p.catalog.daoshi_f.length, 1, "師妹應有一章");
+  ok(!JSON.stringify(p).includes("這麼晚"), "台詞在目錄裡就外流了");
+  ok(!p.catalog.daoshi_m.some((e: any) => e.id === "m_draft"), "撈到未發佈的草稿");
+});
+
 console.log(`\n${pass} 過 / ${fail} 敗\n`);
 process.exit(fail ? 1 : 0);
