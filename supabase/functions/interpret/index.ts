@@ -9,7 +9,7 @@ import { jieqiOf } from "../_shared/jieqi.ts";
 import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
-import { planOf, followupFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP } from "../_shared/services.ts";
+import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -303,6 +303,9 @@ Deno.serve(async (req) => {
       //   前端登入後 refreshProfile 失敗、畫面翻不到已登入狀態——宣告必須在最前。）
       const plan = await planOf(db, uid);
       const followFreeLeft = await followupFreeLeft(db, uid, plan);
+      // 今日免費卦剩餘：排盤頁的「入觀解卦」要據此標出白揭或償香火。
+      // 額度鍵與 billCast 同一把（登入者即 uid），標價才不會與實際扣費打架。
+      const castLeft = await castFreeLeft(db, uid, plan);
       // 今日聊天免費剩餘
       const cday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
       const { data: cq } = await db.from("free_quota").select("used_today, last_reset").eq("key", `chatfree:${uid}:${cday}`).maybeSingle();
@@ -322,7 +325,8 @@ Deno.serve(async (req) => {
       const [fy, fm, fd] = cday.split("-").map(Number);
       return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
-        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, followupCost: COST_FOLLOWUP,
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
+        followupCost: COST_FOLLOWUP,
         chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
@@ -1023,7 +1027,11 @@ Deno.serve(async (req) => {
       : body.mode === "deepen"
       ? await deepenCast(db, { userId: uid, castId: body.cast_id })
       : await castAndInterpret(db, {
-          userId: uid, quotaKey: body.quota_key ?? uid,
+          // 額度鍵與 user_id 同一條鐵則：登入者一律以 JWT 解出的帳號記帳。
+          // 之前是 body.quota_key ?? uid，等於把「這次算誰的額度」交給前端說了算——
+          // 每次換一個 quota_key 送上來，每一卦都會是當日第一卦，免費額度形同不存在。
+          // body.quota_key 只留給內部金鑰路徑（TG 用 tg:<id> 記在對話上）。
+          userId: uid, quotaKey: jwtUserId ? uid : (body.quota_key ?? uid),
           characterId: body.character_id ?? "daoshi_m",
           question: body.question, channel: body.channel ?? "web",
           numbers: body.numbers, lines: body.lines, // ← 網頁傳已起好的卦

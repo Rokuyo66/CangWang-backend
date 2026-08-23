@@ -1,5 +1,8 @@
 // _shared/services.ts — 盤面渲染（TG）、Anthropic 呼叫、計費
-import { Chart, YAO_NAMES, huaJinTui } from "./core.ts";
+import { YAO_NAMES, huaJinTui } from "./core.ts";
+// Chart 是 interface，得走 import type——混在值 import 裡，node 的型別剝除
+// （dev/billing-test.mts 就是靠它跑）會照著去 core.ts 找一個不存在的 export。
+import type { Chart } from "./core.ts";
 import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, parseTagged } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 
@@ -370,27 +373,47 @@ export async function planOf(db: SupabaseClient, userId: string): Promise<string
   return data.plan as string;
 }
 
-/** 起卦計費：先吃免費額度，滿則扣靈石。回傳 {ok, paid, reason?} */
+/** 台北日界。免費額度一律以 UTC+8 的「今天」為準——追問、聊天、日運都這麼算，
+ *  起卦不能自己用 UTC，否則台北時間 00:00–08:00 這八小時，額度表與畫面各說各話。 */
+export function taipeiToday() {
+  return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** 某人今日已用的免費卦數（隔日視同 0）。標價與計費必須讀同一支，
+ *  否則按鈕上寫「免費」、按下去卻扣了靈石。 */
+export async function castFreeUsed(db: SupabaseClient, quotaKey: string) {
+  const today = taipeiToday();
+  const { data } = await db.from("free_quota").select("used_today, last_reset").eq("key", quotaKey).maybeSingle();
+  return { today, used: (data && data.last_reset === today) ? data.used_today : 0 };
+}
+
+/** 某人今日還剩幾卦免費（前端標價用）。付費方案吃 PLAN_CASTS，不可寫死 free。 */
+export async function castFreeLeft(db: SupabaseClient, quotaKey: string, plan: string) {
+  const { used } = await castFreeUsed(db, quotaKey);
+  return Math.max(0, (PLAN_CASTS[plan] ?? FREE_CASTS_PER_DAY) - used);
+}
+
+/** 起卦計費：先吃免費額度，滿則扣靈石。
+ *  回傳 {ok, paid, freeLeft, ...}；扣不動時連 need／lingshi 一併回，
+ *  前端才講得出「需 10 顆、你有 3 顆」，而不是只丟一句付費牆。 */
 export async function billCast(db: SupabaseClient, userId: string, quotaKey: string, plan = "free") {
-  const today = new Date().toISOString().slice(0, 10);
   const freeCasts = PLAN_CASTS[plan] ?? FREE_CASTS_PER_DAY;
-  const { data: q } = await db.from("free_quota").select("*").eq("key", quotaKey).maybeSingle();
-  if (!q || q.last_reset !== today) {
-    await db.from("free_quota").upsert({ key: quotaKey, used_today: 1, last_reset: today });
-    return { ok: true, paid: 0 };
-  }
-  if (q.used_today < freeCasts) {
-    await db.from("free_quota").update({ used_today: q.used_today + 1 }).eq("key", quotaKey);
-    return { ok: true, paid: 0 };
+  const { today, used } = await castFreeUsed(db, quotaKey);
+  if (used < freeCasts) {
+    await db.from("free_quota").upsert({ key: quotaKey, used_today: used + 1, last_reset: today });
+    return { ok: true, paid: 0, freeLeft: freeCasts - used - 1 };
   }
   const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast", p_amount: -COST_EXTRA_CAST });
-  if (error) return { ok: false, paid: 0, reason: "lingshi" };
-  return { ok: true, paid: COST_EXTRA_CAST };
+  if (error) {
+    const { data: prof } = await db.from("profiles").select("lingshi").eq("id", userId).maybeSingle();
+    return { ok: false, paid: 0, freeLeft: 0, reason: "lingshi", need: COST_EXTRA_CAST, lingshi: prof?.lingshi ?? 0 };
+  }
+  return { ok: true, paid: COST_EXTRA_CAST, freeLeft: 0 };
 }
 
 /** 當日已用的免費追問次數（key 自帶日期，隔日自然歸零，不必另跑清理） */
 async function followupFreeUsed(db: SupabaseClient, userId: string) {
-  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);  // 台北日界
+  const today = taipeiToday();
   const key = `followfree:${userId}:${today}`;
   const { data } = await db.from("free_quota").select("used_today").eq("key", key).maybeSingle();
   return { key, today, used: data?.used_today ?? 0 };

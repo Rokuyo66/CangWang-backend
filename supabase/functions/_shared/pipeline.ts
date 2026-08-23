@@ -3,7 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
-import { callInterpret, billCast, billFollowup, planOf, COST_DEEPEN, COST_COMMENT, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, billFollowup, planOf, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -112,8 +112,10 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (dup) return { kind: "intercept" as const, message: interceptMessage(p.characterId, dup), prevCastId: dup.id };
 
   // 2. 計費
+  //    擋下來時把「差多少」一併回：前端才說得出「加卦需 10 靈石，你有 3」，
+  //    而不是丟一句沒有數字的付費牆讓人自己猜。
   const bill = await billCast(db, p.userId, p.quotaKey, plan);
-  if (!bill.ok) return { kind: "paywall" as const };
+  if (!bill.ok) return { kind: "paywall" as const, need: bill.need ?? 0, lingshi: bill.lingshi ?? 0, freeLeft: 0 };
 
   // 3. 排盤（網頁傳卦 or 三數 or 模擬擲卦，皆進同一文王卦引擎）
   //    手動排盤帶自填占時 castDate，年月日時干支據此推；否則以當下台北時
@@ -195,9 +197,12 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   }
 
   // yong 一併回傳：前端據此把盤面的用/原/忌/仇標記補上（起卦當下不再要求用戶先選用神）
+  // freeLeft 一併回：起完這一卦，下一卦是白揭還是償香火當場就定了，
+  // 前端不必再打一次 profile 才敢改按鈕上的標價。
   return {
     kind: "ok" as const, castId: cast!.id as string, chart, reading: ai.reading, appendix,
-    suggested: ai.suggested, paid: bill.paid, breakthrough,
+    suggested: ai.suggested, paid: bill.paid, freeLeft: bill.freeLeft ?? 0,
+    castCost: COST_EXTRA_CAST, breakthrough,
     yong: yongQin ? { qin: yongQin, viaShi: !!yongViaShi } : null,
   };
 }
