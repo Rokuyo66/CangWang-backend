@@ -74,42 +74,98 @@ npm i -g supabase
 
 ## 第 1 步 · 更新資料庫
 
-### 先看，不要動
+`migrate.ps1` 在 DB 裡開了一本帳（`public._migrations`），記錄哪幾支跑過。
+早期是手貼 SQL Editor，那段沒有帳——所以第一次用這支腳本時，帳是空的，
+它會把**全部**列成「待套用」。這不代表它們沒跑過。
+
+`0001_init.sql` 裡有二十幾條不可重跑的語句，真的重跑會爆。
+腳本自己知道，`_migrations` 是空的時候 `-Apply` 會被它擋下來。
+
+### 1-1 先確認哪些真的在線上
+
+Supabase 主控台 → **SQL Editor** → 貼上 → Run：
+
+```sql
+select table_name from information_schema.tables
+where table_schema = 'public'
+  and table_name in ('case_runs','character_events','character_titles','user_character_events','ledger')
+order by table_name;
+```
+
+**沒列出來的表，代表對應的 migration 從沒跑過，絕對不能列進 baseline。**
+標進去就等於宣告「它已經上線了」，那支往後永遠不會再被執行。
+
+> 2026-08 實測：`case_runs` 不存在（0039 沒跑過），其餘四張都在。
+
+### 1-2 把「沒跑過」的那幾支先移出資料夾
+
+baseline 會把當下資料夾裡**所有**未記錄的檔案一次標記掉，沒得挑。
+所以先把要真的執行的那支搬走（搬到專案根目錄，看得見、也好搬回來）：
+
+```powershell
+Move-Item supabase\migrations\0039_case_runs.sql .
+```
+
+### 1-3 建立基準
+
+```powershell
+.\dev\migrate.ps1 -Baseline
+```
+
+會問 `確認？(yes/no)`，**打完整的 `yes`**（`y` 不算）。
+這一步**不執行任何 SQL**，只是把現有的標成已套用。
+
+### 1-4 把它搬回來
+
+```powershell
+Move-Item 0039_case_runs.sql supabase\migrations\
+```
+
+（真的弄丟了也不要緊，`git checkout -- supabase/migrations/0039_case_runs.sql` 可還原。）
+
+### 1-5 拉最新的 migration
+
+本機如果還停在舊 commit，新的那幾支根本不在硬碟上，套了也只會說「沒有要套用的」。
+
+```powershell
+git fetch origin
+git checkout claude/check-sutra-divination-updates-c05416
+git pull origin claude/check-sutra-divination-updates-c05416
+```
+
+**順序不能反：一定先 baseline、再拉新檔。** 反過來的話，
+baseline 會把新的那幾支一起標成已套用卻沒真的跑，新欄位永遠不會出現。
+
+### 1-6 看狀態
 
 ```powershell
 .\dev\migrate.ps1 -Status
 ```
 
-會列出所有 migration，每一支標著已套用或未套用。
-**這一步不會改任何東西**，只是看。
+該看到 **本機 42 支、已套用 38 支、待套用 4 支**，列出 0039～0042。
+數字對不上就停下來，不要往下套。
 
-### 再一支一支套
+### 1-7 一支一支套
 
-上一步列出來「未套用」的，就照**號碼由小到大**一支一支跑。
-正常情況下會是這兩支（如果 `-Status` 還列了別的，先把整份貼給我看）。
+照號碼由小到大，每一支都會問 `確認？`，打 `yes`，看到 `✅ 已套用並記錄` 再跑下一支。
 
 ```powershell
+.\dev\migrate.ps1 -Apply -Only 0039_case_runs.sql
+.\dev\migrate.ps1 -Apply -Only 0040_case_runs_seq.sql
 .\dev\migrate.ps1 -Apply -Only 0041_ledger_ref_backfill.sql
-```
-
-跑完再跑下一支：
-
-```powershell
 .\dev\migrate.ps1 -Apply -Only 0042_character_events_summary_and_seed.sql
 ```
 
-**一次一支、跑完看一眼**——真的出事才知道是哪一支。
+**一次一支**——真的出事才知道是哪一支。
 
 | | 這支在做什麼 | 不跑會怎樣 |
 | --- | --- | --- |
-| `0041` | 讓靈石收支的明細接得回卦與貼文 | 收支頁的明細點不進去 |
+| `0039` | 建 `case_runs`，一局卦案的存檔 | **卦案完全開不起來** |
+| `0040` | 加 `seq` 欄位，擋同一局的並行寫入 | 連點兩下會蓋掉彼此的進度 |
+| `0041` | 讓靈石收支明細接得回卦與貼文 | 收支頁明細點不進去 |
 | `0042` | 加 `summary` 欄位，並把三章劇本寫進資料庫 | **道籍›事件會是空的** |
 
-最後再看一次，兩支都該變成已套用：
-
-```powershell
-.\dev\migrate.ps1 -Status
-```
+最後再 `-Status` 一次，四支都該變成已套用。
 
 ---
 
@@ -150,6 +206,8 @@ Cloudflare 會自動把網頁版上線——解卦存圖與朗讀按鈕就回來
 - **`不是內部或外部命令`** — 工具沒裝，回上面跑 `npm i -g supabase`
 - **`401` 或 `Unauthorized`** — 鑰匙沒設或視窗換過了，重貼一次 `$env:SUPABASE_ACCESS_TOKEN`
 - **函式部署後回 500** — Supabase 主控台 → Edge Functions → interpret → Logs，把日誌貼給我
+- **`_migrations 是空的`** — 還沒建基準，回 1-1 起照做
+- **`已有 N 筆，不需要再 baseline`** — 基準已經建過了，跳到 1-5
 
 migration 是一支一支跑的，失敗的那支不會被記成已套用。修好再跑同一支即可，
 前面成功的不會重跑。
