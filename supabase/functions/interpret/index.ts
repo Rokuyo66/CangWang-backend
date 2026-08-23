@@ -13,6 +13,7 @@ import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COS
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
+import { speakCast } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -516,6 +517,21 @@ Deno.serve(async (req) => {
     // 捨棄存檔
     if (body.mode === "case_delete") {
       return caseResult(await deleteRun(db, uid, body.run_id));
+    }
+
+    /* ═══ 朗讀解卦 ═══
+       客戶端只指名「哪一卦的哪一段」，不送要念的字。
+       開放送文字等於把金鑰做成公用 TTS——任何拿得到 JWT 的人都能拿它念小說，
+       帳單記在觀主頭上。念什麼由伺服器自己去 casts 撈。
+
+       回的是一串音檔網址而不是一份：長批文切段各自合成，前端照順序播。
+       不在伺服器把 mp3 接起來——裸接 frame 只是「多半能播」，
+       壞的時候在測試機上未必重現得出來。 */
+    if (body.mode === "tts") {
+      const r = await speakCast(db, uid, body.cast_id, body.part ?? "body");
+      return r.ok
+        ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
+        : Response.json({ kind: "error", msg: r.msg }, { headers: CORS });
     }
 
     /* ═══ 道緣事件 ═══

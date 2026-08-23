@@ -135,7 +135,32 @@ function rpc(store, name, args) {
   return Promise.resolve({ data: next, error: null });
 }
 
+/** Storage 的最小替身：list（用來查快取有沒有命中）、upload、getPublicUrl。
+ *  只記到 store._files，測試因此看得見「這一次到底存了幾個檔」——
+ *  快取有沒有真的省下一次合成，靠的就是這個數字，不是靠相信。 */
+function fakeStorage(store) {
+  const files = (store._files ??= new Map());
+  return {
+    from: (bucket) => ({
+      list: (_prefix, opts = {}) => Promise.resolve({
+        data: files.has(`${bucket}/${opts.search}`) ? [{ name: opts.search }] : [],
+        error: null,
+      }),
+      upload: (path, bytes) => {
+        files.set(`${bucket}/${path}`, bytes);
+        return Promise.resolve({ data: { path }, error: null });
+      },
+      getPublicUrl: (path) => ({ data: { publicUrl: `https://fake.local/${bucket}/${path}` } }),
+    }),
+  };
+}
+
 export function fakeDb(seed = {}) {
   const store = { ...seed };
-  return { from: (t) => new Query(store, t), rpc: (n, a) => rpc(store, n, a), _store: store };
+  return {
+    from: (t) => new Query(store, t),
+    rpc: (n, a) => rpc(store, n, a),
+    storage: fakeStorage(store),
+    _store: store,
+  };
 }
