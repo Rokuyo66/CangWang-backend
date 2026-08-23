@@ -11,6 +11,7 @@ import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
+import { listEvents, openEvent } from "../_shared/events.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -520,6 +521,18 @@ Deno.serve(async (req) => {
     /* ═══ 道緣事件 ═══
        進度與身分一律由伺服器判定。客戶端只送「我做了什麼」，不送「我因此得到什麼」——
        localStorage 玩家自己改得動，拿它當憑據等於把解鎖權交出去。 */
+
+    // 事件目錄：某角色已發佈的章。只給章名、摘要、幾幕與門檻，不含任何一句台詞——
+    // 清單頁一次畫全部的章，把台詞一起送下去等於開啟之前先劇透完。
+    if (body.mode === "event_list") {
+      return caseResult(await listEvents(db, body.character_id));
+    }
+
+    // 開一章：門檻（已發佈／前一章已了結／道緣足夠）在這裡才真正驗，過了才給 scenes。
+    // 清單上那句「道緣 300 可啟」是畫給人看的，擋不住直接打 API 的人。
+    if (body.mode === "event_open") {
+      return caseResult(await openEvent(db, uid, body.event_id));
+    }
 
     // 已完成的事件 id（取代前端暫存的 storyDone）
     if (body.mode === "event_progress") {
