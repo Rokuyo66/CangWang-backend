@@ -6,7 +6,7 @@ import { ALL_GUA_NAMES } from "../_shared/core.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_CAST, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT } from "../_shared/services.ts";
+import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf } from "../_shared/services.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
@@ -15,23 +15,19 @@ import { refineQuestion } from "../_shared/qrefine.ts";
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
 
-// 查今日已用免費卦數（回傳已用次數；用 free_quota，key 同 billCast）
-async function usedCastsToday(tgId: string): Promise<number> {
-  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-  const { data: q } = await db.from("free_quota").select("used_today, last_reset").eq("key", `tg:${tgId}`).maybeSingle();
-  return (q && q.last_reset === today) ? q.used_today : 0;
-}
-// 起卦按鈕標價文字
-async function castPriceTag(tgId: string): Promise<string> {
-  const used = await usedCastsToday(tgId);
-  const left = FREE_CASTS_PER_DAY - used;
+// 起卦按鈕標價文字。剩幾卦一律問 castFreeLeft——標價與計費讀同一支、同一把額度鍵、
+// 同一條台北日界，按鈕上寫「免費」按下去才不會扣靈石。額度依方案分級，不可寫死 free。
+async function castPriceTag(tgId: string, userId: string): Promise<string> {
+  const left = await castFreeLeft(db, `tg:${tgId}`, await planOf(db, userId));
   return left > 0 ? `免費剩${left}卦` : `耗${COST_EXTRA_CAST}靈石`;
 }
-// 某卦的追問按鈕標價文字
-async function followupPriceTag(castId: string): Promise<string> {
-  const { data: c } = await db.from("casts").select("followup_used").eq("id", castId).maybeSingle();
-  const used = c?.followup_used ?? 0;
-  return used < FREE_FOLLOWUPS_PER_CAST ? "靈石0" : `靈石${COST_FOLLOWUP}`;
+// 追問按鈕標價文字。追問額度早已從「每卦 N 次」改成「每人每日 N 次」（見 billFollowup），
+// 這裡卻還在數 casts.followup_used 對 FREE_FOLLOWUPS_PER_CAST——那個常數在 services 已不存在
+// （import 直接壞掉），數的也是錯的東西：換一張新卦就重新標成「靈石0」，按下去卻照扣。
+// 改讀 followupFreeLeft，與計費同一把每日額度、同一個方案。
+async function followupPriceTag(userId: string, plan: string): Promise<string> {
+  const left = await followupFreeLeft(db, userId, plan);
+  return left > 0 ? `免費剩${left}次` : `靈石${COST_FOLLOWUP}`;
 }
 
 /* ---------- TG helpers ---------- */
@@ -343,11 +339,15 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   }
   if (text === "/wallet" || text === "/lingshi") {
     const { data: prof } = await db.from("profiles").select("lingshi").eq("id", userId).single();
+    // 用途說明也報今日實剩：只寫制度不寫餘額，人還是得自己數今天問過幾卦
+    const wPlan = await planOf(db, userId);
+    const wCastLeft = await castFreeLeft(db, `tg:${tgId}`, wPlan);
+    const wFollowLeft = await followupFreeLeft(db, userId, wPlan);
     await send(chatId,
       `🪙 <b>你的靈石</b>：${prof?.lingshi ?? 0}\n\n` +
       "<b>靈石用途</b>\n" +
-      `・加問一卦：每日 ${FREE_CASTS_PER_DAY} 卦免費，之後每卦 ${COST_EXTRA_CAST} 靈石\n` +
-      `・加問追問：每卦含 ${FREE_FOLLOWUPS_PER_CAST} 次免費，之後每次 ${COST_FOLLOWUP} 靈石\n` +
+      `・加問一卦：${wPlan === "free" ? "每日" : "你的方案每日"} ${PLAN_CASTS[wPlan] ?? FREE_CASTS_PER_DAY} 卦免費（今日尚餘 ${wCastLeft} 卦），之後每卦 ${COST_EXTRA_CAST} 靈石\n` +
+      `・追問：每日 ${PLAN_FOLLOWUPS[wPlan] ?? FREE_FOLLOWUPS_PER_DAY} 次免費（今日尚餘 ${wFollowLeft} 次），之後每次 ${COST_FOLLOWUP} 靈石\n` +
       "・補簽：補回中斷的連續簽到（費用＝中斷天數×5）\n\n" +
       "<b>靈石來源</b>\n" +
       "・每日上香 /sign（連續七日有大獎）\n" +
@@ -405,7 +405,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       return;
     }
     await saveSession({ ...ses, pending_question: text, pending_raw: null, pending_source: "manual", pending_yong: null, draft_opts: null, draft_question: null });
-    const ptag = await castPriceTag(tgId);
+    const ptag = await castPriceTag(tgId, userId);
     await send(chatId, `問事已記下：\n「${esc(text)}」\n\n<i>靜心三十息，誠想所問之事，再起卦。心定，卦方準。</i>\n靜不下心，可改報三數。`, {
       reply_markup: { inline_keyboard: [[
         { text: `🪙 搖卦（${ptag}）`, callback_data: "cast" },
@@ -434,7 +434,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     } else if (r.wantCast) {
       // 記下這句當待問事，給起卦按鈕（用戶點了才進起卦；不點可繼續聊）
       await saveSession({ ...ses, pending_question: text, pending_raw: null, pending_source: "manual", pending_yong: null });
-      const ptag = await castPriceTag(tgId);
+      const ptag = await castPriceTag(tgId, userId);
       await send(chatId, (r.statePrefix ? r.statePrefix + "\n" : "") + esc(r.reply) + tierTail, {
         reply_markup: { inline_keyboard: [[
           { text: `🪙 為此起一卦（${ptag}）`, callback_data: "cast" },
@@ -504,7 +504,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
       pending_yong: data === "rawq" ? null : (ses.draft_yong ?? null),
       draft_question: null, draft_opts: null, draft_yong: null, draft_raw: null,
     });
-    const ptag = await castPriceTag(tgId);
+    const ptag = await castPriceTag(tgId, userId);
     await send(chatId, `問事已記下：\n「${esc(q)}」\n\n<i>靜心三十息，誠想所問之事，再起卦。心定，卦方準。</i>`, {
       reply_markup: { inline_keyboard: [[
         { text: `🪙 搖卦（${ptag}）`, callback_data: "cast" },
@@ -889,22 +889,19 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     return;
   }
   if (r.kind === "paywall") {
-    await send(chatId, "今日免費三卦已盡，靈石也不足了。\n（明日簽到可得靈石；訂閱功能尚在閉關中。）");
+    await send(chatId, `今日免費卦已盡，靈石也不足了（加卦需 ${r.need ?? COST_EXTRA_CAST} 顆，你有 ${r.lingshi ?? 0} 顆）。\n（明日簽到可得靈石；訂閱功能尚在閉關中。）`);
     await saveSession({ ...ses, state: "idle" });
     return;
   }
   await saveSession({ ...ses, state: "idle", pending_question: null, pending_raw: null, pending_source: null, pending_yong: null, last_cast_id: r.castId });
   const castNote = numbers ? "\n<i>※ 以三數總和定動爻（數字起卦法，源於梅花易數）</i>" : "";
   await send(chatId, `<pre>${esc(renderChartTG(r.chart))}</pre>` + castNote);
-  // 追問按鈕標價：依此卦已用追問數，顯示 (靈石0) 或 (靈石5)
-  const fuTag = await followupPriceTag(r.castId);
+  // 追問按鈕標價：依「今日剩餘免費追問次數」，顯示 (免費剩N次) 或 (靈石8)
+  const fuTag = await followupPriceTag(userId, await planOf(db, userId));
   const suggRows = (r.suggested ?? []).map((s: string, i: number) => [{ text: `❓ ${s.slice(0, 24)}（${fuTag}）`, callback_data: `fu:${i}` }]);
-  // 今日免費卦進度尾註
-  const usedNow = await usedCastsToday(tgId);
-  const leftNow = FREE_CASTS_PER_DAY - usedNow;
-  const quotaNote = leftNow >= 0
-    ? `\n\n<i>（今日免費卦尚餘 ${Math.max(leftNow, 0)} 卦${leftNow <= 0 ? "，之後加卦每卦 " + COST_EXTRA_CAST + " 靈石" : ""}）</i>`
-    : "";
+  // 今日免費卦進度尾註：直接用起卦當下算出的 freeLeft，不再回頭重查（重查會與剛剛那筆賽跑）
+  const leftNow = r.freeLeft ?? 0;
+  const quotaNote = `\n\n<i>（今日免費卦尚餘 ${leftNow} 卦${leftNow <= 0 ? "，之後加卦每卦 " + COST_EXTRA_CAST + " 靈石" : ""}）</i>`;
   await send(chatId, mdToTG(r.reading) + (r.paid ? `\n\n<i>（額度外加卦，靈石 −${r.paid}）</i>` : "") + (r.appendix ?? "") + quotaNote, {
     reply_markup: { inline_keyboard: [
       [{ text: `📜 展開完整卦理（靈石${COST_DEEPEN}）`, callback_data: "deepen" }],
