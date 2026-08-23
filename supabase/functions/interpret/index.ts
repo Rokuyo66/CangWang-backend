@@ -11,12 +11,14 @@ import { GUA_BY_UPPER } from "../_shared/core.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
+import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const GRANT_REGISTER = 50;
 const COST_MEND = 10;                       // 斷簽補簽費用（靈石），可調
 const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? ""; // 觀主內部 user_id：可刪任意廣場貼文
+const LEDGER_WINDOW = 600;                  // 收支查詢一次最多撈幾筆流水（分組後一列可代表數十筆）
 const POST_DAILY_LIMIT = 5;                 // 每日發文上限（沿用 free_quota）
 const POST_HOT_THRESHOLD = 25;              // 熱門門檻：達此讚數一次性發獎
 const POST_HOT_REWARD = 10;                 // 熱門獎勵靈石（一次性）
@@ -349,7 +351,11 @@ Deno.serve(async (req) => {
       if (owned.includes(key)) return Response.json({ kind: "err", msg: "此配色已解鎖" }, { headers: CORS });
       const bal = prof?.lingshi ?? 0;
       if (bal < price) return Response.json({ kind: "err", msg: `靈石不足（需 ${price}，尚有 ${bal}）` }, { headers: CORS });
-      await db.rpc("apply_lingshi", { p_user: uid, p_action: "buy_theme", p_amount: -price, p_ref: key });
+      // p_ref 不能帶配色代號：ledger.ref_id 是 uuid，塞 "bamboo" 進去 Postgres 當場拋型別錯，
+      // 整支 apply_lingshi 回捲——扣款沒發生，而下一行照樣把配色給了出去（等於免費送）。
+      // 錯又被 await 吞掉，餘額查回來沒少，畫面上一切正常。配色沒有 uuid 可指，就不指。
+      const { error: buyErr } = await db.rpc("apply_lingshi", { p_user: uid, p_action: "buy_theme", p_amount: -price });
+      if (buyErr) return Response.json({ kind: "err", msg: "靈石扣款失敗，配色未解鎖" }, { headers: CORS });
       await db.from("profiles").update({ owned_themes: [...owned, key] }).eq("id", uid);
       const { data: after } = await db.from("profiles").select("lingshi").eq("id", uid).maybeSingle();
       return Response.json({ kind: "ok", theme: key, lingshi: after?.lingshi ?? bal - price,
@@ -718,13 +724,28 @@ Deno.serve(async (req) => {
       return Response.json({ kind: "ok" }, { headers: CORS });
     }
 
-    // 靈石收支紀錄（近 30 天，新→舊，最多 100 筆；ledger 為終身流水，僅查詢時取窗）
+    // 靈石收支紀錄（近 30 天，新→舊；ledger 為終身流水，僅查詢時取窗）
+    //
+    // 回兩份：days 是「當天 × 項目」的分組（閒聊一晚十七句收成一列「閒聊 −17」，
+    // 展開才看得到每一筆的時間與問句），logs 是原本的逐筆流水。logs 留著是因為
+    // 前端還在讀它——等畫面換成 days，這一欄才拿得掉。
+    //
+    // 上限拉到 LEDGER_WINDOW：分組之後一列可能代表幾十筆，原本的 100 筆連一週都撐不完。
+    // 撈滿代表最舊那天可能只有一半，那一天整天不出（見 ledger.ts 開頭）。
     if (body.mode === "lingshi_log") {
       const since = new Date(Date.now() - 30 * 86400_000).toISOString();
-      const { data: rows } = await db.from("ledger").select("action, amount, created_at")
+      const { data: raw } = await db.from("ledger").select("id, action, amount, created_at, ref_id")
         .eq("user_id", uid).gte("created_at", since)
-        .order("created_at", { ascending: false }).limit(100);
-      return Response.json({ kind: "ok", logs: rows ?? [] }, { headers: CORS });
+        .order("created_at", { ascending: false }).limit(LEDGER_WINDOW);
+      const rows = (raw ?? []) as LedgerRow[];
+      const details = await ledgerDetails(db, rows);
+      const days = groupLedger(rows, details);
+      const truncated = rows.length >= LEDGER_WINDOW;
+      if (truncated) days.pop();   // 最舊那天可能被切一半，合計會是錯的——寧可不給
+      return Response.json({
+        kind: "ok", days, truncated, since,
+        logs: rows.map((r) => ({ action: r.action, amount: r.amount, created_at: r.created_at })),
+      }, { headers: CORS });
     }
 
     // 卦曆列表

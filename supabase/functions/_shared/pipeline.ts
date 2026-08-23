@@ -3,7 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
-import { callInterpret, billCast, billFollowup, planOf, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -174,6 +174,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     // 回填後，同 token 的後續請求就能直接拿到這一卦，而不是再等
     await db.from("cast_claims").update({ cast_id: cast!.id }).eq("token", p.clientToken);
   }
+  // 額度外加卦：把那筆扣款接回這一卦，收支列表展開時才說得出買到的是什麼
+  if (bill.paid > 0) await linkLedgerRef(db, p.userId, "extra_cast", cast!.id as string);
   if (ai.due) {
     await db.from("feedback").insert({ cast_id: cast!.id, user_id: p.userId, due_date: ai.due });
   }
