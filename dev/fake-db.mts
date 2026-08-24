@@ -8,8 +8,9 @@
 //   1. 寫入 jsonb 會 JSON round-trip——存不進去的東西（undefined、Map、循環）當場現形；
 //   2. case_runs_one_active 那條唯一索引，違反時吐 23505，而不是靜靜地開出第二局；
 //   3. apply_lingshi 扣成負數時是 raise（整支回捲），所以扣不動＝餘額原封不動。
-// 沒有實作的：RLS、trigger（updated_at 這裡手動蓋）、型別檢查、join 與巢狀 select。
-// order 是照欄位值排的簡化版（單欄、比大小），夠 .order(...).limit(1) 這種「取最新一筆」用。
+// 沒有實作的：RLS、trigger（updated_at 這裡手動蓋）、型別檢查、真正的 join。
+// order 支援多欄（連續呼叫 .order() 會疊成排序鍵，與 PostgREST 同）與 nullsFirst。
+// 巢狀 select 支援一層，靠命名慣例推 FK（見 embedsOf）——夠心跡那幾支用，不是通用實作。
 
 let seq = 0;
 const uid = () => `row_${++seq}`;
@@ -31,11 +32,12 @@ class Query {
     this.limitN = null;
   }
 
-  select(_cols, opts) {
+  select(cols, opts) {
     // insert/update/delete 之後的 .select() 是「回傳寫入的列」，不是改成查詢
     if (this.op === "select") {
       if (opts?.count) this.wantCount = true;
       if (opts?.head) this.headOnly = true;
+      this.cols = cols;
     }
     return this;
   }
@@ -49,11 +51,43 @@ class Query {
   in(col, vals) { this.filters.push((r) => vals.includes(r[col])); return this; }
   gte(col, val) { this.filters.push((r) => r[col] >= val); return this; }
   lte(col, val) { this.filters.push((r) => r[col] <= val); return this; }
+  lt(col, val) { this.filters.push((r) => r[col] < val); return this; }
   not(col, op, val) { this.filters.push((r) => op === "is" && val === null ? (r[col] ?? null) !== null : r[col] !== val); return this; }
-  order(col, opts) { this.orderBy = [col, opts?.ascending !== false]; return this; }
+  // 連續呼叫會疊成多層排序鍵（PostgREST 就是這個語意）。舊版是後者覆蓋前者，
+  // 於是 .order("status").order("last_cast_at") 只有後面那一個生效——
+  // 心跡的時間軸正是這麼排的（open 在前、其中最近有卦的在上），覆蓋掉就測不出真實順序。
+  order(col, opts) {
+    (this.orderBy ??= []).push([col, opts?.ascending !== false, !!opts?.nullsFirst]);
+    return this;
+  }
   limit(n) { this.limitN = n; return this; }
 
   match(r) { return this.filters.every((f) => f(r)); }
+
+  /** 一層巢狀 select：把 "id, feedback(verdict)" 裡的 feedback(...) 撈出來掛上。
+   *
+   *  FK 用命名慣例推，兩個方向都認：
+   *    這一列有 <單數>_id 欄位  → 往上找那一列（thread_notes.threads(title)）→ 回物件
+   *    否則                     → 往下找 <本表單數>_id 指回來的列（casts.feedback(...)）→ 回陣列
+   *  PostgREST 對一對一會回物件、一對多回陣列；這裡一律照上面的方向決定，
+   *  所以讀的那一端該寫成「兩種都收」（心跡與 case-run 都是這麼寫的）。
+   *  不支援：兩層以上、!inner、指定 FK 名稱、巢狀裡再加 filter。 */
+  embed(row) {
+    if (!this.cols || !this.cols.includes("(")) return row;
+    for (const m of this.cols.matchAll(/(\w+)\s*\(([^()]*)\)/g)) {
+      const name = m[1];
+      const rows = this.store[name] ?? [];
+      const parentKey = singular(name) + "_id";
+      if (parentKey in row) {
+        const hit = rows.find((r) => r.id === row[parentKey]);
+        row[name] = hit ? clone(hit) : null;
+      } else {
+        const childKey = singular(this.table) + "_id";
+        row[name] = clone(rows.filter((r) => r[childKey] === row.id));
+      }
+    }
+    return row;
+  }
 
   run() {
     const hit = this.rows.filter((r) => this.match(r));
@@ -61,11 +95,21 @@ class Query {
       case "select": {
         if (this.wantCount) return { data: null, count: hit.length, error: null };
         if (this.orderBy) {
-          const [col, asc] = this.orderBy;
-          hit.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (asc ? 1 : -1));
+          hit.sort((a, b) => {
+            for (const [col, asc, nullsFirst] of this.orderBy) {
+              const x = a[col] ?? null, y = b[col] ?? null;
+              if (x === y) continue;
+              // null 的位置由 nullsFirst 決定，不參與大小比較——
+              // 排序時把 null 當成空字串的話，"open"/"closed" 這種欄位會排出假的順序
+              if (x === null) return nullsFirst ? -1 : 1;
+              if (y === null) return nullsFirst ? 1 : -1;
+              return (x < y ? -1 : 1) * (asc ? 1 : -1);
+            }
+            return 0;
+          });
         }
         const out = this.limitN == null ? hit : hit.slice(0, this.limitN);
-        return { data: clone(out), count: hit.length, error: null };
+        return { data: clone(out).map((r) => this.embed(r)), count: hit.length, error: null };
       }
       case "insert": {
         const row = { id: uid(), created_at: iso(), updated_at: iso(), ...jsonb(this.payload) };
@@ -117,6 +161,8 @@ class Query {
 }
 
 const iso = () => new Date().toISOString();
+/** 粗略單數化，只夠推 FK 欄名：threads→thread、casts→cast、feedback→feedback */
+const singular = (t) => (t.endsWith("s") ? t.slice(0, -1) : t);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 /** 模擬寫進 jsonb 欄位：undefined 會消失、Date 會變字串、循環參照會炸 */
 const jsonb = (v) => JSON.parse(JSON.stringify(v));

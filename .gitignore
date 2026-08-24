@@ -11,3 +11,8 @@ DEPLOY.md
 supabase/migrations/0017_reminders.sql
 dev/play.html
 dev/form.html
+
+# 心跡設計畫布的成品檔：2MB 的編輯器 payload，每次 seed 都整份重生。
+# 進 repo 的是四張 .dc.html 與 canvas.json（真正的設計來源），成品用它們重建：
+#   見 dev/design/xinji/README.md
+dev/design/*/[a-z]*-*.html

@@ -83,6 +83,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   questionRaw?: string;                // 擬題／改寫前護道人的原話（無擬題則為空）
   questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
   clientToken?: string;                // 起卦冪等憑據：同一次起卦動作只准成立一卦
+  threadId?: string;                   // 心跡：這一卦屬於哪件在記的心事（見下方「二占」）
 }) {
   // -1. 冪等：先搶 token。搶不到代表這一次起卦已經有人在做（連點兩下、
   //     斷線重試、或兩台裝置同時送），直接回頭等那一份，不重複扣費與呼叫 AI。
@@ -108,7 +109,19 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 1. 二占
-  const dup = await checkDuplicate(db, p.userId, p.question, p.questionRaw);
+  //    帶了 threadId 就不攔。二占要防的是「同一個問題連問到滿意為止」，
+  //    但那與「一件事追蹤三個月」是兩回事，差別在他有沒有把它記成一件心事——
+  //    記了就等於承認這是同一件事，沒有自欺可言，攔他只是在懲罰誠實的人。
+  //    這不是開後門：卦數仍受每日免費額度與靈石管著（第 2 步），
+  //    真正擋住濫問的一直是計費，不是這一段。
+  let threadId: string | null = null;
+  if (p.threadId) {
+    const { data: th } = await db.from("threads").select("id, status")
+      .eq("id", p.threadId).eq("user_id", p.userId).maybeSingle();
+    // 查無、或已了結的線，一律當作沒帶——不能靠送一個假 id 就繞過二占
+    if (th && (th as { status: string }).status === "open") threadId = (th as { id: string }).id;
+  }
+  const dup = threadId ? null : await checkDuplicate(db, p.userId, p.question, p.questionRaw);
   if (dup) return { kind: "intercept" as const, message: interceptMessage(p.characterId, dup), prevCastId: dup.id };
 
   // 2. 計費
@@ -162,12 +175,13 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     question_raw: p.questionRaw ?? null,
     question_raw_norm: p.questionRaw ? normalizeQuestion(p.questionRaw) : null,
     question_source: p.questionSource ?? "manual",
+    thread_id: threadId,
   };
   let { data: cast, error: insErr } = await db.from("casts").insert(row).select("id").single();
   if (insErr) {
     // 舊 schema（0028 未跑）兜底：去掉新欄位重試。卦錢已扣，這一步絕不可失敗。
     console.error("cast insert with question_raw failed, retry without", insErr.message);
-    const { question_raw: _a, question_raw_norm: _b, question_source: _c, ...legacy } = row;
+    const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, ...legacy } = row;
     ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
   }
   if (p.clientToken) {
@@ -179,6 +193,9 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (ai.due) {
     await db.from("feedback").insert({ cast_id: cast!.id, user_id: p.userId, due_date: ai.due });
   }
+  // 心跡：把這條線的「最後一卦」往前推。timeline 依它排序，brewNotes 依它算擱了幾天——
+  // 不推的話，剛問完的線會被排到底下，而角色隔天就來問「怎麼擱著了」。
+  if (threadId) await db.from("threads").update({ last_cast_at: new Date().toISOString() }).eq("id", threadId);
 
   // 6. 修為與突破
   const breakthrough = await addCultivation(db, p.userId, p.characterId, 10, 3);
