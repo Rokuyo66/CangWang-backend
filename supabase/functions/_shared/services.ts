@@ -3,7 +3,7 @@ import { YAO_NAMES, huaJinTui } from "./core.ts";
 // Chart 是 interface，得走 import type——混在值 import 裡，node 的型別剝除
 // （dev/billing-test.mts 就是靠它跑）會照著去 core.ts 找一個不存在的 export。
 import type { Chart } from "./core.ts";
-import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, parseTagged } from "./rules.ts";
+import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
@@ -116,9 +116,12 @@ const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
 // 日運卦用 Haiku：等第與取籤都由程式算定，模型只負責把等第與籤意寫成角色聲線的短文，
 // 不承擔任何卦理判斷。這是免費且每人每日一次的功能，成本必須壓住。
 const MODEL_FORTUNE = Deno.env.get("INTERPRET_MODEL_FORTUNE") ?? "claude-haiku-4-5-20251001";
+// 月誌卷首語：短輸出、不碰卦理、每人每月一次。用 haiku 是刻意的——
+// 它是心跡唯一的 AI 開銷，換成 sonnet 就會讓「訂閱不賣 AI 次數」這條線失守。
+const MODEL_MONTHLY = Deno.env.get("INTERPRET_MODEL_MONTHLY") ?? "claude-haiku-4-5-20251001";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
 // 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
-const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600 };
+const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600, monthly: 500 };
 
 // 句尾收束字元（含 markdown 粗體收尾）：結尾不在此清單＝疑似斷半句
 const SENT_END = ["。", "！", "？", "…", "」", "』", "）", "】", "＊", "～", "*", "."];
@@ -133,11 +136,12 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   comment?: { prevReading: string; prevAuthor?: string };
   yong?: { qin: string; viaShi?: boolean; pos?: number | null };
   fortune?: { tierLabel: string; qian: Qian; jieqiLine: string }; // 日運卦：等第與籤由程式算定後傳入
+  monthly?: { ym: string };   // 月誌卷首語：chartText 位置改放該月紀錄摘要（見 xinji.statsDigest）
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
 }) {
-  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : "cast";
-  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : MODEL_LITE);
-  const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : RULES;
+  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
+  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
+  const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
   // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
   // TTL 用 1 小時而非預設的 5 分鐘：本站流量約每小時個位數次解卦，平均間隔已經
   // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
@@ -169,6 +173,11 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     ? [{
         role: "user",
         content: `【盤面】\n${chartText}${yongHint}\n\n【${opts.comment.prevAuthor ?? "另一位修行者"}已給的解卦結論】\n${opts.comment.prevReading}\n\n以上結論出自「${opts.comment.prevAuthor ?? "另一位修行者"}」，不是你。請以你的視角，就這個結論說幾句你的看法；若提及原評卦人，須正確稱呼為「${opts.comment.prevAuthor ?? "對方"}」，不可張冠李戴成別人。`,
+      }]
+    : opts.monthly
+    ? [{
+        role: "user",
+        content: `【${opts.monthly.ym} 的紀錄】\n${chartText}\n\n請依規則寫這一卷的卷首語。`,
       }]
     : opts.fortune
     ? [{
@@ -301,7 +310,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
-    ...(opts.followup || opts.deepen || opts.fortune ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
+    ...(opts.followup || opts.deepen || opts.fortune || opts.monthly ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
     usage, model: usedModel, mode, estimated, stopReason,
   };
 }

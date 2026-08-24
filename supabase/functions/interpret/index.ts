@@ -12,6 +12,11 @@ import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
+import {
+  timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
+  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf,
+} from "../_shared/xinji.ts";
+import { callInterpret, logUsage } from "../_shared/services.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -326,12 +331,19 @@ Deno.serve(async (req) => {
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
       const [fy, fm, fd] = cday.split("-").map(Number);
+      // 心跡：導覽紅點與額度標示。兩個 count(head) 而已——為了兩個數字讓前端
+      // 在每次開 App 時多打一支 xinji_timeline，是把便宜的東西做貴。
+      const { count: xjOpen } = await db.from("threads")
+        .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
+      const { count: xjNotes } = await db.from("thread_notes")
+        .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
       return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
         followupCost: COST_FOLLOWUP,
         chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
+        xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
@@ -487,6 +499,81 @@ Deno.serve(async (req) => {
        這一段刻意不套 rateLimited()：那支是給 AI 請求用的（每分鐘 6 次），
        而卦案零 AI、零 token，一個行動就是一次點擊，套上去等於十秒後就不能玩了。
        這裡的成本是一次 select ＋ 一次 update，該擋的是濫寫不是頻率。 */
+
+    /* ═══ 心跡 ═══
+       一件事的一條線。時間軸、溫度線、角色留言、月誌統計全部零 AI——
+       整段只有月誌卷首語會呼叫模型，每人每月一次、走 haiku（見 xinji.ts 檔頭的成本紀律）。
+       所以這裡跟卦案一樣不套 rateLimited()：那支是給 AI 請求用的，套在每日都會開的頁面上
+       只會讓人翻兩下就被擋。 */
+
+    // 時間軸：在記的事、已了結的事、未回覆的角色留言。開頁時順手熬一次留言。
+    if (body.mode === "xinji_timeline") {
+      return caseResult(await timeline(db, uid, await planOf(db, uid)));
+    }
+
+    // 單一心事：歷次卦 ＋ 緣分溫度線
+    if (body.mode === "xinji_thread") {
+      return caseResult(await threadDetail(db, uid, body.thread_id));
+    }
+
+    // 記一件新的事（可帶 cast_id 當首卦）。額度滿了回的是人話，不是 quota exceeded。
+    if (body.mode === "xinji_open") {
+      return caseResult(await openThread(db, uid, await planOf(db, uid), {
+        title: body.title, subject: body.subject, category: body.category, castId: body.cast_id,
+      }));
+    }
+
+    // 把一張散卦歸到既有的線上（從卦曆進來的路徑）
+    if (body.mode === "xinji_attach") {
+      return caseResult(await attachCast(db, uid, body.cast_id, body.thread_id));
+    }
+
+    // 了結／重啟。了結不是刪除：線與卦都還在，只是不再佔在記的額度。
+    if (body.mode === "xinji_close") {
+      return caseResult(await setThreadStatus(db, uid, await planOf(db, uid), body.thread_id, body.close !== false));
+    }
+
+    if (body.mode === "xinji_delete") {
+      return caseResult(await deleteThread(db, uid, body.thread_id));
+    }
+
+    // 起卦前比對：這句問的是不是已經在記的某件事。
+    // 這是「一事不二占從一道牆翻成一條線」的接點——前端拿到 thread 就改問
+    // 「這件事我記得，現在到哪了？」而不是「你問過了」。
+    if (body.mode === "xinji_suggest") {
+      return caseResult(await suggestThread(db, uid, body.question));
+    }
+
+    // 「回牠一句」：標記已回，回傳該找誰、開場白帶什麼。
+    // 這一支不計費——它只把人送進閒聊，計費由 chat 照既有規則走。
+    if (body.mode === "xinji_note_reply") {
+      return caseResult(await replyToNote(db, uid, body.note_id));
+    }
+
+    if (body.mode === "xinji_note_read") {
+      return caseResult(await markNotesRead(db, uid, body.note_ids));
+    }
+
+    // 往月目錄（畫「往月　未啟封」那一列）
+    if (body.mode === "xinji_month_index") {
+      return caseResult(await monthlyIndex(db, uid, await planOf(db, uid)));
+    }
+
+    // 月誌。免費：統計照給、卷首語鎖上（locked_reason 是可直接顯示的中文）。
+    // 付費：有存的取存的，沒有就生一次再存。生成失敗照給統計——
+    // 少一段卷首語是遺憾，整頁打不開是故障。
+    if (body.mode === "xinji_month") {
+      const plan = await planOf(db, uid);
+      return caseResult(await monthlyReview(db, uid, plan, body.ym, async (digest) => {
+        // 司籍不是三位角色中的任何一位，所以聲線位置給一句中性的定位，
+        // 而不是把大師兄的人設塞進來——那樣寫出來的卷首語會開始叫人「護道人」。
+        const ai = await callInterpret("你是幾知觀的司籍，只記錄、不評斷、不安慰。", digest, {
+          monthly: { ym: String(body.ym ?? "") },
+        });
+        await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+        return { text: ai.reading, model: ai.model, usage: ai.usage, estimated: ai.estimated };
+      }));
+    }
 
     // 卦案清單、進行中的局、已封存的記憶檔案（含配額）
     if (body.mode === "case_list") {
@@ -1079,6 +1166,9 @@ Deno.serve(async (req) => {
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
           questionRaw: body.question_raw, questionSource: body.question_source,
       clientToken: typeof body.client_token === "string" ? body.client_token : undefined,
+      // 心跡：「就這件事再問一卦」帶著線的 id 進來。帶了就不吃一事不二占的攔截
+      // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。
+      threadId: typeof body.thread_id === "string" ? body.thread_id : undefined,
     });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
