@@ -7,141 +7,151 @@
 <body>
 <x-dc>
 <helmet>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@400;500&display=swap">
   <style>
-    body{margin:0;font-family:"Noto Serif TC","Songti TC",serif;line-height:1.75;
+    body{margin:0;font-family:"Noto Serif TC","Songti TC",serif;line-height:1.75;color:#3A322A;
       -webkit-font-smoothing:antialiased}
-    a{color:#c8a86b}a:hover{color:#e0c48a}
+    a{color:#B08A4A}a:hover{color:#8d6c36}
     *{box-sizing:border-box}
     button{font-family:inherit;color:inherit;cursor:pointer}
+    .sans{font-family:"Noto Sans TC",system-ui,sans-serif}
+    .card{background:#FFFDF8;border:1px solid #E0D5BF;border-radius:14px;
+      box-shadow:0 1px 0 rgba(58,50,42,.04),0 6px 16px -12px rgba(58,50,42,.35)}
+    .ruled{background-image:repeating-linear-gradient(to bottom,
+      transparent 0,transparent 27px,#EDE4D2 27px,#EDE4D2 28px)}
+    .stk{position:absolute;filter:drop-shadow(0 3px 5px rgba(58,50,42,.18))}
   </style>
 </helmet>
 
-<div style="width:390px;height:844px;background:#12100e;color:#e8e0d4;display:flex;flex-direction:column;overflow:hidden">
+<div style="width:390px;height:844px;background:#F7F3EA;display:flex;flex-direction:column;overflow:hidden;position:relative">
 
   <div style="height:47px;flex-shrink:0"></div>
 
-  <!-- 回冊 -->
-  <div style="display:flex;align-items:center;gap:10px;padding:0 22px 12px;flex-shrink:0">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b8073" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg>
-    <span style="font-size:12px;letter-spacing:.16em;color:#8b8073">心跡</span>
+  <div style="display:flex;align-items:center;gap:9px;padding:0 22px 10px;flex-shrink:0">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A7C68" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg>
+    <span class="sans" style="font-size:12.5px;color:#8A7C68">心跡</span>
   </div>
 
-  <div style="flex:1;overflow-y:auto;padding:0 22px 24px">
-    <div style="display:flex;flex-direction:column;gap:20px">
+  <div style="flex:1;overflow-y:auto;padding:0 18px 92px">
+    <div style="display:flex;flex-direction:column;gap:18px">
 
       <!-- 題名 -->
-      <div style="display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #262019;padding-bottom:16px">
+      <div style="position:relative;padding:0 4px 14px;border-bottom:1px solid #E6DCC8">
         <div style="display:flex;align-items:baseline;gap:9px">
-          <span style="font-size:22px;letter-spacing:.08em;font-weight:500">阿凱這條線</span>
-          <span style="font-size:10px;letter-spacing:.16em;color:#8b8073;border:1px solid #3d342b;padding:1px 6px">感情</span>
+          <span style="font-size:23px;letter-spacing:.06em;font-weight:600">阿凱這條線</span>
+          <span class="sans" style="font-size:10.5px;color:#8A7C68;background:#E9C7BE;border-radius:999px;padding:2px 9px">感情</span>
         </div>
-        <span style="font-size:12.5px;color:#5f574c;font-variant-numeric:tabular-nums">正月十二起　歷五十六日　三卦</span>
+        <div class="sans" style="font-size:12px;color:#B5A88F;margin-top:4px">正月十二起・歷五十六日・三卦</div>
+        <svg class="stk" width="36" height="36" viewBox="0 0 36 36" style="right:0;top:-6px;transform:rotate(11deg)" aria-hidden="true">
+          <path d="M18 29s-9.5-6.3-9.5-12.6A5.3 5.3 0 0 1 18 13a5.3 5.3 0 0 1 9.5 3.4C27.5 22.7 18 29 18 29Z" fill="#E4B8AE"></path>
+        </svg>
       </div>
 
-      <!-- 溫度線 -->
-      <div style="display:flex;flex-direction:column;gap:12px;background:#1a1714;border:1px solid #332c25;padding:16px 15px 14px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between">
-          <span style="font-size:13px;letter-spacing:.18em;color:#c8a86b">緣分溫度</span>
-          <span style="font-size:11px;color:#5f574c">用神（妻財）歷卦旺衰</span>
+      <!-- 緣分溫度 -->
+      <div class="card" style="padding:16px 15px 13px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:14px;letter-spacing:.14em;color:#8d6c36">緣分溫度</span>
+          <span class="sans" style="font-size:11px;color:#B5A88F">用神（妻財）歷卦旺衰</span>
         </div>
 
-        <svg viewBox="0 0 346 154" width="100%" style="display:block;overflow:visible" role="img" aria-label="用神旺衰折線：正月十二相、正月廿八休、二月初九囚、二月廿六休、三月初九相">
-          <!-- 格線 -->
-          <g stroke="#e8e0d4" stroke-opacity=".07" stroke-width="1">
-            <line x1="34" y1="42" x2="330" y2="42"></line>
-            <line x1="34" y1="72" x2="330" y2="72"></line>
-            <line x1="34" y1="102" x2="330" y2="102"></line>
-            <line x1="34" y1="132" x2="330" y2="132"></line>
-            <line x1="34" y1="12" x2="330" y2="12"></line>
+        <svg viewBox="0 0 320 154" width="100%" style="display:block;overflow:visible" role="img" aria-label="用神旺衰折線：正月十二相、正月廿八休、二月初九囚、二月廿六休、三月初九相">
+          <g stroke="#E6DCC8" stroke-width="1">
+            <line x1="30" y1="12"  x2="306" y2="12"></line>
+            <line x1="30" y1="42"  x2="306" y2="42"></line>
+            <line x1="30" y1="72"  x2="306" y2="72"></line>
+            <line x1="30" y1="102" x2="306" y2="102"></line>
+            <line x1="30" y1="132" x2="306" y2="132"></line>
           </g>
-          <!-- 縱軸：旺衰五等 -->
-          <g fill="#5f574c" font-size="10.5" font-family="'Noto Serif TC',serif" text-anchor="end">
-            <text x="24" y="16">旺</text>
-            <text x="24" y="46">相</text>
-            <text x="24" y="76">休</text>
-            <text x="24" y="106">囚</text>
-            <text x="24" y="136">死</text>
+          <g fill="#B5A88F" font-size="10.5" font-family="'Noto Serif TC',serif" text-anchor="end">
+            <text x="22" y="16">旺</text><text x="22" y="46">相</text><text x="22" y="76">休</text>
+            <text x="22" y="106">囚</text><text x="22" y="136">死</text>
           </g>
-          <!-- 折線 -->
-          <polyline points="34,42 106,72 177,102 249,72 320,42"
-            fill="none" stroke="#c8a86b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>
-          <!-- 點 -->
-          <g fill="#12100e" stroke="#c8a86b" stroke-width="2">
-            <circle cx="34" cy="42" r="4"></circle>
-            <circle cx="106" cy="72" r="4"></circle>
-            <circle cx="249" cy="72" r="4"></circle>
+          <polyline points="30,42 99,72 168,102 237,72 300,42"
+            fill="none" stroke="#B08A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+          <g fill="#FFFDF8" stroke="#B08A4A" stroke-width="2">
+            <circle cx="30" cy="42" r="4"></circle>
+            <circle cx="99" cy="72" r="4"></circle>
+            <circle cx="237" cy="72" r="4"></circle>
           </g>
-          <!-- 最低點：標 -->
-          <circle cx="177" cy="102" r="4.5" fill="#9c3b30" stroke="#12100e" stroke-width="2"></circle>
-          <text x="177" y="121" fill="#a8623f" font-size="10.5" font-family="'Noto Serif TC',serif" text-anchor="middle">最冷</text>
-          <!-- 最新點：實心＋標 -->
-          <circle cx="320" cy="42" r="5" fill="#c8a86b" stroke="#12100e" stroke-width="2"></circle>
-          <text x="320" y="30" fill="#c8a86b" font-size="11" font-family="'Noto Serif TC',serif" text-anchor="end">相</text>
-          <!-- 橫軸 -->
-          <g fill="#5f574c" font-size="10" font-family="'Noto Serif TC',serif" text-anchor="middle">
-            <text x="34" y="150">正·十二</text>
-            <text x="177" y="150">二·初九</text>
-            <text x="320" y="150">三·初九</text>
+          <circle cx="168" cy="102" r="4.5" fill="#C0483A" stroke="#FFFDF8" stroke-width="2"></circle>
+          <text x="168" y="121" fill="#C0483A" font-size="10.5" font-family="'Noto Serif TC',serif" text-anchor="middle">最冷</text>
+          <circle cx="300" cy="42" r="5" fill="#B08A4A" stroke="#FFFDF8" stroke-width="2"></circle>
+          <text x="300" y="30" fill="#8d6c36" font-size="11" font-family="'Noto Serif TC',serif" text-anchor="end">相</text>
+          <g fill="#B5A88F" font-size="10" font-family="'Noto Serif TC',serif" text-anchor="middle">
+            <text x="30" y="150">正·十二</text><text x="168" y="150">二·初九</text><text x="300" y="150">三·初九</text>
           </g>
         </svg>
 
-        <div style="font-size:12.5px;color:#8b8073;line-height:1.7;border-top:1px solid #262019;padding-top:11px">
+        <div style="font-size:12.5px;color:#8A7C68;line-height:1.75;border-top:1px solid #EDE4D2;padding-top:11px;margin-top:6px">
           二月初九最冷，其後兩卦連升。這條線是程式依歷次盤面算的，不經解讀。
         </div>
       </div>
 
-      <!-- 歷次卦 -->
-      <div style="display:flex;flex-direction:column;gap:0">
-        <div style="font-size:11px;letter-spacing:.28em;color:#5f574c;padding-bottom:12px">歷　卦</div>
+      <!-- 歷卦 -->
+      <div>
+        <div class="sans" style="font-size:11px;letter-spacing:.24em;color:#B5A88F;padding:0 4px 12px">歷　卦</div>
 
-        <div style="display:flex;gap:14px">
-          <div style="width:44px;flex-shrink:0;text-align:right;font-size:11.5px;color:#5f574c;font-variant-numeric:tabular-nums;padding-top:2px">三·初九</div>
-          <div style="width:1px;background:#332c25;flex-shrink:0;position:relative">
-            <div style="position:absolute;left:-3px;top:6px;width:7px;height:7px;background:#c8a86b"></div>
+        <div style="display:flex;gap:13px">
+          <div class="sans" style="width:42px;flex-shrink:0;text-align:right;font-size:11px;color:#B5A88F;padding-top:14px">三·初九</div>
+          <div style="width:1px;background:#E0D5BF;flex-shrink:0;position:relative">
+            <div style="position:absolute;left:-4px;top:16px;width:9px;height:9px;border-radius:50%;background:#B08A4A"></div>
           </div>
-          <div style="flex:1;min-width:0;padding-bottom:20px;display:flex;flex-direction:column;gap:5px">
-            <span style="font-size:14.5px">《澤山咸》　問：他心裡還有沒有我</span>
-            <span style="font-size:12.5px;color:#8b8073;line-height:1.7">師妹說：他心裡有你，但他在等一個台階。</span>
-            <span style="font-size:11.5px;color:#c8a86b">應期 三月十四</span>
-          </div>
-        </div>
-
-        <div style="display:flex;gap:14px">
-          <div style="width:44px;flex-shrink:0;text-align:right;font-size:11.5px;color:#5f574c;font-variant-numeric:tabular-nums;padding-top:2px">二·廿六</div>
-          <div style="width:1px;background:#332c25;flex-shrink:0;position:relative">
-            <div style="position:absolute;left:-3px;top:6px;width:7px;height:7px;background:#4a3f31"></div>
-          </div>
-          <div style="flex:1;min-width:0;padding-bottom:20px;display:flex;flex-direction:column;gap:5px">
-            <span style="font-size:14.5px">《雷澤歸妹》　問：該不該先開口</span>
-            <span style="font-size:12.5px;color:#8b8073;line-height:1.7">大師兄說：先開口的人不吃虧，吃虧的是話說得太滿。</span>
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="width:15px;height:15px;border:1px solid #7d9a6a;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#7d9a6a">應</span>
-              <span style="font-size:11.5px;color:#7d9a6a">你回報：說了，他沒躲</span>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div class="card ruled" style="padding:13px 14px">
+              <div style="font-size:14.5px">《澤山咸》　問：他心裡還有沒有我</div>
+              <div style="font-size:13px;color:#8A7C68">師妹說：他心裡有你，但他在等一個台階。</div>
+              <div class="sans" style="font-size:11.5px;color:#B08A4A;margin-top:5px">應期 三月十四</div>
             </div>
           </div>
         </div>
 
-        <div style="display:flex;gap:14px">
-          <div style="width:44px;flex-shrink:0;text-align:right;font-size:11.5px;color:#5f574c;font-variant-numeric:tabular-nums;padding-top:2px">正·十二</div>
-          <div style="width:1px;background:transparent;flex-shrink:0;position:relative">
-            <div style="position:absolute;left:-3px;top:6px;width:7px;height:7px;background:#4a3f31"></div>
+        <div style="display:flex;gap:13px">
+          <div class="sans" style="width:42px;flex-shrink:0;text-align:right;font-size:11px;color:#B5A88F;padding-top:14px">二·廿六</div>
+          <div style="width:1px;background:#E0D5BF;flex-shrink:0;position:relative">
+            <div style="position:absolute;left:-4px;top:16px;width:9px;height:9px;border-radius:50%;background:#D9C79C"></div>
           </div>
-          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
-            <span style="font-size:14.5px">《風澤中孚》　問：我們還有可能嗎</span>
-            <span style="font-size:12.5px;color:#8b8073;line-height:1.7">觀喵說：有。但不是現在這個樣子的你們。</span>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div class="card ruled" style="padding:13px 14px">
+              <div style="font-size:14.5px">《雷澤歸妹》　問：該不該先開口</div>
+              <div style="font-size:13px;color:#8A7C68">大師兄說：先開口的人不吃虧，吃虧的是話說得太滿。</div>
+              <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+                <span style="width:17px;height:17px;border:1px solid #7A9163;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#7A9163">應</span>
+                <span class="sans" style="font-size:11.5px;color:#7A9163">你回報：說了，他沒躲</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:13px">
+          <div class="sans" style="width:42px;flex-shrink:0;text-align:right;font-size:11px;color:#B5A88F;padding-top:14px">正·十二</div>
+          <div style="width:1px;flex-shrink:0;position:relative">
+            <div style="position:absolute;left:-4px;top:16px;width:9px;height:9px;border-radius:50%;background:#D9C79C"></div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div class="card ruled" style="padding:13px 14px">
+              <div style="font-size:14.5px">《風澤中孚》　問：我們還有可能嗎</div>
+              <div style="font-size:13px;color:#8A7C68">觀喵說：有。但不是現在這個樣子的你們。</div>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- 行動 -->
-      <div style="display:flex;gap:10px;border-top:1px solid #262019;padding-top:18px">
-        <button style="flex:1;min-height:48px;background:#1a1714;border:1px solid #c8a86b;color:#c8a86b;font-size:14.5px;letter-spacing:.12em">就這件事再問一卦</button>
-        <button style="min-height:48px;background:none;border:1px solid #332c25;color:#8b8073;font-size:14px;letter-spacing:.1em;padding:0 16px">了結</button>
+      <div style="display:flex;gap:10px;padding-top:6px">
+        <button style="flex:1;min-height:50px;background:#B08A4A;border:none;border-radius:999px;color:#FFFDF8;font-size:15px;letter-spacing:.1em">就這件事再問一卦</button>
+        <button class="sans" style="min-height:50px;background:#FFFDF8;border:1px solid #E0D5BF;border-radius:999px;color:#8A7C68;font-size:14px;padding:0 20px">了結</button>
       </div>
 
     </div>
   </div>
+
+  <button aria-label="貼紙口袋" style="position:absolute;right:16px;bottom:22px;width:56px;height:56px;border-radius:50%;background:#FFFDF8;border:1px solid #E0D5BF;box-shadow:0 6px 18px -8px rgba(58,50,42,.5);display:flex;align-items:center;justify-content:center;padding:0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#B08A4A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V14l-6 6H5.5A1.5 1.5 0 0 1 4 18.5Z"></path>
+      <path d="M20 14h-4.5a1.5 1.5 0 0 0-1.5 1.5V20"></path>
+    </svg>
+  </button>
+
 </div>
 </x-dc>
 <script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>

@@ -17,6 +17,12 @@ import {
   suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf,
 } from "../_shared/xinji.ts";
 import { callInterpret, logUsage } from "../_shared/services.ts";
+import {
+  stickerShelf, buyPack, placeSticker, moveSticker, removeSticker, stickerLayout, layoutOf,
+} from "../_shared/stickers.ts";
+import {
+  voiceSave, voiceConfirm, voiceList, voiceDelete, clipQuotaOf, BUCKET, type VoiceStore,
+} from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -500,6 +506,34 @@ Deno.serve(async (req) => {
        而卦案零 AI、零 token，一個行動就是一次點擊，套上去等於十秒後就不能玩了。
        這裡的成本是一次 select ＋ 一次 update，該擋的是濫寫不是頻率。 */
 
+    /* ═══ 語音收藏與貼紙的兩個小接頭 ═══ */
+
+    // Storage 的三個動作包成 voice.ts 要的形狀。包一層是為了讓 voice.ts
+    // 不必認識 supabase storage client——那一層要能離線測，而測試給的是替身。
+    const voiceStore: VoiceStore = {
+      async signUpload(path) {
+        const { data, error } = await db.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
+        if (error || !data) { console.error("signUpload failed", error); return null; }
+        return { url: data.signedUrl, token: data.token };
+      },
+      async signDownload(path, seconds) {
+        const { data } = await db.storage.from(BUCKET).createSignedUrl(path, seconds);
+        return data?.signedUrl ?? null;
+      },
+      async exists(path) {
+        const slash = path.lastIndexOf("/");
+        const { data } = await db.storage.from(BUCKET)
+          .list(path.slice(0, slash), { search: path.slice(slash + 1), limit: 1 });
+        const f = (data ?? [])[0] as { metadata?: { size?: number } } | undefined;
+        return f ? { bytes: f.metadata?.size ?? 0 } : null;
+      },
+      async remove(path) { await db.storage.from(BUCKET).remove([path]); },
+    };
+
+    // 心跡每一頁的回應都夾帶那一頁貼了什麼，不必為了貼紙多打一支 API。
+    const withStickers = async (r: Awaited<ReturnType<typeof timeline>>, surface: string) =>
+      r.ok ? { ...r, payload: { ...r.payload, stickers: await layoutOf(db, uid, surface) } } : r;
+
     /* ═══ 心跡 ═══
        一件事的一條線。時間軸、溫度線、角色留言、月誌統計全部零 AI——
        整段只有月誌卷首語會呼叫模型，每人每月一次、走 haiku（見 xinji.ts 檔頭的成本紀律）。
@@ -508,12 +542,13 @@ Deno.serve(async (req) => {
 
     // 時間軸：在記的事、已了結的事、未回覆的角色留言。開頁時順手熬一次留言。
     if (body.mode === "xinji_timeline") {
-      return caseResult(await timeline(db, uid, await planOf(db, uid)));
+      return caseResult(await withStickers(await timeline(db, uid, await planOf(db, uid)), "timeline"));
     }
 
     // 單一心事：歷次卦 ＋ 緣分溫度線
     if (body.mode === "xinji_thread") {
-      return caseResult(await threadDetail(db, uid, body.thread_id));
+      return caseResult(await withStickers(
+        await threadDetail(db, uid, body.thread_id), `thread:${String(body.thread_id ?? "")}`));
     }
 
     // 記一件新的事（可帶 cast_id 當首卦）。額度滿了回的是人話，不是 quota exceeded。
@@ -564,7 +599,7 @@ Deno.serve(async (req) => {
     // 少一段卷首語是遺憾，整頁打不開是故障。
     if (body.mode === "xinji_month") {
       const plan = await planOf(db, uid);
-      return caseResult(await monthlyReview(db, uid, plan, body.ym, async (digest) => {
+      const r = await monthlyReview(db, uid, plan, body.ym, async (digest) => {
         // 司籍不是三位角色中的任何一位，所以聲線位置給一句中性的定位，
         // 而不是把大師兄的人設塞進來——那樣寫出來的卷首語會開始叫人「護道人」。
         const ai = await callInterpret("你是幾知觀的司籍，只記錄、不評斷、不安慰。", digest, {
@@ -572,7 +607,70 @@ Deno.serve(async (req) => {
         });
         await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
         return { text: ai.reading, model: ai.model, usage: ai.usage, estimated: ai.estimated };
+      });
+      const ym = /^\d{4}-\d{2}$/.test(String(body.ym ?? "")) ? String(body.ym)
+        : new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 7);
+      return caseResult(await withStickers(r, `month:${ym}`));
+    }
+
+    /* ═══ 語音收藏 ═══
+       收藏＝把已合成好的音檔留下來，重聽不再呼叫 TTS。所以語音頁播放幾百次
+       都是零邊際成本，而它同時是留存與訂閱誘因（見 voice.ts 檔頭）。
+       上傳分兩步：先開簽名網址（額度在這一步就擋掉，不會傳了兩 MB 才說超額），
+       前端 PUT 完再回頭 confirm。 */
+
+    if (body.mode === "voice_list") {
+      return caseResult(await voiceList(db, uid, await planOf(db, uid), voiceStore));
+    }
+
+    if (body.mode === "voice_save") {
+      return caseResult(await voiceSave(db, uid, await planOf(db, uid), voiceStore, body));
+    }
+
+    // 上傳完了。以 Storage 的實況為準，不信前端說「我傳好了」——
+    // 信它的話，一則點下去沒聲音的收藏會佔著格子。
+    if (body.mode === "voice_confirm") {
+      return caseResult(await voiceConfirm(db, uid, voiceStore, body.clip_id));
+    }
+
+    if (body.mode === "voice_delete") {
+      return caseResult(await voiceDelete(db, uid, voiceStore, body.clip_id));
+    }
+
+    /* ═══ 貼紙 ═══
+       零 AI、純毛利。價錢寫在抽屜裡不另跳商店頁——人是在「想貼」的那一刻掏錢。 */
+
+    if (body.mode === "sticker_shelf") {
+      return caseResult(await stickerShelf(db, uid));
+    }
+
+    if (body.mode === "sticker_buy") {
+      return caseResult(await buyPack(db, uid, body.pack_id, async (price, packId) => {
+        const { error } = await db.rpc("apply_lingshi",
+          { p_user: uid, p_action: "sticker_pack", p_amount: -price });
+        if (error) return false;
+        // 收支列表展開時要說得出這筆買到的是哪一包。ledger.ref_id 是 uuid，
+        // 而 pack_id 是文字鍵接不上，所以靠 action 區分即可（同 buy_theme 的作法）。
+        console.log(`[sticker] ${uid} bought ${packId} for ${price}`);
+        return true;
       }));
+    }
+
+    if (body.mode === "sticker_place") {
+      return caseResult(await placeSticker(db, uid, body));
+    }
+
+    if (body.mode === "sticker_move") {
+      return caseResult(await moveSticker(db, uid, body));
+    }
+
+    if (body.mode === "sticker_remove") {
+      return caseResult(await removeSticker(db, uid, body.id));
+    }
+
+    // 語音頁那一面（心跡三頁的貼紙夾在各自的回應裡，這支給不走那三支的頁面用）
+    if (body.mode === "sticker_layout") {
+      return caseResult(await stickerLayout(db, uid, body.surface));
     }
 
     // 卦案清單、進行中的局、已封存的記憶檔案（含配額）

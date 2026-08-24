@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@400;500&display=swap">
+  <style>
+    body{margin:0;font-family:"Noto Serif TC","Songti TC",serif;line-height:1.75;color:#3A322A;
+      -webkit-font-smoothing:antialiased}
+    a{color:#B08A4A}a:hover{color:#8d6c36}
+    *{box-sizing:border-box}
+    button{font-family:inherit;color:inherit;cursor:pointer}
+    .sans{font-family:"Noto Sans TC",system-ui,sans-serif}
+    .card{background:#FFFDF8;border:1px solid #E0D5BF;border-radius:14px;
+      box-shadow:0 1px 0 rgba(58,50,42,.04),0 6px 16px -12px rgba(58,50,42,.35)}
+    .wave rect{fill:#D9C79C}
+    .wave .on{fill:#B08A4A}
+  </style>
+</helmet>
+
+<div style="width:390px;height:844px;background:#F7F3EA;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <div style="height:47px;flex-shrink:0"></div>
+
+  <div style="display:flex;align-items:baseline;justify-content:space-between;padding:2px 22px 12px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font-size:24px;letter-spacing:.2em;font-weight:600">心跡</span>
+    </div>
+    <span class="sans" style="font-size:11.5px;color:#8A7C68">收了 4／30 段</span>
+  </div>
+
+  <div style="display:flex;gap:8px;padding:0 22px 14px;flex-shrink:0">
+    <div style="padding:6px 16px;border-radius:999px;background:#EDE6D7;color:#8A7C68;font-size:13.5px;letter-spacing:.12em">心事</div>
+    <div style="padding:6px 16px;border-radius:999px;background:#EDE6D7;color:#8A7C68;font-size:13.5px;letter-spacing:.12em">月誌</div>
+    <div style="padding:6px 16px;border-radius:999px;background:#3A322A;color:#F7F3EA;font-size:13.5px;letter-spacing:.12em">語音</div>
+  </div>
+
+  <div style="flex:1;overflow-y:auto;padding:4px 18px 92px">
+    <div style="display:flex;flex-direction:column;gap:14px">
+
+      <!-- 正在播 -->
+      <div style="position:relative">
+        <div class="tape" style="position:absolute;width:66px;height:20px;left:22px;top:-6px;background:#C9D6E4;border-radius:2px;transform:rotate(-3deg);opacity:.9"></div>
+        <div class="card" style="padding:16px;background:#FDF9F0;border-color:#D9C79C">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:42px;height:42px;flex-shrink:0;border-radius:50%;background:#CFC0A2;display:flex;align-items:center;justify-content:center;font-size:16px;color:#463c2c">兄</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15.5px">大師兄・《水天需》</div>
+              <div class="sans" style="font-size:11.5px;color:#8A7C68">那筆尾款・三月初二</div>
+            </div>
+            <button aria-label="暫停" style="width:44px;height:44px;flex-shrink:0;border-radius:50%;background:#B08A4A;border:none;display:flex;align-items:center;justify-content:center;padding:0">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFDF8" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
+            </button>
+          </div>
+          <svg class="wave" viewBox="0 0 300 34" width="100%" height="34" style="display:block;margin-top:12px" aria-hidden="true">
+            <rect class="on" x="0"   y="12" width="3" height="10" rx="1.5"></rect>
+            <rect class="on" x="7"   y="7"  width="3" height="20" rx="1.5"></rect>
+            <rect class="on" x="14"  y="3"  width="3" height="28" rx="1.5"></rect>
+            <rect class="on" x="21"  y="9"  width="3" height="16" rx="1.5"></rect>
+            <rect class="on" x="28"  y="5"  width="3" height="24" rx="1.5"></rect>
+            <rect class="on" x="35"  y="11" width="3" height="12" rx="1.5"></rect>
+            <rect class="on" x="42"  y="6"  width="3" height="22" rx="1.5"></rect>
+            <rect class="on" x="49"  y="2"  width="3" height="30" rx="1.5"></rect>
+            <rect class="on" x="56"  y="10" width="3" height="14" rx="1.5"></rect>
+            <rect class="on" x="63"  y="8"  width="3" height="18" rx="1.5"></rect>
+            <rect x="70"  y="4"  width="3" height="26" rx="1.5"></rect>
+            <rect x="77"  y="12" width="3" height="10" rx="1.5"></rect>
+            <rect x="84"  y="7"  width="3" height="20" rx="1.5"></rect>
+            <rect x="91"  y="3"  width="3" height="28" rx="1.5"></rect>
+            <rect x="98"  y="10" width="3" height="14" rx="1.5"></rect>
+            <rect x="105" y="6"  width="3" height="22" rx="1.5"></rect>
+            <rect x="112" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="119" y="5"  width="3" height="24" rx="1.5"></rect>
+            <rect x="126" y="9"  width="3" height="16" rx="1.5"></rect>
+            <rect x="133" y="2"  width="3" height="30" rx="1.5"></rect>
+            <rect x="140" y="12" width="3" height="10" rx="1.5"></rect>
+            <rect x="147" y="7"  width="3" height="20" rx="1.5"></rect>
+            <rect x="154" y="4"  width="3" height="26" rx="1.5"></rect>
+            <rect x="161" y="10" width="3" height="14" rx="1.5"></rect>
+            <rect x="168" y="6"  width="3" height="22" rx="1.5"></rect>
+            <rect x="175" y="13" width="3" height="8"  rx="1.5"></rect>
+            <rect x="182" y="8"  width="3" height="18" rx="1.5"></rect>
+            <rect x="189" y="3"  width="3" height="28" rx="1.5"></rect>
+            <rect x="196" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="203" y="6"  width="3" height="22" rx="1.5"></rect>
+            <rect x="210" y="9"  width="3" height="16" rx="1.5"></rect>
+            <rect x="217" y="5"  width="3" height="24" rx="1.5"></rect>
+            <rect x="224" y="12" width="3" height="10" rx="1.5"></rect>
+            <rect x="231" y="7"  width="3" height="20" rx="1.5"></rect>
+            <rect x="238" y="4"  width="3" height="26" rx="1.5"></rect>
+            <rect x="245" y="10" width="3" height="14" rx="1.5"></rect>
+            <rect x="252" y="8"  width="3" height="18" rx="1.5"></rect>
+            <rect x="259" y="13" width="3" height="8"  rx="1.5"></rect>
+            <rect x="266" y="6"  width="3" height="22" rx="1.5"></rect>
+            <rect x="273" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="280" y="9"  width="3" height="16" rx="1.5"></rect>
+            <rect x="287" y="12" width="3" height="10" rx="1.5"></rect>
+          </svg>
+          <div class="sans" style="display:flex;justify-content:space-between;font-size:11px;color:#B5A88F;margin-top:2px">
+            <span>0:38</span><span>2:14</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 其餘收藏 -->
+      <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;flex-shrink:0;border-radius:50%;background:#E4B8AE;display:flex;align-items:center;justify-content:center;font-size:15px;color:#6d3f36">妹</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px">師妹・《澤山咸》</div>
+          <div class="sans" style="font-size:11.5px;color:#8A7C68">阿凱這條線・三月初九　2:41</div>
+        </div>
+        <button aria-label="播放" style="width:44px;height:44px;flex-shrink:0;border-radius:50%;background:#FFFDF8;border:1px solid #E0D5BF;display:flex;align-items:center;justify-content:center;padding:0">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="#B08A4A" aria-hidden="true"><path d="M8 5.5v13l11-6.5Z"></path></svg>
+        </button>
+      </div>
+
+      <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;flex-shrink:0;border-radius:50%;background:#E7C98A;display:flex;align-items:center;justify-content:center;font-size:15px;color:#6b5326">喵</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px">觀喵・今日運勢</div>
+          <div class="sans" style="font-size:11.5px;color:#8A7C68">二月廿八　0:52</div>
+        </div>
+        <button aria-label="播放" style="width:44px;height:44px;flex-shrink:0;border-radius:50%;background:#FFFDF8;border:1px solid #E0D5BF;display:flex;align-items:center;justify-content:center;padding:0">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="#B08A4A" aria-hidden="true"><path d="M8 5.5v13l11-6.5Z"></path></svg>
+        </button>
+      </div>
+
+      <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;flex-shrink:0;border-radius:50%;background:#CFC0A2;display:flex;align-items:center;justify-content:center;font-size:15px;color:#463c2c">兄</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px">大師兄・《風澤中孚》</div>
+          <div class="sans" style="font-size:11.5px;color:#8A7C68">阿凱這條線・正月十二　1:57</div>
+        </div>
+        <button aria-label="播放" style="width:44px;height:44px;flex-shrink:0;border-radius:50%;background:#FFFDF8;border:1px solid #E0D5BF;display:flex;align-items:center;justify-content:center;padding:0">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="#B08A4A" aria-hidden="true"><path d="M8 5.5v13l11-6.5Z"></path></svg>
+        </button>
+      </div>
+
+      <!-- 怎麼收：從批文那裡收，不是從這裡新增 -->
+      <div style="display:flex;align-items:center;gap:11px;background:#F4EFE3;border:1px dashed #D9CDB4;border-radius:12px;padding:13px 15px;margin-top:4px">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#B5A88F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0" aria-hidden="true">
+          <path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1Z"></path>
+        </svg>
+        <span class="sans" style="font-size:12.5px;color:#8A7C68;line-height:1.7">批文底下朗讀那一排，多了一顆「收藏語音」。收下來的段子存在這裡，重聽不必再合成一次。</span>
+      </div>
+
+    </div>
+  </div>
+
+  <button aria-label="貼紙口袋" style="position:absolute;right:16px;bottom:104px;width:56px;height:56px;border-radius:50%;background:#FFFDF8;border:1px solid #E0D5BF;box-shadow:0 6px 18px -8px rgba(58,50,42,.5);display:flex;align-items:center;justify-content:center;padding:0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#B08A4A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V14l-6 6H5.5A1.5 1.5 0 0 1 4 18.5Z"></path>
+      <path d="M20 14h-4.5a1.5 1.5 0 0 0-1.5 1.5V20"></path>
+    </svg>
+  </button>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF8;border-top:1px solid #E6DCC8;padding-top:9px;padding-bottom:22px">
+    <div class="sans" style="display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;color:#B5A88F">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 10h7"></path><path d="M4 14h16"></path><path d="M4 18h7"></path></svg>
+      <span style="font-size:10.5px">排盤</span>
+    </div>
+    <div class="sans" style="display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;color:#B5A88F">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z"></path></svg>
+      <span style="font-size:10.5px">廣場</span>
+    </div>
+    <div class="sans" style="display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;color:#B08A4A">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"></path><path d="M9 9h6"></path><path d="M9 13h6"></path><path d="M9 17h3"></path></svg>
+      <span style="font-size:10.5px;font-weight:500">心跡</span>
+    </div>
+    <div class="sans" style="display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;color:#B5A88F">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 0 0 16"></path></svg>
+      <span style="font-size:10.5px">道緣</span>
+    </div>
+    <div class="sans" style="display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;color:#B5A88F">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
+      <span style="font-size:10.5px">我</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

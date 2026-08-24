@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@400;500&display=swap">
+  <style>
+    body{margin:0;font-family:"Noto Serif TC","Songti TC",serif;line-height:1.75;color:#3A322A;
+      -webkit-font-smoothing:antialiased}
+    a{color:#B08A4A}a:hover{color:#8d6c36}
+    *{box-sizing:border-box}
+    button{font-family:inherit;color:inherit;cursor:pointer}
+    .sans{font-family:"Noto Sans TC",system-ui,sans-serif}
+    .card{background:#FFFDF8;border:1px solid #E0D5BF;border-radius:14px}
+    .slot{width:100%;aspect-ratio:1;border-radius:12px;background:#FFFDF8;border:1px solid #EBE2D0;
+      display:flex;align-items:center;justify-content:center}
+    .locked{opacity:.34}
+  </style>
+</helmet>
+
+<div style="width:390px;height:844px;background:#F7F3EA;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <div style="height:47px;flex-shrink:0"></div>
+
+  <!-- 底下那頁還看得見一角，說明貼紙是貼在「這一頁」上的 -->
+  <div style="padding:2px 22px 10px;opacity:.5">
+    <span style="font-size:24px;letter-spacing:.2em;font-weight:600">心跡</span>
+  </div>
+  <div style="flex:1;padding:0 18px;opacity:.5;overflow:hidden">
+    <div class="card" style="padding:18px 16px;margin-bottom:14px">
+      <div style="font-size:17px;font-weight:500">阿凱這條線</div>
+      <div style="font-size:13.5px;color:#8A7C68">已問三卦・最近《澤山咸》</div>
+    </div>
+    <div class="card" style="padding:18px 16px">
+      <div style="font-size:17px;font-weight:500">那筆尾款</div>
+      <div style="font-size:13.5px;color:#8A7C68">已問兩卦・最近《水天需》</div>
+    </div>
+  </div>
+
+  <!-- 拖曳中的貼紙：手指按著、微微放大、投影變重，落點有虛線框 -->
+  <div style="position:absolute;left:60px;top:236px;width:62px;height:62px;border:1.5px dashed #C6B79A;border-radius:12px"></div>
+  <svg width="70" height="70" viewBox="0 0 44 44" style="position:absolute;left:150px;top:224px;transform:rotate(-9deg);filter:drop-shadow(0 12px 16px rgba(58,50,42,.34))" aria-hidden="true">
+    <circle cx="22" cy="22" r="19" fill="#E7C98A" stroke="#B08A4A" stroke-width="2"></circle>
+    <rect x="16" y="16" width="12" height="12" rx="1.5" fill="#F7F3EA" stroke="#B08A4A" stroke-width="1.6"></rect>
+  </svg>
+
+  <!-- 抽屜 -->
+  <div style="position:absolute;left:0;right:0;bottom:0;background:#FFFDF8;border-top:1px solid #E0D5BF;
+    border-radius:20px 20px 0 0;box-shadow:0 -10px 30px -18px rgba(58,50,42,.6);
+    padding:10px 18px 26px;display:flex;flex-direction:column;gap:14px">
+
+    <div style="width:38px;height:4px;border-radius:999px;background:#E0D5BF;align-self:center"></div>
+
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <span style="font-size:16px;letter-spacing:.12em;font-weight:500">貼紙口袋</span>
+      <span class="sans" style="font-size:11.5px;color:#B5A88F">按住拖到頁面上</span>
+    </div>
+
+    <!-- 貼紙包 -->
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:2px">
+      <div class="sans" style="flex-shrink:0;padding:6px 14px;border-radius:999px;background:#3A322A;color:#F7F3EA;font-size:12.5px">觀中常備</div>
+      <div class="sans" style="flex-shrink:0;padding:6px 14px;border-radius:999px;background:#F1EADB;color:#8A7C68;font-size:12.5px">觀喵の日常</div>
+      <div class="sans" style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:999px;background:#F1EADB;color:#B5A88F;font-size:12.5px">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+        節氣・二十四
+      </div>
+      <div class="sans" style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:999px;background:#F1EADB;color:#B5A88F;font-size:12.5px">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+        硃砂印記
+      </div>
+    </div>
+
+    <!-- 貼紙格 -->
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px">
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18" fill="#E7C98A" stroke="#B08A4A" stroke-width="2"></circle><rect x="16" y="16" width="12" height="12" rx="1.5" fill="#FFFDF8" stroke="#B08A4A" stroke-width="1.6"></rect></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><ellipse cx="18" cy="23" rx="9" ry="7.5" fill="#E4B8AE"></ellipse><circle cx="9.5" cy="13.5" r="3.4" fill="#E4B8AE"></circle><circle cx="16" cy="10.5" r="3.6" fill="#E4B8AE"></circle><circle cx="23" cy="12" r="3.4" fill="#E4B8AE"></circle><circle cx="28.5" cy="17" r="3" fill="#E4B8AE"></circle></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><rect x="6" y="6" width="24" height="24" rx="3" fill="none" stroke="#C0483A" stroke-width="2.4"></rect><text x="18" y="24" font-size="15" fill="#C0483A" text-anchor="middle" font-family="'Noto Serif TC',serif">應</text></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 5 21 14h9.5l-7.7 5.6 3 9.4L18 23.2 10.2 29l3-9.4L5.5 14H15Z" fill="#D9C79C"></path></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><path d="M9 26a6 6 0 1 1 1.5-11.8A8 8 0 0 1 26 15.5 5.5 5.5 0 0 1 25.5 26Z" fill="#C9D6E4"></path></svg></div>
+
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><rect x="7" y="5" width="22" height="26" rx="2" fill="#CBD9B9"></rect><path d="M7 31l5-4 5 4" fill="#B3C79C"></path></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><rect x="5" y="13" width="26" height="10" rx="1.5" fill="#E9C7BE" transform="rotate(-8 18 18)"></rect></svg></div>
+      <div class="slot"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="12" fill="none" stroke="#B08A4A" stroke-width="2"></circle><path d="M18 9v9l6 3" stroke="#B08A4A" stroke-width="2" fill="none" stroke-linecap="round"></path></svg></div>
+      <div class="slot locked"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 28s-9-6-9-12a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12-9 12Z" fill="#DBB7B0"></path></svg></div>
+      <div class="slot locked"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 24c4-10 20-10 24 0" stroke="#C6B79A" stroke-width="2.4" fill="none" stroke-linecap="round"></path><circle cx="18" cy="12" r="4" fill="#C6B79A"></circle></svg></div>
+    </div>
+
+    <!-- 未購的包：價錢就寫在這裡，不另跳商店頁 -->
+    <div style="display:flex;align-items:center;gap:12px;background:#FBF6EA;border:1px solid #E7D9B8;border-radius:12px;padding:12px 14px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px">節氣・二十四　<span class="sans" style="font-size:11.5px;color:#B5A88F">24 張</span></div>
+        <div class="sans" style="font-size:11.5px;color:#8A7C68">立春到大寒，一節氣一張</div>
+      </div>
+      <button class="sans" style="min-height:44px;background:#B08A4A;border:none;border-radius:999px;padding:0 16px;font-size:13.5px;color:#FFFDF8;white-space:nowrap">260 靈石</button>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>
