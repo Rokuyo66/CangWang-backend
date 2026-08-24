@@ -1,0 +1,15 @@
+# migration 的雜湊是拿檔案內容算的（dev/migrate.ps1），而 Windows 預設會把檢出的
+# 檔案換成 CRLF——同一支 SQL 在公司機與家用機就算出兩個雜湊，整批被誤判成
+# 「已套用的 migration 被改過」。實際踩過一次：公司機拉下來，0026 起十支全紅，
+# 而 SQL 一個字都沒動。
+#
+# 這一行強制 .sql 一律以 LF 檢出，兩台機器算出來才會是同一個值。
+# migrate.ps1 自己也已改成「正規化成 LF 再算」——工具端保證判斷正確，
+# 這裡保證磁碟上的檔案本來就一致。兩道都做，是因為只做工具端的話，
+# 換一支別的工具（db push、diff、手貼）又會踩同一個坑。
+*.sql text eol=lf
+
+# PowerShell 腳本維持現狀，不要讓 git 插手：
+# lingshi.ps1／yudie.ps1 是帶 BOM ＋ CRLF 存的（Windows PowerShell 5.1 才吃得下中文），
+# 加上 text 屬性會讓 git 重新正規化它們，製造一堆與內容無關的改動。
+*.ps1 -text

@@ -8,6 +8,7 @@
 #   .\dev\migrate.ps1 -Baseline            # 首次使用：把現有已上線的 migration 標成已套用（不執行）
 #   .\dev\migrate.ps1 -Apply               # 套用所有未套用的 migration
 #   .\dev\migrate.ps1 -Apply -Only 0039_case_runs.sql
+#   .\dev\migrate.ps1 -Restamp           # 只差換行字元的，把登記的雜湊更新掉（不重跑 SQL）
 #
 # Token：Supabase Management API token（sbp_ 開頭），依序找
 #   -Token 參數 → $env:SUPABASE_ACCESS_TOKEN
@@ -18,6 +19,7 @@ param(
   [switch]$Status,
   [switch]$Baseline,
   [switch]$Apply,
+  [switch]$Restamp,
   [string]$Only,
   [string]$Token = $env:SUPABASE_ACCESS_TOKEN,
   [string]$ProjectRef = "ajogafvzlhqwlxwkfcpn",
@@ -25,7 +27,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if (-not $Status -and -not $Baseline -and -not $Apply) { $Status = $true }
+if (-not $Status -and -not $Baseline -and -not $Apply -and -not $Restamp) { $Status = $true }
 
 if (-not $Token) {
   Write-Host "找不到 Management API token。" -ForegroundColor Red
@@ -91,16 +93,34 @@ $applied = @{}
 foreach ($r in $rows) { $applied[$r.name] = $r }
 
 # ── 比對 ───────────────────────────────────────────────────────────
-$pending = @(); $drifted = @(); $ok = 0
+#
+# 【換行字元不算內容】同一支 SQL 在 Windows 檢出是 CRLF、在 Linux/mac 是 LF。
+# 舊版直接雜湊檔案原始位元組，於是換一台機器整批被判成「內容被改過」——
+# 而 SQL 一個字都沒動。實際踩過：公司機拉下來，0026 起十支全紅。
+#
+# 現在一律先正規化成 LF 再算，雜湊因此與機器無關。
+# 但**既有的登記值是舊制算的**（多半是 CRLF 那一版），所以另外算一份 CRLF 雜湊：
+# 登記值對得上 CRLF 版 ＝ 只差換行、內容相同 ＝ 可以安全重蓋（-Restamp），不必重跑。
+# 兩個都對不上，才是真的被改過。
+$pending = @(); $drifted = @(); $eol = @(); $ok = 0
 foreach ($f in $files) {
-  $sum = Get-Sha256 (Get-Content $f.FullName -Raw)
+  $raw  = Get-Content $f.FullName -Raw
+  $lf   = $raw -replace "`r`n", "`n"
+  $sum  = Get-Sha256 $lf                                  # 新制：正規化後
+  $crlf = Get-Sha256 ($lf -replace "`n", "`r`n")          # 舊制可能登記的那一種
   if ($applied.ContainsKey($f.Name)) {
-    if ($applied[$f.Name].checksum -ne $sum) { $drifted += [pscustomobject]@{ File = $f; Was = $applied[$f.Name].checksum; Now = $sum } }
-    else { $ok++ }
+    $had = $applied[$f.Name].checksum
+    if ($had -eq $sum) { $ok++ }
+    elseif ($had -eq $crlf) { $eol += [pscustomobject]@{ File = $f; Was = $had; Sum = $sum } }
+    else { $drifted += [pscustomobject]@{ File = $f; Was = $had; Now = $sum } }
   } else {
     $pending += [pscustomobject]@{ File = $f; Sum = $sum }
   }
 }
+
+# 登記過、但本機找不到檔案的——多半是別的分支套上去的，而那支 SQL 還沒併進來。
+# 不擋事（照樣可以套新的），但要講出來：沒併進來的 schema 換台機器就重建不出來。
+$ghosts = @($applied.Keys | Where-Object { $n = $_; -not ($files | Where-Object { $_.Name -eq $n }) })
 
 Write-Host ""
 Write-Host "專案 $ProjectRef　本機 $($files.Count) 支　已套用 $($applied.Count) 支" -ForegroundColor Cyan
@@ -110,6 +130,16 @@ Write-Host "  相符 $ok　待套用 $($pending.Count)　內容已變動 $($drif
 foreach ($d in $drifted) {
   Write-Host "❌ $($d.File.Name) 已套用過，但檔案內容被改過（$($d.Was) → $($d.Now)）" -ForegroundColor Red
   Write-Host "   已套用的 migration 不可改。要改 schema 請另開一支新的。"
+}
+if ($eol) {
+  Write-Host ""
+  Write-Host "只差換行字元（CRLF↔LF），SQL 內容相同 $($eol.Count) 支：" -ForegroundColor Yellow
+  foreach ($e in $eol) { Write-Host "  · $($e.File.Name)" }
+  Write-Host "  這不是改動，是不同作業系統檢出的差別。跑 .\dev\migrate.ps1 -Restamp" -ForegroundColor Yellow
+  Write-Host "  把登記的雜湊更新掉即可，不會重跑任何 SQL。"
+}
+foreach ($g in $ghosts) {
+  Write-Host "⚠ $g 線上已套用，但本機沒有這個檔——那支 SQL 還沒併進 main？" -ForegroundColor Yellow
 }
 if ($pending) {
   Write-Host ""
@@ -134,9 +164,27 @@ if ($Baseline) {
   exit 0
 }
 
+# ── 只差換行：更新登記的雜湊，不重跑 ───────────────────────────────
+if ($Restamp) {
+  if (-not $eol) { Write-Host "`n沒有『只差換行』的項目，不用重蓋。" -ForegroundColor Green; exit 0 }
+  Write-Host ""
+  Write-Host "把這 $($eol.Count) 支的登記雜湊更新成正規化後的值。" -ForegroundColor Yellow
+  Write-Host "**不會執行任何 SQL**——它們的內容與當初套用時逐字相同，只是換行字元不同。"
+  $ans = Read-Host "確認？(yes/no)"
+  if ($ans -ne 'yes') { Write-Host "取消。"; exit 0 }
+  foreach ($e in $eol) {
+    $n = $e.File.Name -replace "'", "''"
+    Invoke-Sql "update public._migrations set checksum = '$($e.Sum)' where name = '$n';" | Out-Null
+    Write-Host "  更新 $($e.File.Name)"
+  }
+  Write-Host "`n✅ 完成 $($eol.Count) 支。再跑一次 -Status 應該就全部相符了。" -ForegroundColor Green
+  exit 0
+}
+
 # ── 套用 ───────────────────────────────────────────────────────────
 if ($Apply) {
   if ($drifted) { Write-Host "`n有 migration 內容被改過，先處理完再套用。" -ForegroundColor Red; exit 1 }
+  if ($eol) { Write-Host "`n有 $($eol.Count) 支只差換行字元。先跑 .\dev\migrate.ps1 -Restamp 再套用。" -ForegroundColor Red; exit 1 }
   $todo = if ($Only) { $pending | Where-Object { $_.File.Name -eq $Only } } else { $pending }
   if (-not $todo) { Write-Host "`n沒有要套用的。" -ForegroundColor Green; exit 0 }
   if ($applied.Count -eq 0) {
