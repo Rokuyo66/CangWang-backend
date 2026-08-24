@@ -22,7 +22,7 @@ export const VOICE_BY_CHARACTER: Record<string, string> = {
 export const voiceOf = (characterId?: string | null): string =>
   (characterId && VOICE_BY_CHARACTER[characterId]) || VOICE_NARRATOR;
 
-/** 合成用的模型。turbo 比 hd 便宜約四成；解卦批文是長文、非即時，
- *  而且同一段話會被快取重播，品質差距在旁白這種用途上聽不太出來。
- *  要改用 hd 只改這一行。 */
-export const TTS_MODEL = "speech-2.6-turbo";
+/** 合成用的模型。用主控台範例上那一個——turbo 系列較便宜也較快，但我沒有
+ *  證據說這個帳號開通了它，而猜錯的下場是每一次朗讀都回錯誤。
+ *  要換型號設 MINIMAX_TTS_MODEL 即可，不必改程式重新部署。 */
+export const TTS_MODEL = "speech-2.8-hd";
