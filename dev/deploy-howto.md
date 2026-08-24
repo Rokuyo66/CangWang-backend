@@ -216,6 +216,29 @@ curl.exe -s -X POST "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/inter
 
 ---
 
+## 玉牒（訂閱）怎麼開關
+
+金流還沒接，所以 `profiles.plan` 全站沒有任何一行程式會寫——線上每個帳號永遠是
+無牒。要測「持牒與不持牒差在哪」，用這支：
+
+```powershell
+.\dev\yudie.ps1 -Email you@example.com                # 只看：目前狀態＋各方案額度對照表
+.\dev\yudie.ps1 -Email you@example.com -Plan zhiji    # 開知己，無期限
+.\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
+.\dev\yudie.ps1 -Email you@example.com -Expire        # 測到期（方案名保留，行為變無牒）
+.\dev\yudie.ps1 -Email you@example.com -Off           # 收牒
+```
+
+不加參數就只看不動，還會把九項額度的四欄對照印出來——不必為了知道「開了之後
+差在哪」去翻程式。
+
+撥完之後 **App 要重新拉一次 profile 才會變**：殺掉重開，或切到別的分頁再切回來。
+
+`-Expire` 與 `-Off` 不是同一件事：到期一律看 `plan_until`、不另存狀態，所以過期的
+帳號資料庫裡還寫著 `cangwang`，只是程式當它是無牒。這條路徑要單獨測過一次。
+
+---
+
 ## 第 4 步 · 前端
 
 上面三步都完成之後，跟我說一聲。我把分支合進 `main`，
