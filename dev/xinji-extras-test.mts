@@ -218,6 +218,8 @@ await t("收藏是記指標，不是複製檔案——parts 照播放順序下�
   eq(r.clip.parts[0].url, "https://tts/a.mp3", "順序錯了");
   eq(r.clip.parts[1].narrator, true, "旁白那一段的標記掉了");
   eq(r.clip.title, "《水天需》", "標題該由伺服器決定");
+  // 420 字 ÷ 4.5 字/秒 ≈ 93 秒。估的，但清單上要說得出一個長度
+  eq(r.clip.duration_ms, 93333, "長度該由字數估出來");
 });
 
 await t("收藏走的是與朗讀相同的那條路，不另外合成第二次", async () => {

@@ -117,6 +117,7 @@ export async function voiceKeep(
     title: String(payload.title ?? "解卦").slice(0, 60),
     subtitle: payload.subtitle ? String(payload.subtitle).slice(0, 80) : null,
     parts,
+    duration_ms: estimateMs(parts),
     voice_id: payload.voice_id ?? null,
     text_hash: hash,
   }).select(LIST_COLS).single();
@@ -172,6 +173,16 @@ export async function voiceDelete(
 }
 
 /* ═══════════════ 內部 ═══════════════ */
+
+/** 長度是**估的**：字數 ÷ 每秒字數。真值要下載整個 mp3 解檔頭才知道，
+ *  而為了在清單上顯示一個「2:14」去下載幾 MB 的音檔並不划算。
+ *  中文朗讀約每秒 4.5 字（MiniMax 預設語速實測的量級）。估得不準的代價
+ *  是清單上的秒數差幾秒，沒有人會因此做錯決定。 */
+const CHARS_PER_SEC = 4.5;
+function estimateMs(parts: ClipPart[]): number | null {
+  const chars = parts.reduce((n, p) => n + (Number(p.chars) || 0), 0);
+  return chars > 0 ? Math.round((chars / CHARS_PER_SEC) * 1000) : null;
+}
 
 /** 格數現況。used 可能大於 max（收滿之後玉牒到期），那是允許的狀態：
  *  舊的留著，只是收不了新的。前端照這個形狀顯示「10 / 3」不必特別處理。 */
