@@ -88,7 +88,7 @@ await t("了結一件就騰得出格，了結不是刪除", async () => {
 
 await t("付費格數依方案分級，且重啟時也受同一把尺管", async () => {
   eq(threadQuotaOf("free"), 1, "免費 1 格");
-  eq(threadQuotaOf("zhiji"), 8, "知己 8 格");
+  eq(threadQuotaOf("zhiji"), 8, "知幾 8 格");
   eq(threadQuotaOf("沒聽過的方案"), 1, "未知方案比照免費");
   const db = fakeDb() as any;
   const a = P(await openThread(db, U, "guanwei", { title: "一" })).thread;

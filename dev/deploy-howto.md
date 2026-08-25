@@ -223,7 +223,7 @@ curl.exe -s -X POST "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/inter
 
 ```powershell
 .\dev\yudie.ps1 -Email you@example.com                # 只看：目前狀態＋各方案額度對照表
-.\dev\yudie.ps1 -Email you@example.com -Plan zhiji    # 開知己，無期限
+.\dev\yudie.ps1 -Email you@example.com -Plan zhiji    # 開知幾，無期限
 .\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
 .\dev\yudie.ps1 -Email you@example.com -Expire        # 測到期（方案名保留，行為變無牒）
 .\dev\yudie.ps1 -Email you@example.com -Off           # 收牒

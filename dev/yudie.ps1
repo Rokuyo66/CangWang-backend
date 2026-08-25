@@ -13,7 +13,7 @@
 # 用法（Token 與 -ProjectRef 規則同 lingshi.ps1）：
 #   .\dev\yudie.ps1 -Email you@example.com                      # 只看：目前方案與各項額度（預設，什麼都不動）
 #   .\dev\yudie.ps1 -Find 六六                                  # 忘了帳號：用暱稱/信箱片段找人
-#   .\dev\yudie.ps1 -Email you@example.com -Plan zhiji          # 開知己，無期限
+#   .\dev\yudie.ps1 -Email you@example.com -Plan zhiji          # 開知幾，無期限
 #   .\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
 #   .\dev\yudie.ps1 -TgId 8674594142 -Expire                    # 保留方案名，把期限撥到一分鐘前（測到期）
 #   .\dev\yudie.ps1 -Email you@example.com -Off                 # 收牒：改回 free、清掉期限
@@ -95,7 +95,7 @@ $IDENT_VIEW =
 #   心跡在記   xinji.ts PLAN_THREADS
 #   語音收藏   voice.ts PLAN_CLIPS
 #   卦案存檔   case-run.ts keptQuota
-$PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知己'; cangwang = '藏往' }
+$PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知幾'; cangwang = '藏往' }
 $QUOTAS = @(
   @{ n = '每日免費起卦'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 8   },
   @{ n = '每日免費追問'; free = 2; guanwei = 3;  zhiji = 8;  cangwang = 20  },
@@ -198,7 +198,7 @@ if ($acts.Count -eq 0) {
       '項目'   = $q.n
       '無牒'   = $q.free
       '觀微'   = $q.guanwei
-      '知己'   = $q.zhiji
+      '知幾'   = $q.zhiji
       '藏往'   = $q.cangwang
     }
   }
