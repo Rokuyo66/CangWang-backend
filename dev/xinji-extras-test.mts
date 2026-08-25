@@ -2,8 +2,9 @@
 //
 // 驗的同樣是承諾：免費包不必買也不必寫進 owned_packs、沒買的包貼不上去、
 // 一頁貼滿要擋、新貼的一定在最上層、錨在卡片上的貼紙可以有負偏移（壓在角上）；
-// 語音的額度在「上傳之前」就擋掉、同一段話收兩次是同一則、
-// 沒真的上傳完就不算收成、storage_path 絕不下發。
+// 語音的收藏是記指標不是複製檔案、同一段話收兩次是同一則、
+// **格數只擋「再收新的」，不擋保留與重聽**（玉牒到期不該讓收藏消失）、
+// 丟一則收藏不刪共用快取、storage 路徑絕不下發。
 //
 // 跑法：node dev/xinji-extras-test.mts
 
@@ -13,8 +14,7 @@ import {
   MAX_PER_SURFACE,
 } from "../supabase/functions/_shared/stickers.ts";
 import {
-  voiceSave, voiceConfirm, voiceList, voiceDelete, clipQuotaOf, MAX_CLIP_BYTES,
-  type VoiceStore,
+  voiceKeep, voiceList, voiceDelete, clipQuotaOf, type Speak,
 } from "../supabase/functions/_shared/voice.ts";
 
 let pass = 0, fail = 0;
@@ -49,17 +49,31 @@ async function seedShelf(db: any) {
   ]) await db.from("stickers").insert(s);
 }
 
-/** Storage 替身：記得哪些路徑「已經傳好了」 */
-function fakeStore() {
-  const files = new Map<string, number>();
-  const store: VoiceStore & { files: Map<string, number>; signed: string[] } = {
-    files, signed: [],
-    async signUpload(path) { store.signed.push(path); return { url: "https://x/" + path, token: "tk" }; },
-    async signDownload(path) { return files.has(path) ? "https://dl/" + path : null; },
-    async exists(path) { const b = files.get(path); return b == null ? null : { bytes: b }; },
-    async remove(path) { files.delete(path); },
-  };
-  return store;
+/** 合成替身：記下被要求念了幾次，並吐出 speakCast 那個形狀的 payload。
+ *  真正的 speakCast 命中快取時不扣額度——這裡用 calls 驗「收藏沒有多合成一次」。 */
+function fakeSpeak(opts: { fail?: string; hash?: string } = {}) {
+  const calls: string[] = [];
+  const speak: Speak & { calls: string[] } = Object.assign(
+    async (castId: string, part: "body" | number) => {
+      calls.push(`${castId}#${part}`);
+      if (opts.fail) return { ok: false as const, msg: opts.fail };
+      const h = opts.hash ?? `hash-${castId}-${part}`;
+      return {
+        ok: true as const,
+        payload: {
+          parts: [
+            { url: "https://tts/a.mp3", path: "a.mp3", chars: 300, narrator: false },
+            { url: "https://tts/b.mp3", path: "b.mp3", chars: 120, narrator: true },
+          ],
+          text_hash: h, title: "《水天需》", subtitle: "那筆尾款收得回來嗎",
+          character_id: "daoshi_m", voice_id: "Chinese_bazong",
+          quota: { used: 420, max: 2000, left: 1580, day_used: 420, day_max: 3000 },
+        },
+      };
+    },
+    { calls },
+  );
+  return speak;
 }
 
 console.log("\n貼紙\n");
@@ -196,112 +210,103 @@ await t("版面依 z 由下到上回傳，前端照順序畫就對", async () =>
 
 console.log("\n收藏語音\n");
 
-const clip = (o: Record<string, unknown> = {}) => ({
-  title: "大師兄・《水天需》", subtitle: "那筆尾款・三月初二",
-  character_id: "daoshi_m", kind: "reading",
-  bytes: 900_000, duration_ms: 134_000, voice_id: "Chinese_bazong",
-  text_hash: "h-" + Math.random().toString(36).slice(2), ...o,
+await t("收藏是記指標，不是複製檔案——parts 照播放順序下發", async () => {
+  const db = fakeDb() as any; const sp = fakeSpeak();
+  const r = P(await voiceKeep(db, U, "free", sp, { cast_id: "c1", part: "body" }));
+  eq(r.duplicate, false, "第一次收不該算重複");
+  eq(r.clip.parts.length, 2, "兩段音檔該都留著");
+  eq(r.clip.parts[0].url, "https://tts/a.mp3", "順序錯了");
+  eq(r.clip.parts[1].narrator, true, "旁白那一段的標記掉了");
+  eq(r.clip.title, "《水天需》", "標題該由伺服器決定");
 });
 
-await t("額度在「上傳之前」就擋掉，不會傳了兩 MB 才說超額", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  eq(clipQuotaOf("free"), 3, "免費 3 段");
-  for (let i = 0; i < 3; i++) {
-    const r = P(await voiceSave(db, U, "free", st, clip({ text_hash: "h" + i })));
-    st.files.set(r.upload.path, 900_000);
-    P(await voiceConfirm(db, U, st, r.clip.id));
-  }
-  const before = st.signed.length;
-  const msg = E(await voiceSave(db, U, "free", st, clip({ text_hash: "h9" })));
-  ok(msg.includes("持玉牒"), "免費滿了該指路，得到：" + msg);
-  eq(st.signed.length, before, "被擋下來卻還是開了上傳網址");
+await t("收藏走的是與朗讀相同的那條路，不另外合成第二次", async () => {
+  const db = fakeDb() as any; const sp = fakeSpeak();
+  P(await voiceKeep(db, U, "free", sp, { cast_id: "c1", part: "body" }));
+  eq(sp.calls.length, 1, "收一次該只經過合成路徑一次");
+  eq(sp.calls[0], "c1#body", "問錯段落了");
 });
 
-await t("同一段話收兩次是同一則，不佔第二格也不重傳", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "free", st, clip({ text_hash: "same" })));
-  st.files.set(a.upload.path, 900_000);
-  P(await voiceConfirm(db, U, st, a.clip.id));
+await t("合成那邊擋下來（額度用完、查無此卦），原話帶回去", async () => {
+  const db = fakeDb() as any;
+  const sp = fakeSpeak({ fail: "這個月的朗讀額度用完了" });
+  const msg = E(await voiceKeep(db, U, "free", sp, { cast_id: "c1", part: "body" }));
+  ok(msg.includes("額度用完"), "該把合成那一層的話原樣帶回，得到：" + msg);
+  const { data: rows } = await db.from("voice_clips").select("id").eq("user_id", U);
+  eq(rows.length, 0, "沒收成卻留下了一列");
+});
 
-  const b = P(await voiceSave(db, U, "free", st, clip({ text_hash: "same" })));
+await t("同一段話收兩次是同一則，不佔第二格", async () => {
+  const db = fakeDb() as any; const sp = fakeSpeak({ hash: "same" });
+  const a = P(await voiceKeep(db, U, "free", sp, { cast_id: "c1", part: "body" }));
+  const b = P(await voiceKeep(db, U, "free", sp, { cast_id: "c1", part: "body" }));
   eq(b.duplicate, true, "該認出是同一則");
   eq(b.clip.id, a.clip.id, "回的該是原本那一則");
-  eq(b.upload, null, "已經傳好了就不該再開上傳網址");
-  eq(P(await voiceList(db, U, "free", st)).clips.length, 1, "不該變成兩則");
+  eq(P(await voiceList(db, U, "free")).clips.length, 1, "不該變成兩則");
 });
 
-await t("上次收到一半沒傳完，再收會續開上傳網址而不是另建一列", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "free", st, clip({ text_hash: "half" })));
-  // 不設 files → 沒傳完
-  const b = P(await voiceSave(db, U, "free", st, clip({ text_hash: "half" })));
-  eq(b.clip.id, a.clip.id, "該是同一列");
-  ok(b.upload, "該再開一張上傳網址讓它續完");
-  const { data: rows } = await db.from("voice_clips").select("id").eq("user_id", U);
-  eq(rows.length, 1, "不該長出第二列");
+await t("免費格數滿了要擋，而且要指得出路", async () => {
+  const db = fakeDb() as any;
+  eq(clipQuotaOf("free"), 3, "免費 3 段");
+  for (let i = 0; i < 3; i++) {
+    P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "h" + i }), { cast_id: "c" + i }));
+  }
+  const msg = E(await voiceKeep(db, U, "free", fakeSpeak({ hash: "h9" }), { cast_id: "c9" }));
+  ok(msg.includes("持玉牒"), "免費滿了該指路，得到：" + msg);
 });
 
-await t("沒真的上傳完就不算收成，而且不出現在清單", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "free", st, clip()));
-  ok(E(await voiceConfirm(db, U, st, a.clip.id)).includes("還沒上傳"), "沒檔案卻確認成功");
-  eq(P(await voiceList(db, U, "free", st)).clips.length, 0, "沒傳完的不該出現在清單");
+await t("玉牒到期：既有收藏一段都不會消失，也照聽，只是收不了新的", async () => {
+  const db = fakeDb() as any;
+  // 藏往時期收了 5 段
+  for (let i = 0; i < 5; i++) {
+    P(await voiceKeep(db, U, "cangwang", fakeSpeak({ hash: "k" + i }), { cast_id: "c" + i }));
+  }
+  // 掉回無牒
+  const list = P(await voiceList(db, U, "free"));
+  eq(list.clips.length, 5, "既有收藏被藏起來或刪掉了——那是他的東西");
+  eq(list.quota.used, 5, "used 該照實回報");
+  eq(list.quota.max, 3, "max 該是現在這一階");
+  eq(list.quota.can_add, false, "超額時不該還能再收");
+  ok(list.clips.every((c: any) => c.parts.length === 2), "重聽要用的 parts 不該被拿掉");
 
-  st.files.set(a.upload.path, 812_345);
-  const done = P(await voiceConfirm(db, U, st, a.clip.id));
-  eq(done.clip.ready, true, "確認後該 ready");
-  eq(done.clip.bytes, 812_345, "大小該以 Storage 的實況為準，不是前端說的");
+  const msg = E(await voiceKeep(db, U, "free", fakeSpeak({ hash: "new" }), { cast_id: "cx" }));
+  ok(msg.includes("滿了"), "超額時該擋新的，得到：" + msg);
 });
 
-await t("超過單檔上限：宣告時擋、上傳後發現也丟棄", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  E(await voiceSave(db, U, "free", st, clip({ bytes: MAX_CLIP_BYTES + 1 })));
+await t("丟一則收藏不刪音檔——那是全站共用的快取", async () => {
+  const db = fakeDb() as any; const sp = fakeSpeak({ hash: "one" });
+  const a = P(await voiceKeep(db, U, "free", sp, { cast_id: "c1" }));
+  P(await voiceDelete(db, U, a.clip.id));
+  eq(P(await voiceList(db, U, "free")).clips.length, 0, "列沒刪");
 
-  const a = P(await voiceSave(db, U, "free", st, clip({ bytes: 1000 })));
-  st.files.set(a.upload.path, MAX_CLIP_BYTES + 999);     // 前端謊報大小
-  ok(E(await voiceConfirm(db, U, st, a.clip.id)).includes("超過上限"), "上傳後該複驗");
-  eq(st.files.has(a.upload.path), false, "超額的檔案該刪掉");
-  const { data: rows } = await db.from("voice_clips").select("id").eq("user_id", U);
-  eq(rows.length, 0, "那一列也該收回去");
+  // 同一段話再收一次：因為音檔還在，這是零成本的
+  const again = P(await voiceKeep(db, U, "free", sp, { cast_id: "c1" }));
+  eq(again.clip.parts.length, 2, "音檔被刪掉了，再收就得重新付錢合成");
 });
 
-await t("storage_path 絕不下發", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "zhiji", st, clip()));
-  st.files.set(a.upload.path, 900_000);
-  P(await voiceConfirm(db, U, st, a.clip.id));
-  const list = P(await voiceList(db, U, "zhiji", st));
+await t("storage 路徑絕不下發", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "zhiji", fakeSpeak(), { cast_id: "c1" }));
+  const list = P(await voiceList(db, U, "zhiji"));
   const json = JSON.stringify(list.clips);
   eq(json.includes("storage_path"), false, "清單漏出了 storage_path");
-  ok(list.clips[0].url.startsWith("https://dl/"), "該給短效簽名網址");
+  eq(json.includes('"path"'), false, "parts 裡的內部路徑漏出去了");
+  ok(list.clips[0].parts[0].url.startsWith("https://tts/"), "播放網址該留著");
   eq(list.quota.max, 30, "配額該依方案");
 });
 
-await t("丟棄會連檔案一起刪，順序是先檔後列", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "free", st, clip()));
-  st.files.set(a.upload.path, 900_000);
-  P(await voiceConfirm(db, U, st, a.clip.id));
-  P(await voiceDelete(db, U, st, a.clip.id));
-  eq(st.files.size, 0, "檔案沒刪，bucket 會長出沒有主人的音訊");
-  eq(P(await voiceList(db, U, "free", st)).clips.length, 0, "列沒刪");
+await t("別人的收藏看不到也刪不掉", async () => {
+  const db = fakeDb() as any;
+  const a = P(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "c1" }));
+  E(await voiceDelete(db, V, a.clip.id));
+  eq(P(await voiceList(db, V, "free")).clips.length, 0, "看到別人的了");
+  eq(P(await voiceList(db, U, "free")).clips.length, 1, "別人刪掉了我的");
 });
 
-await t("別人的收藏聽不到也刪不掉", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  const a = P(await voiceSave(db, U, "free", st, clip()));
-  st.files.set(a.upload.path, 900_000);
-  P(await voiceConfirm(db, U, st, a.clip.id));
-  E(await voiceConfirm(db, V, st, a.clip.id));
-  E(await voiceDelete(db, V, st, a.clip.id));
-  eq(P(await voiceList(db, V, "free", st)).clips.length, 0, "看到別人的了");
-});
-
-await t("沒標題或沒指紋，收不下來", async () => {
-  const db = fakeDb() as any; const st = fakeStore();
-  E(await voiceSave(db, U, "free", st, clip({ title: "  " })));
-  E(await voiceSave(db, U, "free", st, clip({ text_hash: "" })));
-  E(await voiceSave(db, U, "free", st, clip({ bytes: 0 })));
+await t("沒說收哪一卦、或那一段沒有聲音，收不下來", async () => {
+  const db = fakeDb() as any;
+  E(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "  " }));
+  E(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "c1", part: "第三則" }));
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);
