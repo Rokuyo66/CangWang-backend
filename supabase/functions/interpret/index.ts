@@ -24,7 +24,7 @@ import {
   voiceKeep, voiceList, voiceDelete, clipQuotaOf,
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
-import { speakCast, ttsQuota } from "../_shared/tts.ts";
+import { castTexts, speakCast, ttsQuota } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -600,7 +600,10 @@ Deno.serve(async (req) => {
 
     if (body.mode === "voice_list") {
       const plan = await planOf(db, uid);
-      const r = await voiceList(db, uid, plan);
+      // 補逐字稿那條路由這裡注入：voice.ts 不 import tts.ts（見它的檔頭），
+      // 而把當初念的字找回來要用到 tts 那邊的切法與快取鍵。
+      const r = await voiceList(db, uid, plan,
+        (castId, hash) => castTexts(db, uid, castId, hash));
       // 朗讀額度也在這一頁報出來：本月還能請人念多少，該讓人隨時看得到，
       // 而不是等到用完那一次才第一次知道有這回事。
       if (r.ok) r.payload.tts_quota = await ttsQuota(db, uid, plan);

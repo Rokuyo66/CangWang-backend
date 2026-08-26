@@ -62,8 +62,10 @@ function fakeSpeak(opts: { fail?: string; hash?: string } = {}) {
         ok: true as const,
         payload: {
           parts: [
-            { url: "https://tts/a.mp3", path: "a.mp3", chars: 300, narrator: false },
-            { url: "https://tts/b.mp3", path: "b.mp3", chars: 120, narrator: true },
+            { url: "https://tts/a.mp3", path: "a.mp3", chars: 300, narrator: false,
+              text: "所問：那筆尾款收得回來嗎。" + "字".repeat(287) },
+            { url: "https://tts/b.mp3", path: "b.mp3", chars: 120, narrator: true,
+              text: "他沒有轉身".padEnd(120, "。") },
           ],
           text_hash: h, title: "《水天需》", subtitle: "那筆尾款收得回來嗎",
           character_id: "daoshi_m", voice_id: "Chinese_bazong",
@@ -219,7 +221,35 @@ await t("收藏是記指標，不是複製檔案——parts 照播放順序下�
   eq(r.clip.parts[1].narrator, true, "旁白那一段的標記掉了");
   eq(r.clip.title, "《水天需》", "標題該由伺服器決定");
   // 420 字 ÷ 4.5 字/秒 ≈ 93 秒。估的，但清單上要說得出一個長度
-  eq(r.clip.duration_ms, 93333, "長度該由字數估出來");
+  eq(r.clip.duration_ms, 93334, "長度該由字數估出來");
+  // 全長＝各段之和。兩邊各算各的，跑到最後一段就會「條滿了、秒數還剩兩秒」
+  eq(r.clip.parts[0].ms + r.clip.parts[1].ms, r.clip.duration_ms, "全長該等於各段之和");
+});
+
+await t("播一遍要用的東西都在 parts 裡：逐字稿、軌別、那一段多長", async () => {
+  const db = fakeDb() as any;
+  const r = P(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "c1", part: "body" }));
+  const [a, b] = r.clip.parts;
+  ok(a.text.startsWith("所問：那筆尾款"), "念的字沒帶下去，畫面就展不開全文");
+  eq(a.narrator, false, "軌別掉了");
+  eq(b.narrator, true, "軌別掉了");
+  eq(a.ms, 66667, "第一段長度該由字數估出來");
+  // 存進資料庫的那一份也要有字，否則下次開清單又是空的
+  const { data: rows } = await db.from("voice_clips").select("parts").eq("user_id", U);
+  ok(rows[0].parts[0].text, "逐字稿沒有寫進去");
+});
+
+await t("波形由指紋展開：每則各有各的樣子，而且每次都一樣", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "a".repeat(64) }), { cast_id: "c1" }));
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "b3c9" + "1".repeat(60) }), { cast_id: "c2" }));
+  const one = P(await voiceList(db, U, "free")).clips;
+  const two = P(await voiceList(db, U, "free")).clips;
+  ok(one[0].peaks.length >= 24, "沒有波形可畫");
+  eq(JSON.stringify(one[0].peaks), JSON.stringify(two[0].peaks),
+    "同一則每次打開都長不一樣，看起來像壞掉");
+  ok(JSON.stringify(one[0].peaks) !== JSON.stringify(one[1].peaks), "兩則長得一模一樣");
+  ok(one[0].peaks.every((v: number) => v >= 0 && v <= 100), "高度該落在 0..100");
 });
 
 await t("收藏走的是與朗讀相同的那條路，不另外合成第二次", async () => {
@@ -295,6 +325,47 @@ await t("storage 路徑絕不下發", async () => {
   eq(json.includes('"path"'), false, "parts 裡的內部路徑漏出去了");
   ok(list.clips[0].parts[0].url.startsWith("https://tts/"), "播放網址該留著");
   eq(list.quota.max, 30, "配額該依方案");
+});
+
+await t("舊收藏補得回逐字稿——字沒有不見，它算得回來", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "old" }), { cast_id: "c1" }));
+  // 倒退成 0047 那個形狀：只有音檔位置，沒有字
+  const { data: before } = await db.from("voice_clips").select("id, parts").eq("user_id", U);
+  await db.from("voice_clips").update({
+    parts: before[0].parts.map((x: any) => ({ ...x, text: null })),
+  }).eq("id", before[0].id);
+
+  const said = [{ text: "第一段", narrator: false }, { text: "第二段", narrator: true }];
+  const list = P(await voiceList(db, U, "free", async () => said));
+  eq(list.clips[0].parts[0].text, "第一段", "沒補上");
+  // 補完要寫回去，下一次不必再算一遍
+  const { data: after } = await db.from("voice_clips").select("parts").eq("user_id", U);
+  eq(after[0].parts[1].text, "第二段", "補完沒有寫回資料庫");
+});
+
+await t("對不上就留白：寧可沒有全文，也不要配上一段別的文字", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "old" }), { cast_id: "c1" }));
+  const { data: before } = await db.from("voice_clips").select("id, parts").eq("user_id", U);
+  await db.from("voice_clips").update({
+    parts: before[0].parts.map((x: any) => ({ ...x, text: null })),
+  }).eq("id", before[0].id);
+
+  // 段數對不上（切法調過、或那一卦被改過）
+  const list = P(await voiceList(db, U, "free", async () => [{ text: "只有一段", narrator: false }]));
+  eq(list.clips[0].parts[0].text, null, "硬配上去了");
+  // 那一卦刪了＝回 null，同樣是留白，不是整支壞掉
+  const gone = P(await voiceList(db, U, "free", async () => null));
+  eq(gone.clips[0].parts[0].text, null, "回 null 時不該壞掉");
+});
+
+await t("已經有字的不重算——補一則是兩次查詢，開一次清單不該補一百二十則", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "c1" }));
+  let calls = 0;
+  P(await voiceList(db, U, "free", async () => { calls++; return null; }));
+  eq(calls, 0, "本來就有字的還去算了一次");
 });
 
 await t("別人的收藏看不到也刪不掉", async () => {

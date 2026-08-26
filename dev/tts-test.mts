@@ -20,7 +20,7 @@
 import { fakeDb } from "./fake-db.mts";
 // 測試一律用無牒那一階：擋得住無牒，才是真的擋得住。
 const PLAN = "free";
-const { speakable, segments, chunk, decodeAudio, speakCast } =
+const { speakable, segments, chunk, decodeAudio, speakCast, castTexts } =
   await import("../supabase/functions/_shared/tts.ts");
 
 let pass = 0, fail = 0;
@@ -196,6 +196,26 @@ await t("命中快取的重聽不吃額度", async () => {
   const used1 = (db as any)._store.tts_usage[0].chars;
   await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);
   eq((db as any)._store.tts_usage[0].chars, used1, "重聽後用量不該增加");
+});
+
+console.log("\n── 逐字稿找得回來 ──");
+await t("由指紋反查當初念的字：本體與追問都認得出來", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  const body = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
+  const said = await castTexts(db as any, U, CAST, body.text_hash as string);
+  eq(said?.length, (body.parts as any[]).length, "段數該與音檔一一對上");
+  eq(JSON.stringify(said?.map((x: any) => x.text)),
+     JSON.stringify((body.parts as any[]).map((x) => x.text)), "找回來的字該與當初念的一字不差");
+
+  const fu = payloadOf(await speakCast(db as any, U, PLAN, CAST, 0, mm.doFetch));
+  const said2 = await castTexts(db as any, U, CAST, fu.text_hash as string);
+  ok(said2?.[0].text.includes("還要等多久"), "追問那一則沒認出來（序號沒存進收藏，只能靠指紋認）");
+});
+await t("指紋對不上、或那一卦不是自己的，一律回 null——不硬配一段別的文字", async () => {
+  const db = fakeDb(seed());
+  eq(await castTexts(db as any, U, CAST, "0".repeat(64)), null, "對不上卻給了字");
+  eq(await castTexts(db as any, U, "cast-2", "0".repeat(64)), null, "撈得到別人的卦");
+  eq(await castTexts(db as any, U, "", "abc"), null, "沒指名也回東西");
 });
 
 console.log("\n── 失敗 ──");

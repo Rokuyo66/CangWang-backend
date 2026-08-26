@@ -19,6 +19,15 @@
       box-shadow:0 1px 0 rgba(58,50,42,.04),0 6px 16px -12px rgba(58,50,42,.35)}
     .wave rect{fill:#D9C79C}
     .wave .on{fill:#B08A4A}
+    .wave .head{fill:#3A322A}
+    /* 逐字稿：正在念的那一段是墨色，念過的與還沒念的都退成次要色。
+       旁白（＊…＊，另一把嗓子）縮排並偏淡——聽的時候本來就分得出來，
+       看的時候也要分得出來，否則展開的只是一團字。 */
+    .say{margin:0 0 9px;font-size:14.5px;line-height:1.9;color:#B5A88F;transition:color .2s}
+    .say.now{color:#3A322A}
+    .say.said{color:#8A7C68}
+    .say.nar{padding-left:14px;border-left:2px solid #E6DCC8;font-size:13.5px;color:#B5A88F}
+    .say.nar.now{color:#8A7C68}
   </style>
 </helmet>
 
@@ -42,7 +51,9 @@
   <div style="flex:1;overflow-y:auto;padding:4px 18px 92px">
     <div style="display:flex;flex-direction:column;gap:14px">
 
-      <!-- 正在播 -->
+      <!-- 正在播：點下去就是這個樣子（收起來的樣子見下面兩張）
+           一顆鈕四件事：icon 換成暫停、逐字稿攤開、波形填到現在、右邊說還剩幾秒。
+           少做哪一件，人就只能盯著一顆沒有反應的圓圈猜它到底有沒有在動。 -->
       <div style="position:relative">
         <div class="tape" style="position:absolute;width:66px;height:20px;left:22px;top:-6px;background:#C9D6E4;border-radius:2px;transform:rotate(-3deg);opacity:.9"></div>
         <div class="card" style="padding:16px;background:#FDF9F0;border-color:#D9C79C">
@@ -56,52 +67,73 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFDF8" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
             </button>
           </div>
-          <svg class="wave" viewBox="0 0 300 34" width="100%" height="34" style="display:block;margin-top:12px" aria-hidden="true">
-            <rect class="on" x="0"   y="12" width="3" height="10" rx="1.5"></rect>
-            <rect class="on" x="7"   y="7"  width="3" height="20" rx="1.5"></rect>
-            <rect class="on" x="14"  y="3"  width="3" height="28" rx="1.5"></rect>
-            <rect class="on" x="21"  y="9"  width="3" height="16" rx="1.5"></rect>
-            <rect class="on" x="28"  y="5"  width="3" height="24" rx="1.5"></rect>
-            <rect class="on" x="35"  y="11" width="3" height="12" rx="1.5"></rect>
-            <rect class="on" x="42"  y="6"  width="3" height="22" rx="1.5"></rect>
-            <rect class="on" x="49"  y="2"  width="3" height="30" rx="1.5"></rect>
-            <rect class="on" x="56"  y="10" width="3" height="14" rx="1.5"></rect>
-            <rect class="on" x="63"  y="8"  width="3" height="18" rx="1.5"></rect>
-            <rect x="70"  y="4"  width="3" height="26" rx="1.5"></rect>
-            <rect x="77"  y="12" width="3" height="10" rx="1.5"></rect>
-            <rect x="84"  y="7"  width="3" height="20" rx="1.5"></rect>
-            <rect x="91"  y="3"  width="3" height="28" rx="1.5"></rect>
-            <rect x="98"  y="10" width="3" height="14" rx="1.5"></rect>
-            <rect x="105" y="6"  width="3" height="22" rx="1.5"></rect>
-            <rect x="112" y="11" width="3" height="12" rx="1.5"></rect>
-            <rect x="119" y="5"  width="3" height="24" rx="1.5"></rect>
-            <rect x="126" y="9"  width="3" height="16" rx="1.5"></rect>
-            <rect x="133" y="2"  width="3" height="30" rx="1.5"></rect>
-            <rect x="140" y="12" width="3" height="10" rx="1.5"></rect>
-            <rect x="147" y="7"  width="3" height="20" rx="1.5"></rect>
-            <rect x="154" y="4"  width="3" height="26" rx="1.5"></rect>
-            <rect x="161" y="10" width="3" height="14" rx="1.5"></rect>
-            <rect x="168" y="6"  width="3" height="22" rx="1.5"></rect>
-            <rect x="175" y="13" width="3" height="8"  rx="1.5"></rect>
-            <rect x="182" y="8"  width="3" height="18" rx="1.5"></rect>
-            <rect x="189" y="3"  width="3" height="28" rx="1.5"></rect>
-            <rect x="196" y="11" width="3" height="12" rx="1.5"></rect>
-            <rect x="203" y="6"  width="3" height="22" rx="1.5"></rect>
-            <rect x="210" y="9"  width="3" height="16" rx="1.5"></rect>
-            <rect x="217" y="5"  width="3" height="24" rx="1.5"></rect>
-            <rect x="224" y="12" width="3" height="10" rx="1.5"></rect>
-            <rect x="231" y="7"  width="3" height="20" rx="1.5"></rect>
-            <rect x="238" y="4"  width="3" height="26" rx="1.5"></rect>
-            <rect x="245" y="10" width="3" height="14" rx="1.5"></rect>
-            <rect x="252" y="8"  width="3" height="18" rx="1.5"></rect>
-            <rect x="259" y="13" width="3" height="8"  rx="1.5"></rect>
-            <rect x="266" y="6"  width="3" height="22" rx="1.5"></rect>
-            <rect x="273" y="11" width="3" height="12" rx="1.5"></rect>
-            <rect x="280" y="9"  width="3" height="16" rx="1.5"></rect>
-            <rect x="287" y="12" width="3" height="10" rx="1.5"></rect>
+
+          <!-- 波形＝進度條。金色是已經念過的，playhead 是現在這一刻。
+               整條可以按：按哪裡就跳到那裡（44 根柱子，每根約 3 秒，夠準）。
+               高度來自 clip.peaks（伺服器由內容指紋展開，每則各有各的樣子、
+               每次打開都一樣）——不是量出來的振幅，別拿它當音量看。 -->
+          <svg class="wave" viewBox="0 0 300 34" width="100%" height="34" style="display:block;margin-top:13px" role="img" aria-label="播放進度 41%">
+            <rect class="on" x="0" y="11.5" width="3" height="11.1" rx="1.5"></rect>
+            <rect class="on" x="6.8" y="10.7" width="3" height="12.6" rx="1.5"></rect>
+            <rect class="on" x="13.6" y="10.7" width="3" height="12.6" rx="1.5"></rect>
+            <rect class="on" x="20.4" y="13.9" width="3" height="6.3" rx="1.5"></rect>
+            <rect class="on" x="27.2" y="8.2" width="3" height="17.7" rx="1.5"></rect>
+            <rect class="on" x="34" y="12.8" width="3" height="8.4" rx="1.5"></rect>
+            <rect class="on" x="40.8" y="9.1" width="3" height="15.9" rx="1.5"></rect>
+            <rect class="on" x="47.6" y="7.9" width="3" height="18.3" rx="1.5"></rect>
+            <rect class="on" x="54.4" y="7.9" width="3" height="18.3" rx="1.5"></rect>
+            <rect class="on" x="61.2" y="7.3" width="3" height="19.5" rx="1.5"></rect>
+            <rect class="on" x="68" y="4.7" width="3" height="24.6" rx="1.5"></rect>
+            <rect class="on" x="74.8" y="2.2" width="3" height="29.7" rx="1.5"></rect>
+            <rect class="on" x="81.6" y="7" width="3" height="20.1" rx="1.5"></rect>
+            <rect class="on" x="88.4" y="4.1" width="3" height="25.8" rx="1.5"></rect>
+            <rect class="on" x="95.2" y="8.5" width="3" height="17.1" rx="1.5"></rect>
+            <rect class="on" x="102" y="12.2" width="3" height="9.6" rx="1.5"></rect>
+            <rect class="on" x="108.8" y="11.3" width="3" height="11.4" rx="1.5"></rect>
+            <rect class="on" x="115.6" y="5" width="3" height="24" rx="1.5"></rect>
+            <rect class="on" x="122.4" y="10.6" width="3" height="12.9" rx="1.5"></rect>
+            <rect x="129.2" y="8.9" width="3" height="16.2" rx="1.5"></rect>
+            <rect x="136" y="11.8" width="3" height="10.5" rx="1.5"></rect>
+            <rect x="142.8" y="7.6" width="3" height="18.9" rx="1.5"></rect>
+            <rect x="149.6" y="8.3" width="3" height="17.4" rx="1.5"></rect>
+            <rect x="156.4" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="163.2" y="14.3" width="3" height="5.4" rx="1.5"></rect>
+            <rect x="170" y="10.6" width="3" height="12.9" rx="1.5"></rect>
+            <rect x="176.8" y="14.2" width="3" height="5.7" rx="1.5"></rect>
+            <rect x="183.6" y="10.6" width="3" height="12.9" rx="1.5"></rect>
+            <rect x="190.4" y="12.2" width="3" height="9.6" rx="1.5"></rect>
+            <rect x="197.2" y="12.5" width="3" height="9" rx="1.5"></rect>
+            <rect x="204" y="14.8" width="3" height="4.5" rx="1.5"></rect>
+            <rect x="210.8" y="12.4" width="3" height="9.3" rx="1.5"></rect>
+            <rect x="217.6" y="9.5" width="3" height="15" rx="1.5"></rect>
+            <rect x="224.4" y="14.2" width="3" height="5.7" rx="1.5"></rect>
+            <rect x="231.2" y="10.1" width="3" height="13.8" rx="1.5"></rect>
+            <rect x="238" y="8.5" width="3" height="17.1" rx="1.5"></rect>
+            <rect x="244.8" y="12.7" width="3" height="8.7" rx="1.5"></rect>
+            <rect x="251.6" y="10.7" width="3" height="12.6" rx="1.5"></rect>
+            <rect x="258.4" y="9.4" width="3" height="15.3" rx="1.5"></rect>
+            <rect x="265.2" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="272" y="11" width="3" height="12" rx="1.5"></rect>
+            <rect x="278.8" y="3.5" width="3" height="27" rx="1.5"></rect>
+            <rect x="285.6" y="9.1" width="3" height="15.9" rx="1.5"></rect>
+            <rect x="292.4" y="6.2" width="3" height="21.6" rx="1.5"></rect>
+            <rect class="head" x="122.7" y="2" width="1.4" height="30" rx="0.7"></rect>
           </svg>
-          <div class="sans" style="display:flex;justify-content:space-between;font-size:11px;color:#B5A88F;margin-top:2px">
-            <span>0:38</span><span>2:14</span>
+          <div class="sans" style="display:flex;justify-content:space-between;font-size:11px;color:#B5A88F;margin-top:3px">
+            <span style="color:#8A7C68">0:55</span><span>剩 1:19</span>
+          </div>
+
+          <!-- 展開的逐字稿：跟著聲音走，念到哪一段哪一段是墨色。
+               字是伺服器給的（clip.parts[].text）——客戶端手上沒有原文。 -->
+          <div style="margin-top:13px;padding-top:13px;border-top:1px solid #EDE6D7">
+            <p class="say said">所問：那筆尾款收得回來嗎。水天需，需者須也，事在等待。世爻臨財而月建生扶，這筆錢跑不掉。</p>
+            <p class="say nar">他把茶盞挪開，指節在案上輕輕敲了兩下。</p>
+            <p class="say now">難的是「什麼時候」。應爻空亡，對方眼下手頭也緊——不是不給，是給不出來。出了空，也就是三月廿三之後，你再開口。</p>
+            <p class="say">在那之前不要催。催了他只會拿更軟的話擋你，你反而不好再問第二次。</p>
+          </div>
+
+          <div class="sans" style="display:flex;justify-content:center;margin-top:10px">
+            <span style="font-size:11px;color:#B5A88F;letter-spacing:.1em">收起 ∧</span>
           </div>
         </div>
       </div>
@@ -145,7 +177,7 @@
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#B5A88F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0" aria-hidden="true">
           <path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1Z"></path>
         </svg>
-        <span class="sans" style="font-size:12.5px;color:#8A7C68;line-height:1.7">批文底下朗讀那一排，多了一顆「收藏語音」。收下來的段子存在這裡，重聽不必再合成一次。</span>
+        <span class="sans" style="font-size:12.5px;color:#8A7C68;line-height:1.7">批文底下朗讀那一排，多了一顆「收藏語音」。收下來的段子存在這裡，重聽不必再合成一次——聽幾次都不再花額度。</span>
       </div>
 
     </div>
