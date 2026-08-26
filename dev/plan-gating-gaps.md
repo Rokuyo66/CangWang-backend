@@ -32,13 +32,24 @@
 沒擋住真正在花錢的那一端。每人每月的天花板是 360,000 字 ≈ NT$1,116，
 而免費帳號跟藏往一樣多。
 
-現在：`PLAN_TTS_CHARS` 以**月**為單位分階（2,000 / 12,000 / 30,000 / 60,000），
+現在：`PLAN_TTS_CHARS` 以**月**為單位分階（5,000 / 12,000 / 30,000 / 60,000），
 下個月一號重來、不滾存。日上限保留成煞車（月額度的四分之一，下限 3,000），
 擋的是跑掉的迴圈，不是正常使用。順手修掉一個已經在線上的 bug：
 `tts_usage.day` 以前寫 UTC 日期，等於每日額度在台北時間早上八點才重置。
 
 還沒做的：`MINIMAX_TTS_MODEL` 換成 turbo 可以再省 40%（US$60 vs 100／百萬字），
 這是環境變數，不必改程式。要先聽聽看那幾把嗓子差多少。
+
+另外，四階的字數是**用估的批文長度**（`CHARS_PER_READING = 1300`）訂的，
+還沒拿線上資料校準過。量法：
+
+```sql
+select round(avg(length(coalesce(question,'') || coalesce(reading,'')))) as 平均字數,
+       round(max(length(coalesce(question,'') || coalesce(reading,'')))) as 最長
+from casts where coalesce(category,'') <> '日運' and reading is not null;
+```
+
+量出來差很多的話，改 `CHARS_PER_READING` 與那四個數字即可，程式不必動。
 
 ### 2. 五個靈石價目 `COST_*`
 

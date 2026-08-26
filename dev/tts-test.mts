@@ -177,6 +177,19 @@ await t("額度用完擋得住", async () => {
   ok((await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf)).includes("額度"), "該擋");
   eq(mm.calls.length, 0, "擋下時不該打 API");
 });
+await t("額度只差一點時，不會念到一半才斷——一個字都不合成", async () => {
+  const s = seed();
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  // 這一卦要念的字不只 3 個，額度只剩 3：一段一段扣的話會先合成前幾段
+  // 再回失敗，使用者花了錢一個字也沒聽到。
+  s.tts_usage.push({ user_id: U, day, chars: 5000 - 3 });
+  const db = fakeDb(s); const mm = fakeMinimax();
+  const msg = await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf);
+  ok(msg.includes("額度"), "該擋，得到：" + msg);
+  eq(mm.calls.length, 0, "擋下時一個字都不該送去合成");
+  eq((db as any)._store.tts_usage[0].chars, 5000 - 3, "擋下時不該扣掉任何額度");
+});
+
 await t("命中快取的重聽不吃額度", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
   await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);

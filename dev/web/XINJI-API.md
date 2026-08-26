@@ -290,7 +290,8 @@ await apiInterpret({ mode: "voice_keep", cast_id: castId, part: "body" });
                        { "url": "https://…/b.mp3", "narrator": true } ] },
   "duplicate": false,
   "quota": { "used": 1, "max": 3, "can_add": true },
-  "tts_quota": { "used": 420, "max": 2000, "left": 1580, "day_used": 420, "day_max": 3000 } }
+  "tts_quota": { "used": 420, "max": 5000, "left": 4580, "left_readings": 3,
+                 "day_used": 420, "day_max": 3000 } }
 ```
 
 `duplicate: true`＝這一段已經在收藏裡了。**那不是錯誤**，畫面上說「已經在心跡的語音裡了」即可。
@@ -318,10 +319,12 @@ await apiInterpret({ mode: "voice_keep", cast_id: castId, part: "body" });
 
 | 階 | 月字數 | ≈幾則批文 |
 |---|---|---|
-| 無牒 | 2,000 | ~3 |
-| 觀微 | 12,000 | ~17 |
-| 知幾 | 30,000 | ~43 |
-| 藏往 | 60,000 | ~86 |
+| 無牒 | 5,000 | ~3 |
+| 觀微 | 12,000 | ~9 |
+| 知幾 | 30,000 | ~23 |
+| 藏往 | 60,000 | ~46 |
+
+一則批文抓 1,300 字（`CHARS_PER_READING`）。
 
 `day_max` 是日煞車（月額度的四分之一，下限 3,000），不是額度——正常人碰不到，
 它擋的是跑掉的迴圈在一個下午燒完整個月。
@@ -329,7 +332,12 @@ await apiInterpret({ mode: "voice_keep", cast_id: castId, part: "body" });
 **命中快取不吃額度**：重聽、收藏聽過的段落都是零消耗。
 
 畫面上請用「還能請人念約幾段」來講，不要講字數——沒有人知道 1,580 個字是多少東西。
-一則批文抓 700 字回推，寧可少估。
+**換算由伺服器做**，直接用 `tts_quota.left_readings`；前端不要自己除，
+兩邊各除一次就會出現「這裡說 3 段、那裡說 2 段」。
+
+`speakCast` 的額度是**整篇一次檢查**，不是一段一段扣。額度不夠時
+一個字都不會送去合成——一段一段扣的話，長批文會在中間某一段用完額度，
+前幾段已經付錢，而使用者一個字也沒聽到。
 
 `mode:"tts"` 的回應也夾帶同一份 `tts_quota`。
 
