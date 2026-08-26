@@ -18,6 +18,8 @@
 };
 
 import { fakeDb } from "./fake-db.mts";
+// 測試一律用無牒那一階：擋得住無牒，才是真的擋得住。
+const PLAN = "free";
 const { speakable, segments, chunk, decodeAudio, speakCast } =
   await import("../supabase/functions/_shared/tts.ts");
 
@@ -121,26 +123,26 @@ await t("不是 mp3 的東西一律回 null，不會被當音檔存起來", () =
 console.log("\n── 指名範圍 ──");
 await t("念得到自己那一卦的批文", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  const p = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
+  const p = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
   ok((p.parts as any[]).length >= 1, "該有音檔");
   ok(mm.calls[0].text.includes("所問：問前程"), "提問該念進去：" + mm.calls[0].text);
 });
 await t("念不到別人的卦", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  eq(await speakCast(db as any, U, "cast-2", "body", mm.doFetch).then(errOf), "找不到這一卦", "越權");
+  eq(await speakCast(db as any, U, PLAN, "cast-2", "body", mm.doFetch).then(errOf), "找不到這一卦", "越權");
   eq(mm.calls.length, 0, "越權時不該打 API");
 });
 await t("追問用序號指名，指到不存在的就是不存在", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  payloadOf(await speakCast(db as any, U, CAST, 0, mm.doFetch));
+  payloadOf(await speakCast(db as any, U, PLAN, CAST, 0, mm.doFetch));
   ok(mm.calls[0].text.includes("月半之後"), "該念那一則：" + mm.calls[0].text);
-  eq(await speakCast(db as any, U, CAST, 5, mm.doFetch).then(errOf), "沒有這一則追問", "越界");
+  eq(await speakCast(db as any, U, PLAN, CAST, 5, mm.doFetch).then(errOf), "沒有這一則追問", "越界");
 });
 
 console.log("\n── 聲線 ──");
 await t("台詞用該角色的聲線，旁白用旁白的，順序不變", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  const p = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
+  const p = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
   eq(p.voice_id, "Chinese_bazong", "師兄的聲線");
   eq(p.narrator_voice_id, "Chinese_gravelly_storyteller_nv1", "旁白的聲線");
   // 這一卦的批文是「台詞／旁白／台詞」，所以該送三次、三把嗓子照順序
@@ -155,11 +157,11 @@ await t("台詞用該角色的聲線，旁白用旁白的，順序不變", async
 console.log("\n── 快取 ──");
 await t("重聽同一段不再打 API", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  const first = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
+  const first = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
   const n = mm.calls.length;
   ok(n > 0, "第一次該合成");
   eq(first.cached, false, "第一次不算快取");
-  const again = payloadOf(await speakCast(db as any, U, CAST, "body", mm.doFetch));
+  const again = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
   eq(mm.calls.length, n, "第二次不該再打 API");
   eq(again.cached, true, "第二次該標成快取");
   eq(JSON.stringify(again.parts), JSON.stringify(first.parts), "拿到的網址該一樣");
@@ -168,16 +170,31 @@ await t("重聽同一段不再打 API", async () => {
 console.log("\n── 額度 ──");
 await t("額度用完擋得住", async () => {
   const s = seed();
-  s.tts_usage.push({ user_id: U, day: new Date().toISOString().slice(0, 10), chars: 99999 });
+  // 台北日：額度以台北日界計，用 UTC 日期會在下午四點之後放到錯的那一天
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  s.tts_usage.push({ user_id: U, day, chars: 99999 });
   const db = fakeDb(s); const mm = fakeMinimax();
-  ok((await speakCast(db as any, U, CAST, "body", mm.doFetch).then(errOf)).includes("額度"), "該擋");
+  ok((await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf)).includes("額度"), "該擋");
   eq(mm.calls.length, 0, "擋下時不該打 API");
 });
+await t("額度只差一點時，不會念到一半才斷——一個字都不合成", async () => {
+  const s = seed();
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  // 這一卦要念的字不只 3 個，額度只剩 3：一段一段扣的話會先合成前幾段
+  // 再回失敗，使用者花了錢一個字也沒聽到。
+  s.tts_usage.push({ user_id: U, day, chars: 5000 - 3 });
+  const db = fakeDb(s); const mm = fakeMinimax();
+  const msg = await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf);
+  ok(msg.includes("額度"), "該擋，得到：" + msg);
+  eq(mm.calls.length, 0, "擋下時一個字都不該送去合成");
+  eq((db as any)._store.tts_usage[0].chars, 5000 - 3, "擋下時不該扣掉任何額度");
+});
+
 await t("命中快取的重聽不吃額度", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
-  await speakCast(db as any, U, CAST, "body", mm.doFetch);
+  await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);
   const used1 = (db as any)._store.tts_usage[0].chars;
-  await speakCast(db as any, U, CAST, "body", mm.doFetch);
+  await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);
   eq((db as any)._store.tts_usage[0].chars, used1, "重聽後用量不該增加");
 });
 
@@ -188,14 +205,14 @@ await t("base_resp 說失敗時不把錯誤當音檔存起來", async () => {
     ok: true,
     json: () => Promise.resolve({ base_resp: { status_code: 1004, status_msg: "invalid api key" } }),
   });
-  const msg = await speakCast(db as any, U, CAST, "body", doFetch).then(errOf);
+  const msg = await speakCast(db as any, U, PLAN, CAST, "body", doFetch).then(errOf);
   ok(msg.includes("1004") && msg.includes("invalid api key"), "該把原因帶出來：" + msg);
   eq((db as any)._store._files.size, 0, "不該存下任何檔");
 });
 await t("回應沒有音檔欄位時，把看到的鍵帶回來（不必再猜形狀）", async () => {
   const db = fakeDb(seed());
   const doFetch: any = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ trace_id: "x", extra_info: {} }) });
-  const msg = await speakCast(db as any, U, CAST, "body", doFetch).then(errOf);
+  const msg = await speakCast(db as any, U, PLAN, CAST, "body", doFetch).then(errOf);
   ok(msg.includes("trace_id") && msg.includes("extra_info"), "該列出鍵：" + msg);
 });
 

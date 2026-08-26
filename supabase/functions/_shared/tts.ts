@@ -21,8 +21,42 @@ const API_KEY = Deno.env.get("MINIMAX_API_KEY") ?? "";
 // 模型可用環境變數蓋掉：不同帳號開通的型號不一樣，寫死會讓換型號變成改程式。
 const MODEL = Deno.env.get("MINIMAX_TTS_MODEL") ?? TTS_MODEL;
 const BUCKET = Deno.env.get("TTS_BUCKET") ?? "tts";
-// 每人每日合成字數上限。命中快取不算——重聽不該吃額度。
-const DAILY_CHARS = Number(Deno.env.get("TTS_CHARS_PER_DAY") ?? "12000");
+// 每月合成字數上限，依玉牒分階。命中快取不算——重聽不該吃額度。
+//
+// 為什麼是「月」不是「日」：朗讀不是每天均勻消耗的東西。人是問到一卦特別
+// 有感的那天，把批文連同三則追問一起聽完，然後好幾天不碰。日上限會在那一天
+// 擋住他，而那天正是這功能最有價值的一天。月額度讓他自己決定要花在哪幾天。
+//
+// 為什麼要分階：TTS 是照字數計費的（speech-2.8-hd 約 US$0.10／千字），
+// 而在此之前這裡是一個全站共用的數字——無牒與藏往每天能聽的量一樣多。
+// 語音收藏格數分了四階，產生語音的字數卻沒分，等於擋住了「能留幾段」
+// 卻沒擋住真正在花錢的那一端。
+export const PLAN_TTS_CHARS: Record<string, number> =
+  { free: 5000, guanwei: 12000, zhiji: 30000, cangwang: 60000 };
+
+/** 一篇批文大約幾個字。**估的**，用來把額度講成「還能念幾段」——
+ *  沒有人知道 1580 個字是多少東西，但每個人都知道 3 段是多少。
+ *  MODE_LIMITS.cast 是 1000 tokens，中文一字約 1～1.5 token，
+ *  再加上「所問：…」那一行，量級落在一千出頭。
+ *  要校準就量：select round(avg(length(coalesce(question,'')||coalesce(reading,''))))
+ *              from casts where coalesce(category,'') <> '日運' and reading is not null; */
+export const CHARS_PER_READING = 1300;
+
+// 全站緊急旋鈕：帳單失控時不必改程式重新部署，設 0.5 就是全體對半砍。
+const SCALE = Number(Deno.env.get("TTS_MONTHLY_SCALE") ?? "1");
+
+export const ttsQuotaOf = (plan: string) =>
+  Math.max(0, Math.round((PLAN_TTS_CHARS[plan] ?? PLAN_TTS_CHARS.free) * (Number.isFinite(SCALE) ? SCALE : 1)));
+
+// 日上限只是煞車，不是額度：跑掉的迴圈不該在一個下午燒完整個月。
+// 取月額度的四分之一，正常人碰不到——碰得到的那種用法本來就該停下來看一眼。
+export const dailyCapOf = (monthly: number) => Math.max(3000, Math.ceil(monthly / 4));
+
+/** 台北日期。tts_usage.day 以前寫的是 UTC 日期，等於每日額度在台北時間
+ *  早上八點重置——對使用者而言那是「昨天的量還沒還我」。刻意在這裡自己算，
+ *  不 import services.ts（它載入時就讀 Deno.env，會讓這一層離線測不動）。 */
+export const taipeiToday = (d = new Date()) =>
+  new Date(d.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 // 單次請求的字數上限。超過就切成多段、各自合成，前端照順序播。
 // 不在伺服器把 mp3 接起來：裸接 frame 只是「多半能播」，遇到參數不同的段落
 // 會播出雜音或提早結束，而那種壞法在測試機上未必重現得出來。
@@ -183,24 +217,76 @@ async function synth(text: string, voiceId: string, doFetch: Fetch): Promise<Uin
   return bytes;
 }
 
-/* ── 額度 ───────────────────────────────────────────────────────── */
-async function spendQuota(db: SupabaseClient, uid: string, chars: number): Promise<boolean> {
-  const day = new Date().toISOString().slice(0, 10);
-  const { data } = await db.from("tts_usage").select("chars")
-    .eq("user_id", uid).eq("day", day).maybeSingle();
-  const used = Number(data?.chars ?? 0);
-  if (used + chars > DAILY_CHARS) return false;
+/* ── 額度 ─────────────────────────────────────────────────────────
+   月用量不另開一張表：tts_usage 本來就是一天一列，把當月那幾列加起來就是
+   月用量。日列照寫，同時當日上限的煞車與事後查帳的流水——多一張彙總表就多
+   一個會跟明細走偏的地方。 */
+
+/** 這個月的第一天與下個月的第一天（台北），拿來框當月那幾列。 */
+export function monthRange(today = taipeiToday()): { from: string; to: string } {
+  const [y, m] = today.split("-").map(Number);
+  const nextY = m === 12 ? y + 1 : y;
+  const nextM = m === 12 ? 1 : m + 1;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { from: `${y}-${pad(m)}-01`, to: `${nextY}-${pad(nextM)}-01` };
+}
+
+export interface TtsQuota {
+  used: number; max: number; left: number; day_used: number; day_max: number;
+  /** 還能念幾段（估）。無條件捨去——說還有 2 段結果念得出 3 段是驚喜，反過來是失信。 */
+  left_readings: number;
+}
+
+/** 讀額度，不動它。給 profile 用——畫面上要說得出「本月還能請人念幾段」。 */
+export async function ttsQuota(db: SupabaseClient, uid: string, plan: string): Promise<TtsQuota> {
+  const max = ttsQuotaOf(plan);
+  const day = taipeiToday();
+  const { from, to } = monthRange(day);
+  const { data } = await db.from("tts_usage").select("day, chars")
+    .eq("user_id", uid).gte("day", from).lt("day", to);
+  const rows = (data ?? []) as { day: string; chars: number | null }[];
+  const used = rows.reduce((n, r) => n + Number(r.chars ?? 0), 0);
+  const dayUsed = Number(rows.find((r) => r.day === day)?.chars ?? 0);
+  const left = Math.max(0, max - used);
+  return {
+    used, max, left, day_used: dayUsed, day_max: dailyCapOf(max),
+    left_readings: Math.floor(left / CHARS_PER_READING),
+  };
+}
+
+/** 扣額度。ok:false＝不夠，呼叫端不要合成。
+ *  匯出是為了測得到——這是整條線上唯一擋住帳單的那道門。 */
+export async function spendQuota(
+  db: SupabaseClient, uid: string, plan: string, chars: number,
+): Promise<{ ok: true } | { ok: false; msg: string }> {
+  const day = taipeiToday();
+  const q = await ttsQuota(db, uid, plan);
+  // 訊息帶數字：只說「用完了」的話，回報進來時查不出是差一點還是差很多，
+  // 而那兩件事要做的處置完全不同（等下個月／額度訂得太小）。
+  const need = `這一段要 ${chars} 字，本月還剩 ${q.left} 字`;
+  if (q.used + chars > q.max) {
+    return {
+      ok: false,
+      msg: q.max === PLAN_TTS_CHARS.free
+        ? `這個月的朗讀額度不夠了（${need}）。已經收藏的還是能聽——持玉牒入觀，額度會多很多。`
+        : `這個月的朗讀額度不夠了（${need}），下個月一號重新計算。已經收藏的還是能聽。`,
+    };
+  }
+  if (q.day_used + chars > q.day_max) {
+    return { ok: false, msg: `今天念得夠多了，明天再來——這個月的額度還在（剩 ${q.left} 字）。` };
+  }
   await db.from("tts_usage").upsert(
-    { user_id: uid, day, chars: used + chars },
+    { user_id: uid, day, chars: q.day_used + chars },
     { onConflict: "user_id,day" },
   );
-  return true;
+  return { ok: true };
 }
 
 /* ── 對外：念某一卦的某一段 ─────────────────────────────────────── */
 export async function speakCast(
   db: SupabaseClient,
   uid: string,
+  plan: string,
   castId: string,
   part: "body" | number,
   doFetch: Fetch = fetch,
@@ -209,7 +295,7 @@ export async function speakCast(
   if (!castId) return { ok: false, msg: "沒說要念哪一卦" };
 
   const { data: cast } = await db.from("casts")
-    .select("id, user_id, character_id, question, reading")
+    .select("id, user_id, character_id, question, reading, gua_ben")
     .eq("id", castId).eq("user_id", uid).maybeSingle();
   if (!cast) return { ok: false, msg: "找不到這一卦" };
 
@@ -233,35 +319,49 @@ export async function speakCast(
 
   const charVoice = voiceOf(cast.character_id);
   const store = db.storage.from(BUCKET);
-  const parts: { url: string; chars: number; narrator: boolean }[] = [];
-  let synthesized = 0, total = 0;
 
+  /* ── 先排好整篇要念哪些段、哪些還沒有檔 ──────────────────────
+     額度**一次檢查整篇**，不是一段一段扣。
+     一段一段扣的話，長批文會在中間某一段用完額度：前幾段已經合成、
+     已經付錢、已經扣掉，然後整支回失敗，使用者一個字也沒聽到。
+     花了錢又沒東西聽，是所有失敗方式裡最糟的一種。 */
+  const plan_: { voiceId: string; piece: string; path: string; narrator: boolean; miss: boolean }[] = [];
+  let total = 0, need = 0;
   for (const seg of segs) {
     const voiceId = seg.narrator ? VOICE_NARRATOR : charVoice;
     for (const piece of chunk(seg.text)) {
       total += piece.length;
-      const key = await sha256(`${MODEL}|${voiceId}|${piece}`);
-      const path = `${key}.mp3`;
+      const path = `${await sha256(`${MODEL}|${voiceId}|${piece}`)}.mp3`;
       const { data: hit } = await store.list("", { search: path, limit: 1 });
-      if (!hit?.length) {
-        // 額度只在真的要合成時才扣——重聽命中快取不該算在使用者頭上
-        if (!await spendQuota(db, uid, piece.length)) {
-          return { ok: false, msg: "今天的語音額度用完了，明天再來" };
-        }
-        let bytes: Uint8Array;
-        try { bytes = await synth(piece, voiceId, doFetch); }
-        catch (e) { return { ok: false, msg: String((e as Error).message ?? e) }; }
-        const { error } = await store.upload(path, bytes, {
-          contentType: "audio/mpeg", upsert: true, cacheControl: "31536000",
-        });
-        if (error) return { ok: false, msg: `音檔存不進去：${error.message}` };
-        synthesized++;
-      }
-      parts.push({
-        url: store.getPublicUrl(path).data.publicUrl,
-        chars: piece.length, narrator: seg.narrator,
-      });
+      const miss = !hit?.length;
+      if (miss) need += piece.length;      // 命中快取的不算——重聽不該吃額度
+      plan_.push({ voiceId, piece, path, narrator: seg.narrator, miss });
     }
+  }
+
+  // 要合成的字一次扣完。need 為 0＝整篇都在快取裡，連問都不必問。
+  if (need > 0) {
+    const paid = await spendQuota(db, uid, plan, need);
+    if (!paid.ok) return { ok: false, msg: paid.msg };
+  }
+
+  const parts: { url: string; path: string; chars: number; narrator: boolean }[] = [];
+  let synthesized = 0;
+  for (const p of plan_) {
+    if (p.miss) {
+      let bytes: Uint8Array;
+      try { bytes = await synth(p.piece, p.voiceId, doFetch); }
+      catch (e) { return { ok: false, msg: String((e as Error).message ?? e) }; }
+      const { error } = await store.upload(p.path, bytes, {
+        contentType: "audio/mpeg", upsert: true, cacheControl: "31536000",
+      });
+      if (error) return { ok: false, msg: `音檔存不進去：${error.message}` };
+      synthesized++;
+    }
+    parts.push({
+      url: store.getPublicUrl(p.path).data.publicUrl, path: p.path,
+      chars: p.piece.length, narrator: p.narrator,
+    });
   }
 
   return {
@@ -269,6 +369,19 @@ export async function speakCast(
     payload: {
       voice_id: charVoice, narrator_voice_id: VOICE_NARRATOR, model: MODEL,
       parts, chars: total, cached: synthesized === 0,
+      // 每次朗讀都把額度現況帶回去：畫面上要說得出「本月還能請人念幾段」，
+      // 而不是等到用完那一次才第一次讓人知道有這回事。
+      quota: await ttsQuota(db, uid, plan),
+      // 收藏用得上：同一段文字＋同一把嗓子＝同一則收藏，鍵由伺服器算。
+      text_hash: await sha256(`${MODEL}|${charVoice}|${source}`),
+      title: titleOf(cast, part), subtitle: cast.question ?? null,
+      character_id: cast.character_id ?? null,
     },
   };
+}
+
+/** 收藏清單上顯示的那一行。前端不自己組——組出來的字會跟伺服器的版本走偏。 */
+function titleOf(cast: { gua_ben?: string | null }, part: "body" | number): string {
+  const gua = cast.gua_ben ? `《${cast.gua_ben}》` : "解卦";
+  return part === "body" || part == null ? gua : `${gua}・第 ${Number(part) + 1} 問`;
 }

@@ -13,7 +13,7 @@
 # 用法（Token 與 -ProjectRef 規則同 lingshi.ps1）：
 #   .\dev\yudie.ps1 -Email you@example.com                      # 只看：目前方案與各項額度（預設，什麼都不動）
 #   .\dev\yudie.ps1 -Find 六六                                  # 忘了帳號：用暱稱/信箱片段找人
-#   .\dev\yudie.ps1 -Email you@example.com -Plan zhiji          # 開知己，無期限
+#   .\dev\yudie.ps1 -Email you@example.com -Plan zhiji          # 開知幾，無期限
 #   .\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
 #   .\dev\yudie.ps1 -TgId 8674594142 -Expire                    # 保留方案名，把期限撥到一分鐘前（測到期）
 #   .\dev\yudie.ps1 -Email you@example.com -Off                 # 收牒：改回 free、清掉期限
@@ -95,7 +95,7 @@ $IDENT_VIEW =
 #   心跡在記   xinji.ts PLAN_THREADS
 #   語音收藏   voice.ts PLAN_CLIPS
 #   卦案存檔   case-run.ts keptQuota
-$PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知己'; cangwang = '藏往' }
+$PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知幾'; cangwang = '藏往' }
 $QUOTAS = @(
   @{ n = '每日免費起卦'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 8   },
   @{ n = '每日免費追問'; free = 2; guanwei = 3;  zhiji = 8;  cangwang = 20  },
@@ -105,6 +105,7 @@ $QUOTAS = @(
   @{ n = '可釘選回憶'  ; free = 0; guanwei = 1;  zhiji = 3;  cangwang = 5   },
   @{ n = '心跡同時在記'; free = 1; guanwei = 3;  zhiji = 8;  cangwang = 20  },
   @{ n = '語音收藏段數'; free = 3; guanwei = 10; zhiji = 30; cangwang = 100 },
+  @{ n = '每月朗讀字數'; free = 5000; guanwei = 12000; zhiji = 30000; cangwang = 60000 },
   @{ n = '卦案記憶檔案'; free = 1; guanwei = 3;  zhiji = 3;  cangwang = 3   }
 )
 
@@ -198,11 +199,33 @@ if ($acts.Count -eq 0) {
       '項目'   = $q.n
       '無牒'   = $q.free
       '觀微'   = $q.guanwei
-      '知己'   = $q.zhiji
+      '知幾'   = $q.zhiji
       '藏往'   = $q.cangwang
     }
   }
   $rows | Format-Table -AutoSize
+
+  # 朗讀額度是唯一「按月結算、會累積」的一項，所以另外把現況查出來——
+  # 光看上表只知道上限，看不出這個帳號現在還剩多少，而回報「語音載不下來」
+  # 時要看的正是這個數字。
+  $ym = (Get-Date).ToUniversalTime().AddHours(8).ToString('yyyy-MM')
+  $m1 = Q "$ym-01"
+  # 一行寫完：PowerShell 的續行是反引號不是反斜線，而反斜線在這裡會被
+  # 當成字面字元吃進 SQL 裡，錯得很難看出來。
+  $q = "select coalesce(sum(chars), 0) as used from tts_usage where user_id = " + (Q $t.id) + "::uuid and day >= $m1::date and day < ($m1::date + interval '1 month');"
+  $tts = @(Invoke-Sql $q)[0]
+  $ttsCaps = @{ free = 5000; guanwei = 12000; zhiji = 30000; cangwang = 60000 }
+  $ttsMax  = $ttsCaps[[string]$effective]
+  if (-not $ttsMax) { $ttsMax = 5000 }
+  $ttsUsed = [int]$tts.used
+  $ttsLeft = [Math]::Max(0, $ttsMax - $ttsUsed)
+  $ttsSegs = [Math]::Floor($ttsLeft / 1300)
+  Write-Host ""
+  Write-Host "本月朗讀（$ym 台北）　已用 $ttsUsed ／ $ttsMax 字　還剩 $ttsLeft 字（約 $ttsSegs 段）"
+  if ($ttsLeft -eq 0) {
+    Write-Host "  ⚠ 額度用完了，朗讀會被擋下。下個月一號重新計算。" -ForegroundColor Yellow
+  }
+
   Write-Host "另外三項不是數字，是有無："
   Write-Host "  · 月誌卷首語   無牒鎖著（只給統計）／持牒每月生成一次"
   Write-Host "  · 全站日熔斷   只擋 free；持牒者不受 DAILY_GLOBAL_CAP 影響"

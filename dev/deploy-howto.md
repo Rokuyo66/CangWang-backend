@@ -172,24 +172,30 @@ baseline 會把新的那幾支一起標成已套用卻沒真的跑，新欄位�
 
 ## 第 2 步 · 建一個放音檔的櫃子（只有這一次要做）
 
-心跡的「收藏語音」要把音檔存起來，得先有個地方放。這件事在網頁上做，不用打指令。
+朗讀合成出來的音檔要有地方放。這件事在網頁上做，不用打指令。
 
 1. 瀏覽器打開 <https://supabase.com/dashboard>，登入，點進你的專案。
 2. 左邊那排圖示找 **Storage**（一個桶子的圖示），點進去。
 3. 中間有一顆 **New bucket**，點它。
-4. 名字**一個字都不能錯**，打：`voice`
-5. 底下有一個 **Public bucket** 的開關——**維持關著**（灰色的）。
+4. 名字**一個字都不能錯**，打：`tts`
+5. 底下有一個 **Public bucket** 的開關——**要打開**。
 6. 按 **Save**。
 
 ### 你會看到什麼
 
-左邊的 Storage 底下多出一個 `voice`，旁邊標著 **Private**。這樣就好了。
+左邊的 Storage 底下多出一個 `tts`，旁邊標著 **Public**。這樣就好了。
 
-**為什麼一定要是 Private**：裡面是付費用戶收藏的語音。設成 Public 等於任何人
-拿到網址就能聽，而網址是猜得到的。程式給前端的是一小時後就失效的臨時網址，
-櫃子本身必須鎖著才有意義。
+**為什麼這個是 Public**：檔名是「模型＋聲線＋逐字文本」的 SHA-256，猜不到，
+而 bucket 沒開列表權限，也列不出來。走公開網址是為了讓 `<audio>` 直接播、
+讓 CDN 快取得住——臨時簽名網址每次都不一樣，等於每次重播都重新下載一份，
+把「快取」這件事做掉一半，而那份快取正是省錢的來源。
 
-已經建過就跳過這一步——重複建會說名字重複，那不是錯誤，是它已經在了。
+> `0043_tts_usage_and_bucket.sql` 會自己建這個桶，所以多半你已經有了。
+> 手動建過也不衝突。
+
+**另外那個叫 `voice` 的私有桶，如果你之前建過，可以留著不管它** ——
+收藏語音改成「記一個指標」之後不再用它了（見 `dev/web/XINJI-API.md`），
+它是空的，空桶不花錢。
 
 ---
 
@@ -223,7 +229,7 @@ curl.exe -s -X POST "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/inter
 
 ```powershell
 .\dev\yudie.ps1 -Email you@example.com                # 只看：目前狀態＋各方案額度對照表
-.\dev\yudie.ps1 -Email you@example.com -Plan zhiji    # 開知己，無期限
+.\dev\yudie.ps1 -Email you@example.com -Plan zhiji    # 開知幾，無期限
 .\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
 .\dev\yudie.ps1 -Email you@example.com -Expire        # 測到期（方案名保留，行為變無牒）
 .\dev\yudie.ps1 -Email you@example.com -Off           # 收牒

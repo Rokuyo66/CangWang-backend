@@ -21,10 +21,10 @@ import {
   stickerShelf, buyPack, placeSticker, moveSticker, removeSticker, stickerLayout, layoutOf,
 } from "../_shared/stickers.ts";
 import {
-  voiceSave, voiceConfirm, voiceList, voiceDelete, clipQuotaOf, BUCKET, type VoiceStore,
+  voiceKeep, voiceList, voiceDelete, clipQuotaOf,
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
-import { speakCast } from "../_shared/tts.ts";
+import { speakCast, ttsQuota } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -509,27 +509,6 @@ Deno.serve(async (req) => {
 
     /* ═══ 語音收藏與貼紙的兩個小接頭 ═══ */
 
-    // Storage 的三個動作包成 voice.ts 要的形狀。包一層是為了讓 voice.ts
-    // 不必認識 supabase storage client——那一層要能離線測，而測試給的是替身。
-    const voiceStore: VoiceStore = {
-      async signUpload(path) {
-        const { data, error } = await db.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
-        if (error || !data) { console.error("signUpload failed", error); return null; }
-        return { url: data.signedUrl, token: data.token };
-      },
-      async signDownload(path, seconds) {
-        const { data } = await db.storage.from(BUCKET).createSignedUrl(path, seconds);
-        return data?.signedUrl ?? null;
-      },
-      async exists(path) {
-        const slash = path.lastIndexOf("/");
-        const { data } = await db.storage.from(BUCKET)
-          .list(path.slice(0, slash), { search: path.slice(slash + 1), limit: 1 });
-        const f = (data ?? [])[0] as { metadata?: { size?: number } } | undefined;
-        return f ? { bytes: f.metadata?.size ?? 0 } : null;
-      },
-      async remove(path) { await db.storage.from(BUCKET).remove([path]); },
-    };
 
     // 心跡每一頁的回應都夾帶那一頁貼了什麼，不必為了貼紙多打一支 API。
     const withStickers = async (r: Awaited<ReturnType<typeof timeline>>, surface: string) =>
@@ -615,27 +594,29 @@ Deno.serve(async (req) => {
     }
 
     /* ═══ 語音收藏 ═══
-       收藏＝把已合成好的音檔留下來，重聽不再呼叫 TTS。所以語音頁播放幾百次
-       都是零邊際成本，而它同時是留存與訂閱誘因（見 voice.ts 檔頭）。
-       上傳分兩步：先開簽名網址（額度在這一步就擋掉，不會傳了兩 MB 才說超額），
-       前端 PUT 完再回頭 confirm。 */
+       收藏＝記住「哪幾個音檔、照什麼順序播」。音檔在 tts bucket 的共用快取裡，
+       本來就永久留著，所以收藏零複製、零上傳，也不另外扣朗讀額度。
+       重聽永遠免費——額度用完能聽，玉牒到期也還在（見 voice.ts 檔頭）。 */
 
     if (body.mode === "voice_list") {
-      return caseResult(await voiceList(db, uid, await planOf(db, uid), voiceStore));
+      const plan = await planOf(db, uid);
+      const r = await voiceList(db, uid, plan);
+      // 朗讀額度也在這一頁報出來：本月還能請人念多少，該讓人隨時看得到，
+      // 而不是等到用完那一次才第一次知道有這回事。
+      if (r.ok) r.payload.tts_quota = await ttsQuota(db, uid, plan);
+      return caseResult(r);
     }
 
-    if (body.mode === "voice_save") {
-      return caseResult(await voiceSave(db, uid, await planOf(db, uid), voiceStore, body));
-    }
-
-    // 上傳完了。以 Storage 的實況為準，不信前端說「我傳好了」——
-    // 信它的話，一則點下去沒聲音的收藏會佔著格子。
-    if (body.mode === "voice_confirm") {
-      return caseResult(await voiceConfirm(db, uid, voiceStore, body.clip_id));
+    // 收藏走的是與朗讀完全相同的合成路徑：聽過的命中快取不花錢，
+    // 沒聽過就按收藏＝合成一次，與按下朗讀同一個價錢。不另立一條規則。
+    if (body.mode === "voice_keep") {
+      const plan = await planOf(db, uid);
+      return caseResult(await voiceKeep(db, uid, plan, (castId, part) =>
+        speakCast(db, uid, plan, castId, part), body));
     }
 
     if (body.mode === "voice_delete") {
-      return caseResult(await voiceDelete(db, uid, voiceStore, body.clip_id));
+      return caseResult(await voiceDelete(db, uid, body.clip_id));
     }
 
     /* ═══ 貼紙 ═══
@@ -713,7 +694,7 @@ Deno.serve(async (req) => {
        不在伺服器把 mp3 接起來——裸接 frame 只是「多半能播」，
        壞的時候在測試機上未必重現得出來。 */
     if (body.mode === "tts") {
-      const r = await speakCast(db, uid, body.cast_id, body.part ?? "body");
+      const r = await speakCast(db, uid, await planOf(db, uid), body.cast_id, body.part ?? "body");
       return r.ok
         ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
         : Response.json({ kind: "error", msg: r.msg }, { headers: CORS });
