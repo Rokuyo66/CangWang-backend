@@ -834,12 +834,13 @@ Deno.serve(async (req) => {
 
     // 載入聊天歷史（前端顯示用；記憶後端本就保存）
     if (body.mode === "chat_history") {
-      // 取「最新」40 則（原本 ascending+limit 是取最舊 40）；
-      // 同一問答常同 timestamp，補 role 排序鍵防配對翻轉（問在前、答在後）
-      const { data: msgs } = await db.from("chat_messages").select("role, body")
+      // 取「最新」40 則（原本 ascending+limit 是取最舊 40）。
+      // 依 id 排，不依 created_at：同一問答常常同一個 timestamp，那時就得再補一個
+      // role 排序鍵去猜誰先誰後。id 是 bigserial，本來就是寫入順序，一個鍵就夠準。
+      // id 一起下發——朗讀與收藏閒聊那一句，客戶端送的就是它。
+      const { data: msgs } = await db.from("chat_messages").select("id, role, body")
         .eq("user_id", uid).eq("character_id", body.character_id)
-        .order("created_at", { ascending: false })
-        .order("role", { ascending: true })   // desc 串裡 assistant 在前，反轉後 user 在前
+        .order("id", { ascending: false })
         .limit(40);
       return Response.json({ kind: "ok", messages: (msgs ?? []).reverse() }, { headers: CORS });
     }
@@ -1015,6 +1016,7 @@ Deno.serve(async (req) => {
         // 擬題那一刻，這件事在心跡那邊的狀況：已經在記的哪一條、還是替他預備了一條。
         // 確認卡上多一行「先記下這件事」，按了就是 xinji_open，再帶著 thread_id 去起卦。
         xinji: r.xinji,
+        msg_id: r.msgId,   // 這一則要朗讀或收藏時指名用（tts / voice_keep 的 chat_id）
       }, { headers: CORS });
     }
 

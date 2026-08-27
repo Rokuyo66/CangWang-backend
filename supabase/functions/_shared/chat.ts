@@ -763,6 +763,7 @@ export interface ChatResult {
   draft: string | null;// 角色替他理好、待他點頭的問句
   draftYong: { qin: string; viaShi?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
   xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
+  msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
 }
 
 /** 擬完題那一刻，心跡那邊是什麼狀況。零 AI——查詢與字串比對而已。
@@ -818,7 +819,7 @@ export async function chat(db: SupabaseClient, p: {
     return {
       reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
-      probe: false, draft: null, draftYong: null, xinji: null,
+      probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
   }
 
@@ -920,11 +921,24 @@ export async function chat(db: SupabaseClient, p: {
     { user_id: p.userId, character_id: p.characterId, role: "user", body: p.message, tier },
     { user_id: p.userId, character_id: p.characterId, role: "assistant", body: reply, tier, mark },
   ];
-  const { error: insErr } = await db.from("chat_messages").insert(rows);
+  // 回寫的 id 要拿回來：語音要念哪一句，客戶端送的就是這個 id
+  // （它不送文字——見 tts.ts 的檔頭）。拿不到就是拿不到，那一則不出朗讀鈕，
+  // 不影響聊天本身。
+  let msgId: number | null = null;
+  const idOf = (rows: unknown) => {
+    const list = (rows ?? []) as { id?: number; role?: string }[];
+    const hit = list.find((r) => r.role === "assistant") ?? list[list.length - 1];
+    return typeof hit?.id === "number" ? hit.id : null;
+  };
+  const { data: ins, error: insErr } = await db.from("chat_messages").insert(rows).select("id, role");
   if (insErr) {
     // 舊 schema（mark 欄未上）兜底：寧可少一欄，不可掉記憶
     console.error("chat_messages insert with mark failed, retry without", insErr.message);
-    await db.from("chat_messages").insert(rows.map(({ mark: _m, ...r }) => r));
+    const { data: again } = await db.from("chat_messages")
+      .insert(rows.map(({ mark: _m, ...r }) => r)).select("id, role");
+    msgId = idOf(again);
+  } else {
+    msgId = idOf(ins);
   }
 
   // 滾動記憶彙整：背景執行，不拖慢這次回覆（同 broadcast 的 waitUntil 模式）
@@ -966,6 +980,6 @@ export async function chat(db: SupabaseClient, p: {
 
   return {
     reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
-    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji,
+    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId,
   };
 }

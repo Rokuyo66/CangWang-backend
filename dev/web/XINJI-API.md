@@ -305,8 +305,13 @@ await apiInterpret({ mode: "voice_keep", chat_id: msgId });   // 閒聊裡角色
 
 ## 閒聊也念得了（2026-08 加）
 
-`mode:"tts"` 與 `voice_keep` 都多認一個 `chat_id`——那是 `chat_messages.id`
-（閒聊回應裡每一則的 id，前端本來就拿得到）：
+`mode:"tts"` 與 `voice_keep` 都多認一個 `chat_id`——那是 `chat_messages.id`。
+**這個 id 以前沒下發過**，現在兩處都給：
+
+- `mode:"chat"` 的回應多一個 `msg_id`（這一則回覆的 id）
+- `mode:"chat_history"` 的每一則多一個 `id`
+  （順帶把排序改成依 `id`：同一問答常常同一個 timestamp，
+  以前得再補一個 role 鍵去猜誰先誰後，而 `id` 是 bigserial，一個鍵就夠準）
 
 ```js
 await apiInterpret({ mode: "tts", chat_id: msgId });        // 念這一句
