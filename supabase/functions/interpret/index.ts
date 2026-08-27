@@ -4,10 +4,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
-import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
-import { GUA_BY_UPPER } from "../_shared/core.ts";
+import {
+  computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
+} from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
@@ -68,50 +69,6 @@ const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porce
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
 const ahUnlockedCount = (signinTotal: number) => 5 + Math.min(3, Math.floor(signinTotal / 7));
-// 上卦行 → 獎勵頭像 key（集滿該行解鎖）；全 64 另給 r11/r12/r13
-const UP_ORDER = ["乾","兌","離","震","巽","坎","艮","坤"];
-const REWARD_BY_UPPER: Record<string, string[]> = {
-  乾:["r01"], 兌:["r02"], 離:["r03"], 震:["r04"], 巽:["r05"], 坎:["r06"], 艮:["r07","r08"], 坤:["r09","r10"],
-};
-// 御三家換裝：角色 → {獎勵key: 上卦行 或 "ALL"}（解鎖=集滿該行/全64）
-const CHAR_REWARDS: Record<string, Record<string, string>> = {
-  daoshi_m: { r01:"乾", r04:"震", r11:"ALL" },
-  daoshi_f: { r02:"兌", r05:"巽", r12:"ALL" },
-  lingshou: { r03:"離", r06:"坎", r13:"ALL" },
-};
-const PLAYER_REWARDS = ["r07","r08","r09","r10"]; // 玩家池獎勵（其餘 01~06/11~13 屬御三家換裝）
-
-// 收集狀態：distinct gua_ben(＋gua_bian) → 各上卦行進度、已「達成」獎勵
-// 注意：unlocked 是「集滿達成」（eligible），非「已領取」。集滿後須玩家至卦曆點擊領取
-// （claim_reward）寫入 profiles.claimed_rewards 才算真正解鎖可用。
-async function computeCollection(uid: string) {
-  const { data: rows } = await db.from("casts").select("gua_ben, gua_bian, category").eq("user_id", uid);
-  const owned = new Set<string>();
-  for (const r of (rows ?? []) as { gua_ben: string | null; gua_bian: string | null; category: string | null }[]) {
-    // 日運卦不入鑑：那是每日免費贈的今日氣象，不該拿來刷 64 卦收集進度
-    if (r.category === FORTUNE_CATEGORY) continue;
-    if (r.gua_ben) owned.add(r.gua_ben);
-    if (r.gua_bian) owned.add(r.gua_bian);
-  }
-  const columns = UP_ORDER.map((up) => {
-    const names = GUA_BY_UPPER[up] ?? [];
-    const got = names.filter((n) => owned.has(n));
-    const done = names.length > 0 && got.length === names.length;
-    return { up, names, owned: got, count: got.length, total: names.length, done, rewards: REWARD_BY_UPPER[up] ?? [] };
-  });
-  const allDone = columns.every((c) => c.done);
-  const unlocked: string[] = [];
-  for (const c of columns) if (c.done) unlocked.push(...c.rewards);
-  if (allDone) unlocked.push("r11", "r12", "r13");
-  return { owned, columns, allDone, unlocked };
-}
-
-// 已領取的獎勵頭像 key（真正解鎖可用的集合）
-async function getClaimedRewards(uid: string): Promise<string[]> {
-  const { data } = await db.from("profiles").select("claimed_rewards").eq("id", uid).maybeSingle();
-  return (data?.claimed_rewards ?? []) as string[];
-}
-
 // CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -328,9 +285,9 @@ Deno.serve(async (req) => {
       const chatFreeLeft = Math.max(0, chatQuotaOf(plan) - cused);
       const signedToday = prof?.last_sign_date === cday;
       // 收集獎勵待領數（卦曆鈕紅點用）：集滿達成但尚未領取
-      const { unlocked: eligible } = await computeCollection(uid);
+      const { eligible } = await computeCollection(db, uid);
       const claimedArr = (prof?.claimed_rewards ?? []) as string[];
-      const claimableRewards = eligible.filter((k) => !claimedArr.includes(k)).length;
+      const claimableRewards = rewardState(eligible, claimedArr).claimable.length;
       // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
       const { count: pnCount } = await db.from("plaza_notices")
         .select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
@@ -344,7 +301,7 @@ Deno.serve(async (req) => {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
         followupCost: COST_FOLLOWUP,
@@ -447,23 +404,22 @@ Deno.serve(async (req) => {
     }
 
     // 圖鑑收集 + 上卦行獎勵狀態（unlocked=已領取；claimable=集滿待領）
+    // unlocked 不與 eligible 相乘：領過的頭像是玩家的，就算收集度日後有變也不收回。
     if (body.mode === "collection") {
-      const { columns, allDone, unlocked: eligible } = await computeCollection(uid);
-      const claimed = new Set(await getClaimedRewards(uid));
+      const { columns, allDone, eligible } = await computeCollection(db, uid, true);
+      const claimed = await claimedRewards(db, uid);
       const ownedCount = columns.reduce((s, c) => s + c.count, 0);
       return Response.json({
-        kind: "ok", columns, allDone, ownedCount,
-        unlocked: eligible.filter((k) => claimed.has(k)),
-        claimable: eligible.filter((k) => !claimed.has(k)),
+        kind: "ok", columns, allDone, ownedCount, ...rewardState(eligible, claimed),
       }, { headers: CORS });
     }
 
     // 領取收集獎勵：集滿不自動解鎖，玩家在卦曆點擊獎勵頭像才領取入袋
     if (body.mode === "claim_reward") {
       const key = String(body.reward ?? "");
-      const { unlocked: eligible } = await computeCollection(uid);
+      const { eligible } = await computeCollection(db, uid, true);
       if (!eligible.includes(key)) return Response.json({ kind: "err", msg: "卦數未齊，尚不可領" }, { headers: CORS });
-      const claimed = await getClaimedRewards(uid);
+      const claimed = await claimedRewards(db, uid);
       if (claimed.includes(key)) return Response.json({ kind: "err", msg: "此獎已領過" }, { headers: CORS });
       await db.from("profiles").update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
       return Response.json({ kind: "ok", reward: key }, { headers: CORS });
@@ -477,7 +433,7 @@ Deno.serve(async (req) => {
         const { data: prof } = await db.from("profiles").select("signin_total").eq("id", uid).maybeSingle();
         ok = AH_KEYS.indexOf(key) < ahUnlockedCount(prof?.signin_total ?? 0);
       } else if (PLAYER_REWARDS.includes(key)) {
-        ok = (await getClaimedRewards(uid)).includes(key);   // 須已領取（非僅集滿）
+        ok = (await claimedRewards(db, uid)).includes(key);   // 須已領取（非僅集滿）
       }
       if (!ok) return Response.json({ kind: "err", msg: "頭像未解鎖（集滿後至卦曆領取）" }, { headers: CORS });
       await db.from("profiles").update({ selected_avatar: key }).eq("id", uid);
@@ -492,7 +448,7 @@ Deno.serve(async (req) => {
       let val: string | null = null;
       if (key) {
         if (!(key in CHAR_REWARDS[cid])) return Response.json({ kind: "err", msg: "此頭像不屬於該角色" }, { headers: CORS });
-        if (!(await getClaimedRewards(uid)).includes(key)) return Response.json({ kind: "err", msg: "此頭像尚未領取（集滿後至卦曆領取）" }, { headers: CORS });
+        if (!(await claimedRewards(db, uid)).includes(key)) return Response.json({ kind: "err", msg: "此頭像尚未領取（集滿後至卦曆領取）" }, { headers: CORS });
         val = key;
       }
       await db.from("user_character").upsert({ user_id: uid, character_id: cid, avatar: val }, { onConflict: "user_id,character_id" });
