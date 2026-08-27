@@ -601,6 +601,22 @@ await apiInterpret({ mode: "cast", question: draft, thread_id: thread.id, /* …
 - 那條線的 `category` 在開的時候是空的（還沒有卦）。**第一卦落下時後端自動補上**，
   已經有分類的不覆蓋——時間軸的分類色與月誌的分類統計都吃這一欄。
 
+## 前端已經接好了（CangWang-web · `claude/voice-playback-feature-p9ebt8`）
+
+上面這一整節與第二節的語音，前端那一側已經照這份契約接完並在 Chromium 上實跑過：
+
+| 東西 | 落在哪 |
+|---|---|
+| 播放器（那四件事） | `src/modules/voice-player.js`＋`src/styles/voice.css`，`voiceMount(root, clips, opts)` |
+| 收藏清單 | **道籍›語音**（`renderVoiceTab`）——心跡那一頁還沒進 web repo，而按了收藏總不能是丟進一個看不見的抽屜。心跡接上之後把這一支整支搬過去即可，`voiceMount` 不在乎自己掛在哪 |
+| 閒聊念／收 | 角色的泡泡**點一下**才長出兩顆鈕（不常駐，理由見上面「朗讀那一排要加的鈕」）；念走 `ttsSpeakChat`（`reading-tts.js`），送的是 `chat_id` |
+| 批文那排第三顆 | `readToolsHtml` 的「收藏語音」，追問那排也補了一顆 |
+| 擬題卡的心跡段 | `showDraftCard(who, q, yong, raw, xinji)`，三種狀態都畫了；記下之後 `qMeta.threadId` 一路帶到起卦的 `thread_id` |
+
+**心跡本體（時間軸／單一心事／月誌／貼紙）還不在 web repo 的 main 上。**
+這份契約寫的十一支 mode 前端一支都還沒接——語音與擬題那條路能先接，是因為
+它們掛在既有的畫面上（道籍、閒聊、批文），不必等心跡那一頁。
+
 ## 這一段刻意沒有的東西
 
 **不自動建立心事。** `xinji` 只是把東西備好放在那裡，按不按是他的事。
