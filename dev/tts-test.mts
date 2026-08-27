@@ -20,7 +20,7 @@
 import { fakeDb } from "./fake-db.mts";
 // 測試一律用無牒那一階：擋得住無牒，才是真的擋得住。
 const PLAN = "free";
-const { speakable, segments, chunk, decodeAudio, speakCast, castTexts } =
+const { speakable, segments, chunk, decodeAudio, speakCast, speakChat, castTexts } =
   await import("../supabase/functions/_shared/tts.ts");
 
 let pass = 0, fail = 0;
@@ -65,6 +65,16 @@ const seed = () => ({
     { id: "f1", cast_id: CAST, question: "還要等多久", answer: "月半之後。", created_at: "2026-01-01T00:00:00Z" },
   ],
   tts_usage: [] as any[],
+  characters: [
+    { id: "daoshi_m", name: "大師兄" },
+    { id: "daoshi_f", name: "師妹" },
+  ],
+  chat_messages: [
+    { id: 1, user_id: U, character_id: "daoshi_m", role: "user", body: "那筆尾款拖兩個月了" },
+    { id: 2, user_id: U, character_id: "daoshi_m", role: "assistant",
+      body: "急也沒用。＊他把茶盞擱下＊\n對方手頭緊，不是不給。" },
+    { id: 3, user_id: "someone-else", character_id: "daoshi_m", role: "assistant", body: "別人的話。" },
+  ],
 });
 
 console.log("\n── 文本整理與分軌 ──");
@@ -196,6 +206,36 @@ await t("命中快取的重聽不吃額度", async () => {
   const used1 = (db as any)._store.tts_usage[0].chars;
   await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);
   eq((db as any)._store.tts_usage[0].chars, used1, "重聽後用量不該增加");
+});
+
+console.log("\n── 閒聊那一句 ──");
+await t("念得到角色在閒聊裡說的那一句，分軌與批文同一套", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  const p = payloadOf(await speakChat(db as any, U, PLAN, 2, mm.doFetch));
+  eq((p.parts as any[]).map((x) => (x.narrator ? "旁" : "台")).join(""), "台旁台", "軌別順序");
+  eq(p.title, "大師兄・閒聊", "標題該由伺服器組");
+  eq(p.subtitle, "那筆尾款拖兩個月了", "副標該是他當時說的那句");
+  eq(p.character_id, "daoshi_m", "誰說的掉了");
+});
+await t("只念得了角色說的話——念使用者自己打的字等於開了公用 TTS", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  ok(errOf(await speakChat(db as any, U, PLAN, 1, mm.doFetch)).includes("角色"), "使用者那一則竟然念得動");
+  eq(mm.calls.length, 0, "越權時不該打 API");
+});
+await t("念不到別人的對話，也念不到不存在的那一句", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  eq(await speakChat(db as any, U, PLAN, 3, mm.doFetch).then(errOf), "找不到這一句", "越權");
+  eq(await speakChat(db as any, U, PLAN, 999, mm.doFetch).then(errOf), "找不到這一句", "不存在");
+  eq(await speakChat(db as any, U, PLAN, "第二句", mm.doFetch).then(errOf), "沒說要念哪一句", "亂送");
+  eq(mm.calls.length, 0, "一次都不該打 API");
+});
+await t("閒聊與批文共用同一份快取：同一段字不會付第二次錢", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  await speakChat(db as any, U, PLAN, 2, mm.doFetch);
+  const first = mm.calls.length;
+  ok(first > 0, "第一次該真的合成");
+  await speakChat(db as any, U, PLAN, 2, mm.doFetch);
+  eq(mm.calls.length, first, "重聽又打了一次 API");
 });
 
 console.log("\n── 逐字稿找得回來 ──");

@@ -195,7 +195,16 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   }
   // 心跡：把這條線的「最後一卦」往前推。timeline 依它排序，brewNotes 依它算擱了幾天——
   // 不推的話，剛問完的線會被排到底下，而角色隔天就來問「怎麼擱著了」。
-  if (threadId) await db.from("threads").update({ last_cast_at: new Date().toISOString() }).eq("id", threadId);
+  if (threadId) {
+    await db.from("threads").update({ last_cast_at: new Date().toISOString() }).eq("id", threadId);
+    // 從閒聊開的那條線在開的時候還沒有卦，所以沒有分類。第一卦帶了就補上去——
+    // 時間軸的分類色與月誌的分類統計都吃這一欄，空著等於那條線從此不在統計裡。
+    // 已經有分類的不覆蓋（`.is(null)`）：一條線的分類以最早那一卦為準。
+    if (ai.category) {
+      await db.from("threads").update({ category: ai.category })
+        .eq("id", threadId).is("category", null);
+    }
+  }
 
   // 6. 修為與突破
   const breakthrough = await addCultivation(db, p.userId, p.characterId, 10, 3);

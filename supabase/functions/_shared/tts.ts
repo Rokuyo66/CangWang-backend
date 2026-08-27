@@ -335,9 +335,71 @@ export async function speakCast(
     source = followupSource(f);
   }
 
+  return await speakSource(db, uid, plan, {
+    source,
+    charVoice: voiceOf(cast.character_id),
+    title: titleOf(cast, part),
+    subtitle: cast.question ?? null,
+    characterId: cast.character_id ?? null,
+  }, doFetch);
+}
+
+/* ── 對外：念閒聊裡的某一句 ─────────────────────────────────────
+   同一條鐵則：客戶端只送 chat_id，不送文字。念哪一句由伺服器去 chat_messages 撈，
+   而且只念**角色說的**（role='assistant'）——念使用者自己打的字沒有意義，
+   卻等於開放了一個「你給我文字我念給你聽」的入口，那正是這條鐵則要擋的。
+
+   為什麼閒聊也該有聲音：師兄的聲線在解卦那裡有、在閒聊裡沒有，等於同一個人
+   在兩個地方是兩種存在。而閒聊才是人真正停留的地方。 */
+export async function speakChat(
+  db: SupabaseClient, uid: string, plan: string, messageId: unknown,
+  doFetch: Fetch = fetch,
+): Promise<TtsResult> {
+  if (!API_KEY) return { ok: false, msg: "伺服器尚未設定語音金鑰" };
+  const id = Number(messageId);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, msg: "沒說要念哪一句" };
+
+  const { data: msg } = await db.from("chat_messages")
+    .select("id, user_id, character_id, role, body, created_at")
+    .eq("id", id).eq("user_id", uid).maybeSingle();
+  if (!msg) return { ok: false, msg: "找不到這一句" };
+  if ((msg as { role: string }).role !== "assistant")
+    return { ok: false, msg: "只念得了角色說的話" };
+
+  const row = msg as { character_id: string; body: string; created_at: string };
+
+  // 副標帶的是「他當時說了什麼」——收藏清單上一排「大師兄・閒聊」分不出誰是誰，
+  // 而人記得住的是自己問過什麼。取緊鄰在前的那一則使用者發言。
+  const { data: askRows } = await db.from("chat_messages")
+    .select("body, role").eq("user_id", uid).eq("character_id", row.character_id)
+    .lt("id", id).order("id", { ascending: false }).limit(1);
+  const asked = (askRows ?? [])[0] as { body: string; role: string } | undefined;
+
+  const { data: ch } = await db.from("characters").select("name").eq("id", row.character_id).maybeSingle();
+  const who = (ch as { name?: string } | null)?.name || "觀中人";
+
+  return await speakSource(db, uid, plan, {
+    source: row.body ?? "",
+    charVoice: voiceOf(row.character_id),
+    title: `${who}・閒聊`,
+    subtitle: asked?.role === "user" ? asked.body : null,
+    characterId: row.character_id,
+  }, doFetch);
+}
+
+/* ── 合成一段原文 ───────────────────────────────────────────────
+   批文與閒聊共用這一段。分開寫兩份的話，額度怎麼扣、快取怎麼查、
+   text_hash 怎麼算就會慢慢走偏，而走偏的那天沒有人會發現——
+   只會發現「同一句話在兩個地方收成了兩則」。 */
+async function speakSource(
+  db: SupabaseClient, uid: string, plan: string,
+  o: { source: string; charVoice: string; title: string; subtitle: string | null; characterId: string | null },
+  doFetch: Fetch,
+): Promise<TtsResult> {
   // 分軌：角色說的話用角色的嗓子，＊…＊ 的旁白用旁白那把。
   // 段落順序原樣保留——parts 是一串照順序播的音檔，換嗓子不換次序。
-  const charVoice = voiceOf(cast.character_id);
+  const charVoice = o.charVoice;
+  const source = o.source;
   const pieces = piecesOf(source, charVoice);
   if (!pieces.length) return { ok: false, msg: "這一段沒有可念的字" };
 
@@ -396,8 +458,8 @@ export async function speakCast(
       quota: await ttsQuota(db, uid, plan),
       // 收藏用得上：同一段文字＋同一把嗓子＝同一則收藏，鍵由伺服器算。
       text_hash: await sha256(`${MODEL}|${charVoice}|${source}`),
-      title: titleOf(cast, part), subtitle: cast.question ?? null,
-      character_id: cast.character_id ?? null,
+      title: o.title, subtitle: o.subtitle,
+      character_id: o.characterId,
     },
   };
 }

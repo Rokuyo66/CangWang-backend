@@ -38,8 +38,15 @@ export const clipQuotaOf = (plan: string) => PLAN_CLIPS[plan] ?? PLAN_CLIPS.free
 /** 一則收藏最多幾段音檔。長批文會被切段，20 段已經是十來分鐘的東西。 */
 const MAX_PARTS = 20;
 
-/** 合成一段並回報音檔位置。呼叫端把 tts.speakCast 包一層丟進來。 */
-export type Speak = (castId: string, part: "body" | number) => Promise<VoiceResult>;
+/** 要收哪一段聲音。
+ *  cast＝批文或某一則追問；chat＝閒聊裡角色說的某一句。
+ *  兩種都只是「指名」，一個字的文字都不從客戶端過來——見 tts.ts 的檔頭。 */
+export type SpeakTarget =
+  | { kind: "cast"; castId: string; part: "body" | number }
+  | { kind: "chat"; messageId: number };
+
+/** 合成一段並回報音檔位置。呼叫端把 tts.speakCast／speakChat 包一層丟進來。 */
+export type Speak = (t: SpeakTarget) => Promise<VoiceResult>;
 
 /** 收藏裡的一段音檔。url 是 tts bucket 的公開網址（鍵是內容雜湊，猜不到也列不出）。
  *  text 是這一段念的字：語音頁點下去要把它攤開來跟著跑，而客戶端手上沒有原文
@@ -50,19 +57,21 @@ export interface ClipPart {
 }
 
 /** 把逐字稿找回來。實作在 tts.ts（`castTexts`），由呼叫端注入——
- *  這一層不 import tts.ts，見檔頭。回 null＝對不上，那一則就維持沒有全文。 */
-export type Retell = (castId: string, textHash: string) =>
+ *  這一層不 import tts.ts，見檔頭。回 null＝對不上，那一則就維持沒有全文。
+ *  收進來的是整列，因為要補的東西可能掛在卦上，也可能掛在閒聊那一句上。 */
+export type Retell = (clip: { cast_id: string | null; message_id: number | null; text_hash: string }) =>
   Promise<{ text: string; narrator: boolean }[] | null>;
 
 interface ClipRow {
-  id: string; cast_id: string | null; character_id: string | null; kind: string;
+  id: string; cast_id: string | null; message_id: number | null;
+  character_id: string | null; kind: string;
   title: string; subtitle: string | null; parts: ClipPart[] | null;
   duration_ms: number | null; voice_id: string | null;
   text_hash: string; created_at: string;
 }
 
 const LIST_COLS =
-  "id, cast_id, character_id, kind, title, subtitle, parts, duration_ms, voice_id, text_hash, created_at";
+  "id, cast_id, message_id, character_id, kind, title, subtitle, parts, duration_ms, voice_id, text_hash, created_at";
 
 /* ═══════════════ 收 ═══════════════ */
 
@@ -78,18 +87,36 @@ const LIST_COLS =
  */
 export async function voiceKeep(
   db: SupabaseClient, uid: string, plan: string, speak: Speak,
-  p: { cast_id?: unknown; part?: unknown; kind?: unknown },
+  p: { cast_id?: unknown; part?: unknown; chat_id?: unknown; kind?: unknown },
 ): Promise<VoiceResult> {
-  const castId = String(p.cast_id ?? "").trim();
-  if (!castId) return err("沒說要收哪一卦");
+  // 收哪一段：帶 chat_id＝閒聊裡角色說的那一句，否則是某一卦的某一段。
+  // 兩者共用底下同一套規則（格數、去重、額度、重聽免費），刻意不分成兩支——
+  // 分成兩支的那天起，「收藏過的永遠能聽」這個承諾就得在兩個地方各守一次。
+  let target: SpeakTarget;
+  let castId: string | null = null;
+  let messageId: number | null = null;
+  let defaultKind: string;
 
-  // part：body（批文本體）或數字（第幾則追問）。形狀與 tts 模式一致。
-  const rawPart = p.part;
-  const part: "body" | number =
-    rawPart == null || rawPart === "body" ? "body" : Number(rawPart);
-  if (part !== "body" && !Number.isInteger(part)) return err("不知道要收哪一段");
+  if (p.chat_id != null && String(p.chat_id).trim() !== "") {
+    const id = Number(p.chat_id);
+    if (!Number.isInteger(id) || id <= 0) return err("不知道要收哪一句");
+    messageId = id;
+    target = { kind: "chat", messageId: id };
+    defaultKind = "chat";
+  } else {
+    castId = String(p.cast_id ?? "").trim();
+    if (!castId) return err("沒說要收哪一卦");
 
-  const r = await speak(castId, part);
+    // part：body（批文本體）或數字（第幾則追問）。形狀與 tts 模式一致。
+    const rawPart = p.part;
+    const part: "body" | number =
+      rawPart == null || rawPart === "body" ? "body" : Number(rawPart);
+    if (part !== "body" && !Number.isInteger(part)) return err("不知道要收哪一段");
+    target = { kind: "cast", castId, part };
+    defaultKind = part === "body" ? "reading" : "followup";
+  }
+
+  const r = await speak(target);
   if (!r.ok) return r;                       // 額度不足、找不到卦等，原話帶回去
 
   const payload = r.payload as {
@@ -126,8 +153,9 @@ export async function voiceKeep(
   const { data: row, error } = await db.from("voice_clips").insert({
     user_id: uid,
     cast_id: castId,
+    message_id: messageId,
     character_id: payload.character_id ?? null,
-    kind: String(p.kind ?? (part === "body" ? "reading" : "followup")).slice(0, 16),
+    kind: String(p.kind ?? defaultKind).slice(0, 16),
     title: String(payload.title ?? "解卦").slice(0, 60),
     subtitle: payload.subtitle ? String(payload.subtitle).slice(0, 80) : null,
     parts,
@@ -195,11 +223,11 @@ async function backfillTexts(
     if (budget <= 0) break;
     const parts = r.parts ?? [];
     if (!parts.length || parts.every((x) => x.text)) continue;
-    if (!r.cast_id) continue;
+    if (!r.cast_id && !r.message_id) continue;
     budget--;
 
     let said: { text: string; narrator: boolean }[] | null = null;
-    try { said = await retell(r.cast_id, r.text_hash); }
+    try { said = await retell(r); }
     catch (e) { console.error("voice backfill failed", e); continue; }
     if (!said || said.length !== parts.length) continue;
 
@@ -298,7 +326,8 @@ const view = (r: ClipRow) => {
     ms: msOf(Number(x.chars) || 0),
   }));
   return {
-    id: r.id, cast_id: r.cast_id, character_id: r.character_id, kind: r.kind,
+    id: r.id, cast_id: r.cast_id, message_id: r.message_id,
+    character_id: r.character_id, kind: r.kind,
     title: r.title, subtitle: r.subtitle,
     duration_ms: parts.reduce((n, x) => n + x.ms, 0) || r.duration_ms,
     peaks: peaksOf(r.text_hash),

@@ -24,7 +24,7 @@ import {
   voiceKeep, voiceList, voiceDelete, clipQuotaOf,
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
-import { castTexts, speakCast, ttsQuota } from "../_shared/tts.ts";
+import { castTexts, speakCast, speakChat, ttsQuota } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -535,6 +535,9 @@ Deno.serve(async (req) => {
     if (body.mode === "xinji_open") {
       return caseResult(await openThread(db, uid, await planOf(db, uid), {
         title: body.title, subject: body.subject, category: body.category, castId: body.cast_id,
+        // 從閒聊進來的三個：擬好的問句（沒有卦時拿它算 question_norm，否則等他
+        // 真的去起卦，一事不二占會把他擋在門外）、一句話總結、誰陪他聊到這裡的。
+        question: body.question, note: body.note, characterId: body.character_id,
       }));
     }
 
@@ -602,8 +605,9 @@ Deno.serve(async (req) => {
       const plan = await planOf(db, uid);
       // 補逐字稿那條路由這裡注入：voice.ts 不 import tts.ts（見它的檔頭），
       // 而把當初念的字找回來要用到 tts 那邊的切法與快取鍵。
+      // 只補得回卦那一邊：閒聊收的那幾則從第一天起就存了逐字稿，沒有舊帳要補。
       const r = await voiceList(db, uid, plan,
-        (castId, hash) => castTexts(db, uid, castId, hash));
+        (clip) => clip.cast_id ? castTexts(db, uid, clip.cast_id, clip.text_hash) : Promise.resolve(null));
       // 朗讀額度也在這一頁報出來：本月還能請人念多少，該讓人隨時看得到，
       // 而不是等到用完那一次才第一次知道有這回事。
       if (r.ok) r.payload.tts_quota = await ttsQuota(db, uid, plan);
@@ -614,8 +618,10 @@ Deno.serve(async (req) => {
     // 沒聽過就按收藏＝合成一次，與按下朗讀同一個價錢。不另立一條規則。
     if (body.mode === "voice_keep") {
       const plan = await planOf(db, uid);
-      return caseResult(await voiceKeep(db, uid, plan, (castId, part) =>
-        speakCast(db, uid, plan, castId, part), body));
+      return caseResult(await voiceKeep(db, uid, plan, (t) =>
+        t.kind === "chat"
+          ? speakChat(db, uid, plan, t.messageId)
+          : speakCast(db, uid, plan, t.castId, t.part), body));
     }
 
     if (body.mode === "voice_delete") {
@@ -697,7 +703,12 @@ Deno.serve(async (req) => {
        不在伺服器把 mp3 接起來——裸接 frame 只是「多半能播」，
        壞的時候在測試機上未必重現得出來。 */
     if (body.mode === "tts") {
-      const r = await speakCast(db, uid, await planOf(db, uid), body.cast_id, body.part ?? "body");
+      const plan = await planOf(db, uid);
+      // chat_id＝念閒聊裡角色說的那一句。同一支 mode、同一份額度、同一個快取——
+      // 另開一支 mode 的話，「命中快取不吃額度」這條就得在兩個地方各守一次。
+      const r = body.chat_id != null
+        ? await speakChat(db, uid, plan, body.chat_id)
+        : await speakCast(db, uid, plan, body.cast_id, body.part ?? "body");
       return r.ok
         ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
         : Response.json({ kind: "error", msg: r.msg }, { headers: CORS });
@@ -1001,6 +1012,9 @@ Deno.serve(async (req) => {
         freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast,
         probe: r.probe,                                    // 探詢輪：前端不出起卦鈕
         draft: r.draft, draftYong: r.draftYong,            // 擬題：前端出確認卡，用神可直通
+        // 擬題那一刻，這件事在心跡那邊的狀況：已經在記的哪一條、還是替他預備了一條。
+        // 確認卡上多一行「先記下這件事」，按了就是 xinji_open，再帶著 thread_id 去起卦。
+        xinji: r.xinji,
       }, { headers: CORS });
     }
 

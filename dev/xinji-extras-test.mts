@@ -14,7 +14,7 @@ import {
   MAX_PER_SURFACE,
 } from "../supabase/functions/_shared/stickers.ts";
 import {
-  voiceKeep, voiceList, voiceDelete, clipQuotaOf, type Speak,
+  voiceKeep, voiceList, voiceDelete, clipQuotaOf, type Speak, type SpeakTarget,
 } from "../supabase/functions/_shared/voice.ts";
 
 let pass = 0, fail = 0;
@@ -54,10 +54,11 @@ async function seedShelf(db: any) {
 function fakeSpeak(opts: { fail?: string; hash?: string } = {}) {
   const calls: string[] = [];
   const speak: Speak & { calls: string[] } = Object.assign(
-    async (castId: string, part: "body" | number) => {
-      calls.push(`${castId}#${part}`);
+    async (t: SpeakTarget) => {
+      const label = t.kind === "chat" ? `chat#${t.messageId}` : `${t.castId}#${t.part}`;
+      calls.push(label);
       if (opts.fail) return { ok: false as const, msg: opts.fail };
-      const h = opts.hash ?? `hash-${castId}-${part}`;
+      const h = opts.hash ?? `hash-${label}`;
       return {
         ok: true as const,
         payload: {
@@ -363,6 +364,42 @@ await t("對不上就留白：寧可沒有全文，也不要配上一段別的�
 await t("已經有字的不重算——補一則是兩次查詢，開一次清單不該補一百二十則", async () => {
   const db = fakeDb() as any;
   P(await voiceKeep(db, U, "free", fakeSpeak(), { cast_id: "c1" }));
+  let calls = 0;
+  P(await voiceList(db, U, "free", async () => { calls++; return null; }));
+  eq(calls, 0, "本來就有字的還去算了一次");
+});
+
+await t("閒聊那一句也收得下來，掛的是 message_id 不是 cast_id", async () => {
+  const db = fakeDb() as any; const sp = fakeSpeak();
+  const r = P(await voiceKeep(db, U, "free", sp, { chat_id: 42 }));
+  eq(sp.calls[0], "chat#42", "指名的不是那一句");
+  eq(r.clip.message_id, 42, "沒記住是哪一句");
+  eq(r.clip.cast_id, null, "閒聊來的不該掛在卦上");
+  eq(r.clip.kind, "chat", "來源分不出來");
+  eq(r.clip.parts.length, 2, "音檔沒留下");
+});
+
+await t("格數不分來源共用一份——語音收藏是一個架子，不是兩個", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "a" }), { cast_id: "c1" }));
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "b" }), { chat_id: 7 }));
+  P(await voiceKeep(db, U, "free", fakeSpeak({ hash: "c" }), { chat_id: 8 }));
+  const msg = E(await voiceKeep(db, U, "free", fakeSpeak({ hash: "d" }), { chat_id: 9 }));
+  ok(msg.includes("滿了"), "第四則該擋，得到：" + msg);
+  const list = P(await voiceList(db, U, "free"));
+  eq(list.clips.length, 3, "兩種來源該在同一份清單裡");
+});
+
+await t("收哪一句沒說清楚（空的、不是正整數）就收不下來", async () => {
+  const db = fakeDb() as any;
+  E(await voiceKeep(db, U, "free", fakeSpeak(), { chat_id: "第三句" }));
+  E(await voiceKeep(db, U, "free", fakeSpeak(), { chat_id: 0 }));
+  E(await voiceKeep(db, U, "free", fakeSpeak(), { chat_id: -1 }));
+});
+
+await t("閒聊收的那幾則沒有舊帳要補，補逐字稿不會白跑一趟", async () => {
+  const db = fakeDb() as any;
+  P(await voiceKeep(db, U, "free", fakeSpeak(), { chat_id: 5 }));
   let calls = 0;
   P(await voiceList(db, U, "free", async () => { calls++; return null; }));
   eq(calls, 0, "本來就有字的還去算了一次");
