@@ -608,14 +608,17 @@ await apiInterpret({ mode: "cast", question: draft, thread_id: thread.id, /* …
 | 東西 | 落在哪 |
 |---|---|
 | 播放器（那四件事） | `src/modules/voice-player.js`＋`src/styles/voice.css`，`voiceMount(root, clips, opts)` |
-| 收藏清單 | **道籍›語音**（`renderVoiceTab`）——心跡那一頁還沒進 web repo，而按了收藏總不能是丟進一個看不見的抽屜。心跡接上之後把這一支整支搬過去即可，`voiceMount` 不在乎自己掛在哪 |
+| 收藏清單 | **心跡›語音**（`renderVoiceTab`） |
 | 閒聊念／收 | 角色的泡泡**點一下**才長出兩顆鈕（不常駐，理由見上面「朗讀那一排要加的鈕」）；念走 `ttsSpeakChat`（`reading-tts.js`），送的是 `chat_id` |
 | 批文那排第三顆 | `readToolsHtml` 的「收藏語音」，追問那排也補了一顆 |
 | 擬題卡的心跡段 | `showDraftCard(who, q, yong, raw, xinji)`，三種狀態都畫了；記下之後 `qMeta.threadId` 一路帶到起卦的 `thread_id` |
 
-**心跡本體（時間軸／單一心事／月誌／貼紙）還不在 web repo 的 main 上。**
-這份契約寫的十一支 mode 前端一支都還沒接——語音與擬題那條路能先接，是因為
-它們掛在既有的畫面上（道籍、閒聊、批文），不必等心跡那一頁。
+心跡本體也接了（同一條分支）：導覽那一格由卦案換成心跡、`hidden` 由 `isNative`
+拿掉（`?xinji` 是測試開關），三個分頁 心事／月誌／語音、單一心事的歷卦與緣分溫度、
+「回牠一句」（**不代發**）、卦曆每一卦的「記成一件事」（`xinji_open` / `xinji_attach`）。
+
+還沒接的：**貼紙那一整節**（六支 mode），以及起卦送出前的 `xinji_suggest`
+（把「你問過了」換成「這件事我記得，現在到哪了」那一下）。
 
 ## 這一段刻意沒有的東西
 
