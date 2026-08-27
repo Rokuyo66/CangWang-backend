@@ -613,12 +613,24 @@ await apiInterpret({ mode: "cast", question: draft, thread_id: thread.id, /* …
 | 批文那排第三顆 | `readToolsHtml` 的「收藏語音」，追問那排也補了一顆 |
 | 擬題卡的心跡段 | `showDraftCard(who, q, yong, raw, xinji)`，三種狀態都畫了；記下之後 `qMeta.threadId` 一路帶到起卦的 `thread_id` |
 
-心跡本體也接了（同一條分支）：導覽那一格由卦案換成心跡、`hidden` 由 `isNative`
-拿掉（`?xinji` 是測試開關），三個分頁 心事／月誌／語音、單一心事的歷卦與緣分溫度、
-「回牠一句」（**不代發**）、卦曆每一卦的「記成一件事」（`xinji_open` / `xinji_attach`）。
+**更正一段我先前寫錯的話。** 這裡原本寫「心跡本體也接了」，講的是我自己另外做的
+一份——那是多餘的。心跡前端、貼紙、批文那顆「收藏語音」早就在
+`claude/xinji-frontend` 上做完了（`src/xinji/xinji.js`，b36），我沒看到：
+clone 用了 `--depth 1`，那會連帶 `--single-branch`，本機因此只有 `main`，
+而 `main` 停在 8/23（b33）。教訓寫在這裡，免得下一個人也踩：
+**接這個 repo 之前先 `git branch -r` 看一眼，main 不一定是最新的那一條。**
 
-還沒接的：**貼紙那一整節**（六支 mode），以及起卦送出前的 `xinji_suggest`
-（把「你問過了」換成「這件事我記得，現在到哪了」那一下）。
+所以前端的實況是：
+
+| 東西 | 在哪 |
+|---|---|
+| 心跡三頁、貼紙、批文的「收藏語音」 | `claude/xinji-frontend`（早就有了） |
+| 播放器那四件事 | 這一版補的（`voice-player.js` 掛進 `xinji.js` 的語音分頁） |
+| 閒聊的「念給我聽／收下這句」 | 這一版補的 |
+| 擬題卡的「先把這件事記進心跡」 | 這一版補的（thread_id 交給既有的 `window.__xinjiThread`） |
+
+還沒接的只剩起卦送出前的 `xinji_suggest`（把「你問過了」換成「這件事我記得，
+現在到哪了」那一下）。
 
 ## 這一段刻意沒有的東西
 
