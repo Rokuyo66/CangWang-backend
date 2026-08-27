@@ -403,10 +403,22 @@ export async function threadDetail(db: SupabaseClient, uid: string, threadId: un
 
 /* ═══════════════ 開／關／歸線 ═══════════════ */
 
-/** 起新心事。可帶一張既有的卦當首卦（從卦曆或剛解完的卦進來）。 */
+/** 起新心事。可帶一張既有的卦當首卦（從卦曆或剛解完的卦進來）。
+ *
+ *  也可以完全沒有卦——從閒聊進來就是這一種：話已經聊到某件事上，卦還沒起。
+ *  那時帶的是 `question`（角色替他理好的那一句，拿去算 question_norm，
+ *  之後那一卦才認得出該歸這條線）與 `note`（一句話總結，落成這條線的第一則留言）。
+ *
+ *  【為什麼總結要落成留言，而不是塞進 title】
+ *  title 是這件事的名字（「那筆尾款」），要短、要能在時間軸上一眼掃過。
+ *  總結是「當時到底怎麼回事」，那是內容。混在一起的話，時間軸會變成一列長句子，
+ *  而心跡首頁的價值正在於一眼看得完。 */
 export async function openThread(
   db: SupabaseClient, uid: string, plan: string,
-  p: { title?: unknown; subject?: unknown; category?: unknown; castId?: unknown },
+  p: {
+    title?: unknown; subject?: unknown; category?: unknown; castId?: unknown;
+    question?: unknown; note?: unknown; characterId?: unknown;
+  },
 ): Promise<XinjiResult> {
   const title = String(p.title ?? "").trim().slice(0, 40);
   if (!title) return err("這件事總得有個名字");
@@ -435,7 +447,12 @@ export async function openThread(
     user_id: uid, title,
     subject: p.subject ? String(p.subject).trim().slice(0, 30) : null,
     category: p.category ? String(p.category).slice(0, 8) : first?.category ?? null,
-    question_norm: first?.question ? normalizeQuestion(first.question) : null,
+    // 首卦問句的正規化形。從閒聊進來時還沒有卦，用角色擬好的那一句頂上——
+    // 沒有它，等他真的去起卦，一事不二占會把他擋在門外，而他前一步才剛把
+    // 這件事記進心跡。那是整條路上最傷的一種擋法。
+    question_norm: first?.question
+      ? normalizeQuestion(first.question)
+      : (p.question ? normalizeQuestion(String(p.question)) || null : null),
     // status 與 opened_at 明確寫入，不靠 DB 預設值。
     // setThreadStatus 寫 status 是明寫的，這裡靠 default，等於同一欄兩套規矩；
     // 而額度、時間軸、brewNotes、suggestThread 全都 filter status——
@@ -446,8 +463,112 @@ export async function openThread(
   }).select(THREAD_COLS).single();
   if (error) { console.error("openThread failed", error); return err("記不下來，稍後再試"); }
 
-  if (first) await db.from("casts").update({ thread_id: (row as ThreadRow).id }).eq("id", first.id);
-  return ok({ thread: row, quota: { open: (count ?? 0) + 1, max } });
+  const thread = row as ThreadRow;
+  if (first) await db.from("casts").update({ thread_id: thread.id }).eq("id", first.id);
+
+  // 從閒聊進來的第一則留言＝那段話的總結。用留言而不是另開一張表：
+  // 心跡的角色留言本來就是「這條線上有人說了句話」，來源是熬出來的還是聊出來的
+  // 不該讓畫面多長一種東西出來。dedupe_key 讓它一條線只落一次。
+  const note = String(p.note ?? "").trim().slice(0, 120);
+  const who = String(p.characterId ?? "").trim();
+  if (note && who) {
+    const { error: nErr } = await db.from("thread_notes").upsert({
+      user_id: uid, thread_id: thread.id, character_id: who, kind: "from_chat",
+      body: note, cast_id: null, dedupe_key: `chat:${thread.id}`,
+    }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
+    // 留言掉了不該讓「記下這件事」整支失敗——線已經開了，那才是他要的
+    if (nErr) console.error("openThread note failed", nErr);
+  }
+
+  return ok({ thread, quota: { open: (count ?? 0) + 1, max } });
+}
+
+/* ═══════════════ 閒聊接上來的那一刻 ═══════════════ */
+
+/**
+ * 話聊到某件事上、角色剛把問句理好，此刻心跡這邊是什麼狀況。
+ *
+ * 零 AI、兩次查詢。回的是「已經在記了」還是「可以記」，前端據此決定要出
+ * 「這件事你在記了」還是「先記下這件事」——**不由前端自己判**，
+ * 額度與比對的規則若在前端再寫一份，兩邊遲早各說各話。
+ *
+ * 比對兩層，都是純字串：
+ *   一、question_norm 對上（與一事不二占、xinji_suggest 認的是同一個鍵）
+ *   二、事由與某條線的標題／標的互相包含（「那筆尾款」對上「尾款」）
+ * 對不上就是新的一件事。寧可多開一條也不要歸錯——歸錯的那條線，
+ * 溫度曲線與應期閉環從此都是別件事的。
+ */
+export async function threadHint(
+  db: SupabaseClient, uid: string, plan: string,
+  p: { question?: unknown; topic?: unknown },
+): Promise<{
+  thread: { id: string; title: string; casts: number } | null;
+  open: number; max: number; can_add: boolean;
+  fallback: { id: string; title: string } | null;
+}> {
+  const max = threadQuotaOf(plan);
+  const { data } = await db.from("threads").select("id, title, subject, question_norm, last_cast_at, opened_at")
+    .eq("user_id", uid).eq("status", "open")
+    .order("last_cast_at", { ascending: false, nullsFirst: false }).limit(20);
+  const rows = (data ?? []) as {
+    id: string; title: string; subject: string | null; question_norm: string | null;
+  }[];
+  const open = rows.length;
+
+  const norm = normalizeQuestion(String(p.question ?? ""));
+  const topic = String(p.topic ?? "").trim();
+  let hit = norm ? rows.find((r) => r.question_norm && r.question_norm === norm) ?? null : null;
+  if (!hit && topic.length >= 2) {
+    hit = rows.find((r) => {
+      for (const name of [r.title, r.subject ?? ""]) {
+        if (name.length < 2) continue;
+        if (name.includes(topic) || topic.includes(name)) return true;
+      }
+      return false;
+    }) ?? null;
+  }
+
+  let thread: { id: string; title: string; casts: number } | null = null;
+  if (hit) {
+    const { count } = await db.from("casts").select("id", { count: "exact", head: true })
+      .eq("user_id", uid).eq("thread_id", hit.id);
+    thread = { id: hit.id, title: hit.title, casts: count ?? 0 };
+  }
+
+  return {
+    thread,
+    open, max, can_add: open < max,
+    // 記不下新的一件時，指一條現成的線出來。免費只記一件，若不指路，
+    // 這裡就只剩一句「額度滿了」——而他手上正有一件想記的事。
+    fallback: !thread && open >= max && rows.length ? { id: rows[0].id, title: rows[0].title } : null,
+  };
+}
+
+/** 把「理好的問句」縮成一個事由（心事的名字）。
+ *
+ *  模型擬題時會順手給一個（[[DRAFT|問句|用神|事由|一句話]] 的第三格），
+ *  這一支是它沒給、或給了一坨的時候頂上的那個。純字串處理、零成本。
+ *  切得粗是可以的——這個名字在前端是可以改的，而預設值只要「看得出是哪件事」。 */
+export function topicOf(question: string): string {
+  const TIME_WINDOW = [
+    /^(這|下|未來|接下來)?[一二三四五六七八九十兩半\d]*\s*(個月|週|周|星期|年|天|日)(之?內|以?前|底前|底)?[，,]?/,
+    /^(這個?月|下個?月|今年|明年|年底前?|月底前?|近期|最近)[，,]?/,
+  ];
+  let q = String(question ?? "").trim()
+    .replace(/^(請問|想問|我想問|幫我看看?|幫我算算?)/, "")
+    // 先剝「我」再剝時間窗：「我這個月的財運」兩者都在前面，順序反了就只剝得掉一個。
+    // 只剝「我」——「這／那／此」不剝，它們幾乎都是名詞的一部分（那筆尾款、這間店、
+    // 這段感情），剝掉之後剩下的「筆尾款」不是任何人會替一件事取的名字。
+    .replace(/^我的?/, "")
+    .replace(/[？?。！!，,、\s]+$/g, "");
+  // 時間窗是問句的要素，不是這件事的名字：「三個月內那筆尾款…」記成一件事，
+  // 它的名字是「那筆尾款」——三個月後這條線還在，名字裡卻寫著三個月內。
+  for (const re of TIME_WINDOW) q = q.replace(re, "");
+  // 切在第一個「求結果」的詞之前：留下的通常就是那件事本身
+  const cut = q.search(/(會不會|能不能|該不該|可不可以|是否|能否|適不適合|追不追|進不進|值不值得|有沒有|如何|怎麼|嗎)/);
+  if (cut > 1) q = q.slice(0, cut);
+  q = q.replace(/^的/, "").replace(/[的之]$/, "").trim();
+  return q.slice(0, 12);
 }
 
 /** 把一張散卦歸到既有的線上 */

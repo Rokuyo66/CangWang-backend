@@ -3,6 +3,9 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT } from "./rules.ts";
+// 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
+// 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
+import { threadHint, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
@@ -217,13 +220,24 @@ const scrubBilling = (text: string): string => {
 const DRAFT_RE = /[\[【]\s*[\[【]?\s*DRAFT\s*[|｜:：]\s*([^\]】]*?)\s*[\]】]\s*[\]】]?/i;
 const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK)\s*[\]】]?\s*[\]】]/ig;
 
+/** 標記裡的一格：剝引號、把模型愛寫的空值（null／無／—）當成沒給。
+ *  沒給是正常的，也是允許的——第三、四格給不出來時，硬湊一個比空著更糟。 */
+const slot = (raw: string | undefined, cap: number): string | null => {
+  const t = String(raw ?? "").replace(/^[「『"“']+|[」』"”']+$/g, "").trim();
+  if (!t || /^(null|none|n\/a|無|沒有|不知道|[-—－]+)$/i.test(t)) return null;
+  return t.slice(0, cap);
+};
+
 export function parseMarks(text: string): {
   clean: string; probe: boolean; ask: boolean;
   draft: string | null; draftYong: { qin: string; viaShi?: boolean } | null;
+  draftTopic: string | null; draftGist: string | null;
 } {
   let clean = text ?? "";
   let draft: string | null = null;
   let draftYong: { qin: string; viaShi?: boolean } | null = null;
+  let draftTopic: string | null = null;
+  let draftGist: string | null = null;
 
   const dm = clean.match(DRAFT_RE);
   if (dm) {
@@ -231,14 +245,21 @@ export function parseMarks(text: string): {
     const parts = (dm[1] ?? "").split(/[|｜]/).map((x) => x.trim());
     // 問句：剝掉模型愛加的引號，太短（模型只吐了個「好」）視為擬題失敗，退回一般邀請
     const q = (parts[0] ?? "").replace(/^[「『"“']+|[」』"”']+$/g, "").trim().slice(0, 40);
-    if (q.length >= 4) { draft = q; draftYong = normYong(parts[1]); }
+    if (q.length >= 4) {
+      draft = q;
+      draftYong = normYong(parts[1]);
+      // 第三、四格是給心跡用的：這件事叫什麼、一句話說它是怎麼回事。
+      // 舊稿沒有這兩格（免費層也常漏），一律當成沒給——它們是加分，不是前提。
+      draftTopic = slot(parts[2], 12);
+      draftGist = slot(parts[3], 60);
+    }
   }
   const flags = clean.match(FLAG_RE) ?? [];
   clean = clean.replace(FLAG_RE, "").trim();
   const probe = flags.some((f) => /PROBE/i.test(f));
   const ask = flags.some((f) => /ASK/i.test(f));
   // 同時吐 PROBE 與 DRAFT（模型犯傻）→ 以擬題為準，探詢已無意義
-  return { clean, probe: probe && !draft, ask, draft, draftYong };
+  return { clean, probe: probe && !draft, ask, draft, draftYong, draftTopic, draftGist };
 }
 
 // 兜底意圖判斷：僅在「明確求斷」時視為想問卦（泛用詞如要不要/好不好/可以嗎已移除，避免閒聊誤判）
@@ -539,12 +560,18 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
 
 第三段·擬題（線索夠了，替他把問題理成一句）
 把散在對話裡的線索收攏成一句能起卦的問句：先用你的聲線說一句引導（例：「你要問的，我替你理成一句。」「這事我幫你理過了，看看是不是這個意思。」），然後在整段回應最後另起一行輸出標記：
-[[DRAFT|理好的問句|用神六親]]
+[[DRAFT|理好的問句|用神六親|事由|一句話說這件事]]
 - **正文絕不可把擬好的問句再寫一遍**——問句只放在標記裡，觀中自會呈到他眼前讓他過目點頭。正文只留那句引導。
 - 用神六親【只有感情卦、且已問明對象是男是女】才填：問男方填「官鬼」、問女方填「妻財」。
 - 其餘一切問事（財、事業、學業、健康、出行、天氣、問自身……）**一律填 null**——用神由解卦人排角色表當場取定，比你猜得準，別搶著替他決定。感情卦對象未明也填 null。
 - 擬的問句必須忠於他的原意，**絕不可替他改變所問之事**——你是替他把話說清楚，不是替他決定要問什麼。
 - 【擬不出來就不擬】收攏後若過不了下面那份自檢（二選一、比較級、兩個結果並列、沒有時間窗、超過二十六字），**不要硬擬**——三種標記都不要輸出，用你的聲線把話接下去就好。他隨時能再問，卦不急這一刻。
+
+【第三、四格：這件事要被記著】
+他問一次不會就結束——同一件事會問第二次、第三次。所以擬題的同時，順手替這件事取個名字、把它是怎麼回事說成一句。這兩格是給「記事」用的，不是給卦用的。
+- 第三格·事由：**這件事的名字**，二到十二字的名詞短語，不是問句。例：「那筆尾款」「阿凱這條線」「換工作」「媽媽的手術」。用他自己的話，不要自己造詞。
+- 第四格·一句話：把他這段話裡**發生了什麼**濃縮成一句（六十字內），寫給他日後回頭看的。只寫事實與他的處境，不重複問句、不寫你的判斷、不安慰、不加建議。例：「尾款拖了兩個月，對方一直說再等等，他不敢催怕撕破臉。」
+- 這兩格**給不出來就留空**（寫 null）——硬湊一個名字比空著更糟，名字他自己會改。整個標記只有第一格是必要的。
 
 ${QUESTION_CRAFT}
 
@@ -735,6 +762,29 @@ export interface ChatResult {
   probe: boolean;      // 這則是探詢輪（角色在問清楚缺的線索）：不出起卦鈕、不計費
   draft: string | null;// 角色替他理好、待他點頭的問句
   draftYong: { qin: string; viaShi?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
+  xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
+  msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
+}
+
+/** 擬完題那一刻，心跡那邊是什麼狀況。零 AI——查詢與字串比對而已。
+ *
+ *  【為什麼要在這裡給】起卦問完就結束，是這個 App 最大的漏斗破口：
+ *  同一件事人會問第二次、第三次，而每一次都從零開始，沒有人記得上一次說了什麼。
+ *  心跡就是為此存在的，但它現在沒人用——因為要用它得自己想到去開那一頁、
+ *  自己想一個標題、自己把事情再打一遍。**而「事情剛講完、問句剛理好」
+ *  正是唯一不必重打一遍的時刻**：話都在上面，角色也剛把它收攏成一句。
+ *
+ *  所以順序是：先記下這件事 → 再去起卦。反過來（先起卦、事後才問要不要記）
+ *  等於要人在拿到批文那一刻分心去做行政動作，那一刻他只想讀卦。 */
+export interface XinjiHint {
+  /** 已經在記的那條線（問句或事由對上了）。有它就不必再開新的，直接歸進去。 */
+  thread: { id: string; title: string; casts: number } | null;
+  /** 沒對上時，替他預備好的一條線。title 與 gist 前端要讓他改得動——
+   *  名字是他的事，我們只負責不讓他從空白開始。 */
+  propose: { title: string; gist: string | null } | null;
+  open: number; max: number; can_add: boolean;
+  /** 記不下新的（免費只記一件）時，指一條現成的線出來，別只丟一句「滿了」。 */
+  fallback: { id: string; title: string } | null;
 }
 
 /** 聊天主流程：三層降級，記憶跨層一致 */
@@ -769,7 +819,7 @@ export async function chat(db: SupabaseClient, p: {
     return {
       reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
-      probe: false, draft: null, draftYong: null,
+      probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
   }
 
@@ -871,11 +921,24 @@ export async function chat(db: SupabaseClient, p: {
     { user_id: p.userId, character_id: p.characterId, role: "user", body: p.message, tier },
     { user_id: p.userId, character_id: p.characterId, role: "assistant", body: reply, tier, mark },
   ];
-  const { error: insErr } = await db.from("chat_messages").insert(rows);
+  // 回寫的 id 要拿回來：語音要念哪一句，客戶端送的就是這個 id
+  // （它不送文字——見 tts.ts 的檔頭）。拿不到就是拿不到，那一則不出朗讀鈕，
+  // 不影響聊天本身。
+  let msgId: number | null = null;
+  const idOf = (rows: unknown) => {
+    const list = (rows ?? []) as { id?: number; role?: string }[];
+    const hit = list.find((r) => r.role === "assistant") ?? list[list.length - 1];
+    return typeof hit?.id === "number" ? hit.id : null;
+  };
+  const { data: ins, error: insErr } = await db.from("chat_messages").insert(rows).select("id, role");
   if (insErr) {
     // 舊 schema（mark 欄未上）兜底：寧可少一欄，不可掉記憶
     console.error("chat_messages insert with mark failed, retry without", insErr.message);
-    await db.from("chat_messages").insert(rows.map(({ mark: _m, ...r }) => r));
+    const { data: again } = await db.from("chat_messages")
+      .insert(rows.map(({ mark: _m, ...r }) => r)).select("id, role");
+    msgId = idOf(again);
+  } else {
+    msgId = idOf(ins);
   }
 
   // 滾動記憶彙整：背景執行，不拖慢這次回覆（同 broadcast 的 waitUntil 模式）
@@ -894,8 +957,29 @@ export async function chat(db: SupabaseClient, p: {
   const freeLeft = Math.max(0, chatQuota - used);
   const stateArr = CHAT_STATE[p.characterId]?.[tier] ?? [""];
   const statePrefix = pick(stateArr);
+  // 心跡：只在真的擬出題的那一刻算一次（兩次查詢、零 AI、不影響回覆延遲以外的任何東西）。
+  // 每一則都算的話，純閒聊也會被問「要不要記下來」——那正是心跡最不該有的樣子。
+  let xinji: XinjiHint | null = null;
+  if (draft) {
+    try {
+      const hint = await threadHint(db, p.userId, p.plan ?? "free",
+        { question: draft, topic: effMarks.draftTopic });
+      const title = effMarks.draftTopic || topicOf(draft);
+      xinji = {
+        thread: hint.thread,
+        // 已經在記了就不提議開新的——同一件事開成兩條線，溫度曲線與應期閉環
+        // 就從此各記一半。名字給不出來（短到只剩一兩個字）也不提議，讓他自己開。
+        propose: hint.thread || title.length < 2 ? null : { title, gist: effMarks.draftGist },
+        open: hint.open, max: hint.max, can_add: hint.can_add, fallback: hint.fallback,
+      };
+    } catch (e) {
+      // 心跡壞掉不該讓人聊不了天。這一塊是加分項，不是回覆的一部分。
+      console.error("threadHint failed, skip", e);
+    }
+  }
+
   return {
     reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
-    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null,
+    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId,
   };
 }

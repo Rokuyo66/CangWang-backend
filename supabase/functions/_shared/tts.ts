@@ -182,6 +182,30 @@ const sha256 = async (s: string) => {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
 };
 
+/* ── 要念哪些字 ───────────────────────────────────────────────────
+   切嗓（誰念）與切段（一段一個音檔）只寫在這裡一份。朗讀走這條、
+   事後把逐字稿補回收藏也走這條——兩邊各切一次的話，補回來的字會與
+   當初念的那幾段對不上，畫面上就會用甲段的字配乙段的聲音。 */
+
+/** 一小段：一段文字＝一個音檔。narrator 為真＝旁白那把嗓子。 */
+export interface Piece { voiceId: string; text: string; narrator: boolean }
+
+export function piecesOf(source: string, charVoice: string): Piece[] {
+  const out: Piece[] = [];
+  for (const seg of segments(source)) {
+    const voiceId = seg.narrator ? VOICE_NARRATOR : charVoice;
+    for (const text of chunk(seg.text)) out.push({ voiceId, text, narrator: seg.narrator });
+  }
+  return out;
+}
+
+/** 念什麼一律伺服器決定。這兩個組法就是快取鍵吃的那份原文，
+ *  改動它等於讓全站的音檔重新合成一次——要改先想清楚。 */
+const bodySource = (c: { question?: string | null; reading?: string | null }) =>
+  [c.question ? `所問：${c.question}。` : "", c.reading ?? ""].filter(Boolean).join("\n");
+const followupSource = (f: { question?: string | null; answer?: string | null }) =>
+  [`所問：${f.question}。`, f.answer].filter(Boolean).join("\n");
+
 /* ── 合成一段 ───────────────────────────────────────────────────── */
 type Fetch = typeof fetch;
 
@@ -302,22 +326,83 @@ export async function speakCast(
   // 念什麼一律伺服器決定：body＝提問＋批文，數字＝第幾則追問的一問一答
   let source = "";
   if (part === "body" || part == null) {
-    source = [cast.question ? `所問：${cast.question}。` : "", cast.reading ?? ""]
-      .filter(Boolean).join("\n");
+    source = bodySource(cast);
   } else {
     const { data: fups } = await db.from("followups")
       .select("question, answer").eq("cast_id", castId).order("created_at");
     const f = (fups ?? [])[Number(part)];
     if (!f) return { ok: false, msg: "沒有這一則追問" };
-    source = [`所問：${f.question}。`, f.answer].filter(Boolean).join("\n");
+    source = followupSource(f);
   }
 
+  return await speakSource(db, uid, plan, {
+    source,
+    charVoice: voiceOf(cast.character_id),
+    title: titleOf(cast, part),
+    subtitle: cast.question ?? null,
+    characterId: cast.character_id ?? null,
+  }, doFetch);
+}
+
+/* ── 對外：念閒聊裡的某一句 ─────────────────────────────────────
+   同一條鐵則：客戶端只送 chat_id，不送文字。念哪一句由伺服器去 chat_messages 撈，
+   而且只念**角色說的**（role='assistant'）——念使用者自己打的字沒有意義，
+   卻等於開放了一個「你給我文字我念給你聽」的入口，那正是這條鐵則要擋的。
+
+   為什麼閒聊也該有聲音：師兄的聲線在解卦那裡有、在閒聊裡沒有，等於同一個人
+   在兩個地方是兩種存在。而閒聊才是人真正停留的地方。 */
+export async function speakChat(
+  db: SupabaseClient, uid: string, plan: string, messageId: unknown,
+  doFetch: Fetch = fetch,
+): Promise<TtsResult> {
+  if (!API_KEY) return { ok: false, msg: "伺服器尚未設定語音金鑰" };
+  const id = Number(messageId);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, msg: "沒說要念哪一句" };
+
+  const { data: msg } = await db.from("chat_messages")
+    .select("id, user_id, character_id, role, body, created_at")
+    .eq("id", id).eq("user_id", uid).maybeSingle();
+  if (!msg) return { ok: false, msg: "找不到這一句" };
+  if ((msg as { role: string }).role !== "assistant")
+    return { ok: false, msg: "只念得了角色說的話" };
+
+  const row = msg as { character_id: string; body: string; created_at: string };
+
+  // 副標帶的是「他當時說了什麼」——收藏清單上一排「大師兄・閒聊」分不出誰是誰，
+  // 而人記得住的是自己問過什麼。取緊鄰在前的那一則使用者發言。
+  const { data: askRows } = await db.from("chat_messages")
+    .select("body, role").eq("user_id", uid).eq("character_id", row.character_id)
+    .lt("id", id).order("id", { ascending: false }).limit(1);
+  const asked = (askRows ?? [])[0] as { body: string; role: string } | undefined;
+
+  const { data: ch } = await db.from("characters").select("name").eq("id", row.character_id).maybeSingle();
+  const who = (ch as { name?: string } | null)?.name || "觀中人";
+
+  return await speakSource(db, uid, plan, {
+    source: row.body ?? "",
+    charVoice: voiceOf(row.character_id),
+    title: `${who}・閒聊`,
+    subtitle: asked?.role === "user" ? asked.body : null,
+    characterId: row.character_id,
+  }, doFetch);
+}
+
+/* ── 合成一段原文 ───────────────────────────────────────────────
+   批文與閒聊共用這一段。分開寫兩份的話，額度怎麼扣、快取怎麼查、
+   text_hash 怎麼算就會慢慢走偏，而走偏的那天沒有人會發現——
+   只會發現「同一句話在兩個地方收成了兩則」。 */
+async function speakSource(
+  db: SupabaseClient, uid: string, plan: string,
+  o: { source: string; charVoice: string; title: string; subtitle: string | null; characterId: string | null },
+  doFetch: Fetch,
+): Promise<TtsResult> {
   // 分軌：角色說的話用角色的嗓子，＊…＊ 的旁白用旁白那把。
   // 段落順序原樣保留——parts 是一串照順序播的音檔，換嗓子不換次序。
-  const segs = segments(source);
-  if (!segs.length) return { ok: false, msg: "這一段沒有可念的字" };
+  const charVoice = o.charVoice;
+  const source = o.source;
+  const pieces = piecesOf(source, charVoice);
+  if (!pieces.length) return { ok: false, msg: "這一段沒有可念的字" };
 
-  const charVoice = voiceOf(cast.character_id);
   const store = db.storage.from(BUCKET);
 
   /* ── 先排好整篇要念哪些段、哪些還沒有檔 ──────────────────────
@@ -325,18 +410,15 @@ export async function speakCast(
      一段一段扣的話，長批文會在中間某一段用完額度：前幾段已經合成、
      已經付錢、已經扣掉，然後整支回失敗，使用者一個字也沒聽到。
      花了錢又沒東西聽，是所有失敗方式裡最糟的一種。 */
-  const plan_: { voiceId: string; piece: string; path: string; narrator: boolean; miss: boolean }[] = [];
+  const plan_: (Piece & { path: string; miss: boolean })[] = [];
   let total = 0, need = 0;
-  for (const seg of segs) {
-    const voiceId = seg.narrator ? VOICE_NARRATOR : charVoice;
-    for (const piece of chunk(seg.text)) {
-      total += piece.length;
-      const path = `${await sha256(`${MODEL}|${voiceId}|${piece}`)}.mp3`;
-      const { data: hit } = await store.list("", { search: path, limit: 1 });
-      const miss = !hit?.length;
-      if (miss) need += piece.length;      // 命中快取的不算——重聽不該吃額度
-      plan_.push({ voiceId, piece, path, narrator: seg.narrator, miss });
-    }
+  for (const p of pieces) {
+    total += p.text.length;
+    const path = `${await sha256(`${MODEL}|${p.voiceId}|${p.text}`)}.mp3`;
+    const { data: hit } = await store.list("", { search: path, limit: 1 });
+    const miss = !hit?.length;
+    if (miss) need += p.text.length;       // 命中快取的不算——重聽不該吃額度
+    plan_.push({ ...p, path, miss });
   }
 
   // 要合成的字一次扣完。need 為 0＝整篇都在快取裡，連問都不必問。
@@ -345,12 +427,12 @@ export async function speakCast(
     if (!paid.ok) return { ok: false, msg: paid.msg };
   }
 
-  const parts: { url: string; path: string; chars: number; narrator: boolean }[] = [];
+  const parts: { url: string; path: string; text: string; chars: number; narrator: boolean }[] = [];
   let synthesized = 0;
   for (const p of plan_) {
     if (p.miss) {
       let bytes: Uint8Array;
-      try { bytes = await synth(p.piece, p.voiceId, doFetch); }
+      try { bytes = await synth(p.text, p.voiceId, doFetch); }
       catch (e) { return { ok: false, msg: String((e as Error).message ?? e) }; }
       const { error } = await store.upload(p.path, bytes, {
         contentType: "audio/mpeg", upsert: true, cacheControl: "31536000",
@@ -358,9 +440,11 @@ export async function speakCast(
       if (error) return { ok: false, msg: `音檔存不進去：${error.message}` };
       synthesized++;
     }
+    // text 一起下發：語音頁點開要能把念的字攤出來，而那幾個字只有這裡知道
+    // （客戶端從頭到尾沒有握過原文，它送的只是 cast_id）。
     parts.push({
       url: store.getPublicUrl(p.path).data.publicUrl, path: p.path,
-      chars: p.piece.length, narrator: p.narrator,
+      text: p.text, chars: p.text.length, narrator: p.narrator,
     });
   }
 
@@ -374,10 +458,50 @@ export async function speakCast(
       quota: await ttsQuota(db, uid, plan),
       // 收藏用得上：同一段文字＋同一把嗓子＝同一則收藏，鍵由伺服器算。
       text_hash: await sha256(`${MODEL}|${charVoice}|${source}`),
-      title: titleOf(cast, part), subtitle: cast.question ?? null,
-      character_id: cast.character_id ?? null,
+      title: o.title, subtitle: o.subtitle,
+      character_id: o.characterId,
     },
   };
+}
+
+/* ── 事後把逐字稿找回來 ─────────────────────────────────────────── */
+
+/**
+ * 這幾段音檔當初念的是哪些字。
+ *
+ * 為什麼需要：語音頁點下去要把念的字攤開來跟著跑，而 0047 之前收下的那些
+ * 收藏只存了「哪幾個音檔、什麼順序」，沒存字。字並沒有不見——它算得回來，
+ * 因為快取鍵就是由原文算的。
+ *
+ * 認法是**用 text_hash 對**：本體與每一則追問各算一次 `sha256(模型|聲線|原文)`，
+ * 對上收藏存的那一個才算數。對不上就回 `null`——寧可畫面上沒有全文，
+ * 也不要替這段聲音配上一段別的文字，那比沒有更糟。
+ * （追問的序號沒有存進收藏，所以只能這樣認；而這樣認是精確的，不是猜的。）
+ *
+ * 不合成、不上傳、不扣額度：從頭到尾只有兩次查詢跟幾次雜湊。
+ */
+export async function castTexts(
+  db: SupabaseClient, uid: string, castId: string, textHash: string,
+): Promise<Piece[] | null> {
+  if (!castId || !textHash) return null;
+
+  const { data: cast } = await db.from("casts")
+    .select("id, user_id, character_id, question, reading")
+    .eq("id", castId).eq("user_id", uid).maybeSingle();
+  if (!cast) return null;                    // 卦刪了：聲音還在，字回不來了
+
+  const charVoice = voiceOf(cast.character_id);
+  const sources = [bodySource(cast)];
+  const { data: fups } = await db.from("followups")
+    .select("question, answer").eq("cast_id", castId).order("created_at");
+  for (const f of fups ?? []) sources.push(followupSource(f));
+
+  for (const source of sources) {
+    if (!source) continue;
+    if (await sha256(`${MODEL}|${charVoice}|${source}`) !== textHash) continue;
+    return piecesOf(source, charVoice);
+  }
+  return null;
 }
 
 /** 收藏清單上顯示的那一行。前端不自己組——組出來的字會跟伺服器的版本走偏。 */
