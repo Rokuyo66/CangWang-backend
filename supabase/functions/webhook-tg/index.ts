@@ -3,6 +3,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { renderChartTG, mdToTG } from "../_shared/services.ts";
 import { ALL_GUA_NAMES } from "../_shared/core.ts";
+import { syncGuaFromCasts } from "../_shared/collection.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
@@ -236,9 +237,9 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   }
 
   if (text === "/collection" || text === "/卦籤" || text === "/圖鑑") {
-    // 查此用戶起過的所有本卦名（去重）
-    const { data: rows } = await db.from("casts").select("gua_ben").eq("user_id", userId);
-    const owned = new Set((rows ?? []).map((r) => r.gua_ben).filter(Boolean));
+    // 卦鑑（永久表，見 0051）。順手對一次 casts 把漏的補回——
+    // 舊版直接數 casts，起卦破千之後會被 db-max-rows 切掉，收集度看起來會縮水。
+    const owned = await syncGuaFromCasts(db, userId);
     const total = ALL_GUA_NAMES.length;
     const got = ALL_GUA_NAMES.filter((n) => owned.has(n)).length;
     // 八宮分組顯示，每行八卦，已得亮、未得暗

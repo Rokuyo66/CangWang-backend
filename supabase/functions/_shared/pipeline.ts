@@ -3,6 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
+import { collectedGua, recordGua } from "./collection.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
@@ -215,13 +216,15 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (ai.due) {
     appendix += `\n\n<i>（此卦應期約在 ${ai.due}，屆時我會來問你準不準——印證過的卦會永久留存。）</i>`;
   }
-  // ② 新卦入鑑：首次起出此本卦才提示收集進度（與 /collection 同以 gua_ben 去重、同樣不計日運卦）
-  const { data: guaRows } = await db.from("casts").select("gua_ben, category").eq("user_id", p.userId);
-  const guaOnly = (guaRows ?? []).filter((r) => r.category !== FORTUNE_CATEGORY);
-  const sameGua = guaOnly.filter((r) => r.gua_ben === chart.benName).length;
-  if (sameGua <= 1) { // 剛插入這筆即為首解
-    const collected = new Set(guaOnly.map((r) => r.gua_ben).filter(Boolean)).size;
-    appendix += `\n\n<i>（✨此卦初解，幾知觀卦鑑已收錄 ${collected}/64。打 /collection 翻閱你的卦鑑。）</i>`;
+  // ② 新卦入鑑：本卦與變卦收進卦鑑（永久，見 0051），初解才提示收集進度。
+  //    收在自己的表裡而不是回頭數 casts：數 casts 會被 db-max-rows 切掉、會被刪卦抹掉，
+  //    卦鑑因此倒退，連帶把集滿領到的獎勵頭像鎖回去。日運卦不入鑑（那條路不走這支）。
+  const collectedBefore = await collectedGua(db, p.userId);
+  const firstTime = !collectedBefore.has(chart.benName);
+  await recordGua(db, p.userId, [chart.benName, chart.bianName]);
+  if (firstTime) {
+    for (const g of [chart.benName, chart.bianName]) if (g) collectedBefore.add(g);
+    appendix += `\n\n<i>（✨此卦初解，幾知觀卦鑑已收錄 ${collectedBefore.size}/64。打 /collection 翻閱你的卦鑑。）</i>`;
   }
 
   // yong 一併回傳：前端據此把盤面的用/原/忌/仇標記補上（起卦當下不再要求用戶先選用神）

@@ -30,6 +30,7 @@ class Query {
     this.wantCount = false;
     this.headOnly = false;
     this.limitN = null;
+    this.offsetN = 0;
   }
 
   select(cols, opts) {
@@ -61,6 +62,8 @@ class Query {
     return this;
   }
   limit(n) { this.limitN = n; return this; }
+  // .range(from, to) 是含頭含尾（PostgREST 語意）
+  range(from, to) { this.offsetN = from; this.limitN = to - from + 1; return this; }
 
   match(r) { return this.filters.every((f) => f(r)); }
 
@@ -108,7 +111,10 @@ class Query {
             return 0;
           });
         }
-        const out = this.limitN == null ? hit : hit.slice(0, this.limitN);
+        // MAX_ROWS：真的 PostgREST 一定會截（Supabase 的 db-max-rows 預設 1000），
+        // 不模擬的話，「沒有分頁的 select」在測試裡永遠是對的，線上卻會少一截。
+        const take = Math.min(this.limitN ?? MAX_ROWS, MAX_ROWS);
+        const out = hit.slice(this.offsetN, this.offsetN + take);
         return { data: clone(out).map((r) => this.embed(r)), count: hit.length, error: null };
       }
       case "insert": {
@@ -160,6 +166,8 @@ class Query {
   then(res, rej) { return Promise.resolve(this.run()).then(res, rej); }
 }
 
+/** 對齊 Supabase 的 db-max-rows：任何 select 最多回這麼多列 */
+const MAX_ROWS = 1000;
 const iso = () => new Date().toISOString();
 /** 粗略單數化，只夠推 FK 欄名：threads→thread、casts→cast、feedback→feedback */
 const singular = (t) => (t.endsWith("s") ? t.slice(0, -1) : t);
