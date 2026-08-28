@@ -10,7 +10,7 @@ import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
-import { planOf, followupFreeLeft, castFreeLeft, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
+import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import {
@@ -256,7 +256,11 @@ Deno.serve(async (req) => {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes, title_tag").eq("id", uid).maybeSingle();
+      const { data: prof, error: profErr } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes, title_tag").eq("id", uid).maybeSingle();
+      // 這一列讀不到（欄位對不上、連線壞了）時，下面每一個欄位都會靜靜地退回預設值。
+      // 別的欄位退回預設頂多是畫面數字不對，guide_seen_at 退回 null 卻等於「沒看過引導」，
+      // 於是讀取失敗會被演成「每次登入都重講一次規矩」。至少要留下一行看得見的紀錄。
+      if (profErr) console.error("profile read failed", uid, profErr.message);
       const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
       const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
       (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
@@ -294,6 +298,9 @@ Deno.serve(async (req) => {
       const plazaUnreadCount = pnCount ?? 0;
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
+      // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
+      // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
+      const guideSeen = profErr ? true : await guideSeenOf(db, uid, prof?.guide_seen_at);
       const [fy, fm, fd] = cday.split("-").map(Number);
       // 心跡：導覽紅點與額度標示。兩個 count(head) 而已——為了兩個數字讓前端
       // 在每次開 App 時多打一支 xinji_timeline，是把便宜的東西做貴。
@@ -305,16 +312,22 @@ Deno.serve(async (req) => {
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
         followupCost: COST_FOLLOWUP,
-        chatFreePerDay: chatQuotaOf(plan), guideSeen: !!prof?.guide_seen_at,
+        chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
-    // 初次問事引導看完：記在帳號，換裝置不會再跳一次
+    // 初次問事引導看完：記在帳號，換裝置不會再跳一次。
+    // 寫不進去就必須回錯——原本一律回 ok，記號沒蓋上前端也以為蓋上了，
+    // 於是下次登入引導又跳出來，而兩端都沒有任何一處說得出為什麼。
     if (body.mode === "set_guide_seen") {
-      await db.from("profiles").update({ guide_seen_at: new Date().toISOString() }).eq("id", uid);
-      return Response.json({ kind: "ok" }, { headers: CORS });
+      const r = await markGuideSeen(db, uid);
+      if (!r.ok) {
+        console.error("set_guide_seen failed", uid, r.msg);
+        return Response.json({ kind: "err", msg: "guide_seen_not_saved:" + r.msg }, { status: 500, headers: CORS });
+      }
+      return Response.json({ kind: "ok", guideSeen: true }, { headers: CORS });
     }
 
     // 解鎖付費配色（買斷）。價格只在後端定義——前端顯示的數字不可信，

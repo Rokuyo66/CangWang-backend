@@ -467,3 +467,45 @@ export async function billFollowup(db: SupabaseClient, userId: string, castId: s
   await bump();
   return { ok: true, paid: COST_FOLLOWUP };
 }
+
+/* ---------- 初次引導（0031 的 profiles.guide_seen_at） ---------- */
+
+/** 蓋上「看過初次引導」的記號。回傳 ok=false 就是真的沒寫進去，呼叫端必須讓它出聲。
+ *
+ *  兩件事刻意做在這裡而不是散在端點上：
+ *  ① 冪等——`.is(guide_seen_at, null)` 讓已經有記號的列不被覆蓋。0031 存的是時間戳而不是
+ *     布林，為的是日後「引導改版就依上次看的時間再放一次」；每關一次引導就把時間往前推，
+ *     那個判斷永遠不會成立，時間戳也就白存了。
+ *  ② 分辨「已經蓋過」與「這個 uid 根本沒有 profiles 列」——兩者的更新都是 0 列，
+ *     但前者正常、後者是帳號壞了。不分辨的話，寫不進去的帳號會安安靜靜地每次登入都被
+ *     重講一次引導，而沒有任何一處看得出哪裡斷了。
+ */
+export async function markGuideSeen(db: SupabaseClient, userId: string): Promise<{ ok: boolean; msg?: string }> {
+  const { data, error } = await db.from("profiles")
+    .update({ guide_seen_at: new Date().toISOString() })
+    .eq("id", userId).is("guide_seen_at", null).select("id");
+  if (error) return { ok: false, msg: error.message };
+  if (data && data.length > 0) return { ok: true };
+  const { data: prof, error: readErr } = await db.from("profiles").select("guide_seen_at").eq("id", userId).maybeSingle();
+  if (readErr) return { ok: false, msg: readErr.message };
+  if (!prof) return { ok: false, msg: "no_profile" };
+  return { ok: true };   // 早就蓋過了
+}
+
+/** 這個帳號看過初次引導沒有。
+ *
+ *  只認 guide_seen_at 一個記號的話，整條路只要斷一次就永遠斷了：記號是前端關掉引導那一刻
+ *  fire-and-forget 打回來的，而失敗在兩端都被吞掉（前端 catch(e){}、後端不看 error）。
+ *  記號沒蓋上，下次登入就再講一次那七句話——每次都講，而且自己不會好。
+ *
+ *  所以記號不在時再問一句「這人問過卦沒有」：問過卦的帳號不可能還停在第一次登入。
+ *  有卦就順手補蓋記號，補完之後就走上面那條不必多查的路——
+ *  代價是「帳號還沒有半卦」的人才多一支 count(head)，那正是唯一該跳引導的人。
+ */
+export async function guideSeenOf(db: SupabaseClient, userId: string, guideSeenAt: string | null | undefined): Promise<boolean> {
+  if (guideSeenAt) return true;
+  const { count } = await db.from("casts").select("id", { count: "exact", head: true }).eq("user_id", userId);
+  if (!count) return false;
+  await markGuideSeen(db, userId);
+  return true;
+}
