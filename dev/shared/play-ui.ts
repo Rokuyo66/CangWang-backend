@@ -84,7 +84,7 @@ export function mountPlay(root: HTMLElement, CF: CaseFile) {
         <td class="dim">${esc(r.beast)}</td>
         <td class="dim">${esc(r.dir)}</td>
         <td class="role">${esc(roles)}</td>
-        <td class="dim">${esc(r.moving ? "動" + (r.flux.length ? "·" + r.flux.join("·") : "") : r.anDong ? "暗動" : "")}</td>
+        <td class="dim">${esc(r.moving ? "動" + (r.flux.length ? "·" + r.flux.join("·") : "") + (r.chongTuo ? "·沖脫" : "") : r.anDong ? "暗動" : r.riChen ? "日辰入卦" : "")}</td>
         <td class="dim">${esc(r.tags.join("·"))}</td>
       </tr>`;
     }).join("");

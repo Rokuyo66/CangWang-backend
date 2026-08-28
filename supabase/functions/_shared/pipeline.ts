@@ -1,6 +1,7 @@
 // _shared/pipeline.ts — 解卦主管線（渠道無關）
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { buildChart, castCoins, castByNumbers, chartText, guaName, pickUsePos } from "./core.ts";
+import { buildChart, castCoins, castByNumbers, guaName, pickUsePos } from "./core.ts";
+import { chartTextFull } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { collectedGua, recordGua } from "./collection.ts";
@@ -138,7 +139,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     ? p.lines
     : p.numbers ? castByNumbers(...p.numbers).lines : castCoins().lines;
   const chart = buildChart(lines, y, m, d, hour);
-  const ctext = chartText(chart, p.question);
+  const ctext = chartTextFull(chart, p.question);
   // 問事者指定的用神；取「世爻」時六親須由盤面世爻決定——TG 擬題只給得出「世爻」二字，沒有盤面可判
   const askedQin = p.yongQin === "世爻" ? chart.ben[chart.shi - 1].qin : p.yongQin;
   const askedViaShi = p.yongQin === "世爻" ? true : p.yongViaShi;
@@ -254,7 +255,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
-  const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
+  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
     followup: { prevReading: cast.reading ?? "", question: p.question },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
   });
@@ -314,7 +315,7 @@ export async function commentCast(db: SupabaseClient, p: {
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.newCharacterId).single();
   const chart = cast.chart as Chart;
-  const ai = await callInterpret(ch!.persona_prompt, chartText(chart, cast.question ?? ""), {
+  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
   });
@@ -344,7 +345,7 @@ export async function deepenCast(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
-  const ctext = chartText(chart, cast.question ?? "");
+  const ctext = chartTextFull(chart, cast.question ?? "");
   const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi);
   try {
     const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong });
