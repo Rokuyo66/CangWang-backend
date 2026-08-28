@@ -131,12 +131,13 @@ function dump(s: CaseState) {
   console.log(`\n  ── ${s.benName}${s.turnTo ? ` 之 ${s.turnTo}` : ""}（${s.palace}宮${s.guaType}）`);
   console.log(`     主軸方位 ${s.palaceDir}${s.turnDir ? ` → 翻面 ${s.turnDir}` : ""}   節奏 ${s.tempo}   ${s.omens.join("、") || "無特殊格局"}`);
   console.log(`     用神${s.useQin} 落 ${k.pos ?? "不上卦"} 區${k.hidden ? `（伏於 ${k.flyPos} 區飛神下，${k.chuFu}）` : ""}`);
-  console.log(`     旺衰 ${k.wang}／${k.grade}   ${[k.kong, k.mu, k.po, k.anDong ? "暗動" : null].filter(Boolean).join("·") || "無空破墓"}   日辰 ${k.dayActs.join("·") || "不作用"}`);
+  const wangCol = k.effWang && k.effWang !== k.wang ? `${k.effWang}(月令${k.wang})` : k.wang;
+  console.log(`     旺衰 ${wangCol}／${k.grade}   ${[k.kong, k.mu, k.po, k.anDong ? "暗動" : null, k.riChen ? "日辰入卦" : null, k.chongTuo ? "沖脫" : null].filter(Boolean).join("·") || "無空破墓"}   日辰 ${k.dayActs.join("·") || "不作用"}`);
   console.log(`     代價 ${s.access}   世用 ${s.shiYong}   立足 ${s.startPos} 區   對手 ${s.rivalPos} 區`);
   console.log(`     元神(助) ${sp.yuanPos.join("、") || "無"}${sp.yuanActive ? " 發動" : ""}   忌神(阻) ${sp.jiPos.join("、") || "無"}${sp.jiStrong ? " 旺動" : sp.jiActive ? " 發動" : ""}${sp.tongGuan ? "   →貪生忘剋通關" : ""}`);
   for (const r of s.regions.slice().reverse()) {
     const mark = r.roles.length ? `[${r.roles.join("")}]` : "";
-    const mv = r.moving ? `動→${r.flux.join("·") || "平變"}` : r.anDong ? "暗動" : "";
+    const mv = r.moving ? `動→${r.flux.join("·") || "平變"}${r.chongTuo ? "·沖脫" : ""}` : r.anDong ? "暗動" : r.riChen ? "日辰入卦·視同發動" : "";
     console.log(`     ${r.pos} ${r.name.padEnd(6)} ${r.qin}${r.zhi}(${r.wx}) ${r.beast} ${r.dir.padEnd(2)} ${mark}${mv} ${r.tags.length ? "【" + r.tags.join("·") + "】" : ""}`);
   }
 }

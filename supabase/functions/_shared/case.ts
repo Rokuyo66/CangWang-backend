@@ -31,6 +31,14 @@ import {
   huaJinTui, pickUsePos, sanheCheck, fuyinCheck, xunKong,
   type Chart,
 } from "./core.ts";
+// 動靜與旺衰一律引用 dongyao.ts，本檔不再自判——2026-08-28 之前三個檔各判各的，
+// 日辰入卦與變爻參戰整批漏掉，就是從這種各自為政來的。
+import {
+  monthWang, isWangXiang, isAnDong, isActive, isChongTuo, isRiChen, effWang, vigorous,
+  type Wang,
+} from "./dongyao.ts";
+export { monthWang };
+export type { Wang };
 
 /* ═══════════════ 卦理常數（與 core.ts 同源，見檔頭警告） ═══════════════ */
 
@@ -92,7 +100,6 @@ export interface CaseDef {
   regions: CaseRegionDef[];
 }
 
-export type Wang = "旺" | "相" | "休" | "囚" | "死";
 
 /** 關鍵線索的取得代價。卦只動這個，不動「線索是否存在」。 */
 export type Access =
@@ -122,7 +129,10 @@ export interface KeyState {
   mu: string | null;       // 入日墓／入月墓（旺相不入）
   po: "月破" | "日破" | null;
   poFatal: boolean;        // 月破是否構成「近乎無用」（限休囚靜爻）
-  anDong: boolean;         // 暗動
+  anDong: boolean;         // 暗動（日沖旺相靜爻）
+  riChen: boolean;         // 日辰入卦（視同發動、以旺論）
+  chongTuo: boolean;       // 沖脫（動爻逢日沖，進行而後散）
+  effWang: Wang | null;    // 實效旺衰（日辰入卦以旺論）
   grade: "有力" | "平" | "無力";
 }
 
@@ -144,7 +154,9 @@ export interface RegionState {
   roles: string[];  // 世／應／用神／飛神／元神／忌神／仇神
   moving: boolean;
   anDong: boolean;
-  wang: Wang;
+  riChen: boolean;   // 日辰入卦：視同發動
+  chongTuo: boolean; // 沖脫：動而逢日沖，進行而後散
+  wang: Wang;        // 實效旺衰（日辰入卦以旺論）
   flux: string[];
   tags: string[];
 }
@@ -166,18 +178,7 @@ export interface CaseState {
   sig: { core: string; feel: string; full: string };
 }
 
-/* ═══════════════ 旺衰（rules.ts 第 33 行） ═══════════════ */
-
-/** 月令定旺相休囚死：同令旺、令生相、生令休、剋令囚、令剋死。辰戌丑未月土旺。 */
-export function monthWang(wx: string, monZhi: string): Wang {
-  const m = ZHI_WX[monZhi];
-  if (wx === m) return "旺";
-  if (SHENG[m] === wx) return "相";
-  if (SHENG[wx] === m) return "休";
-  if (KE[wx] === m) return "囚";
-  return "死"; // KE[m] === wx
-}
-const isWangXiang = (w: Wang) => w === "旺" || w === "相";
+/* ═══════════════ 旺衰、動靜：一律由 dongyao.ts 供給（見檔頭 import） ═══════════════ */
 
 /** 日辰作用：值、生、剋、沖、合（日辰力大，不論旺相休囚） */
 function dayActs(zhi: string, wx: string, dayZhi: string): string[] {
@@ -191,13 +192,6 @@ function dayActs(zhi: string, wx: string, dayZhi: string): string[] {
   return a;
 }
 
-/** 該爻是否「日月其一旺相」——真假空、入墓、暗動三處判定的共同前提 */
-function vigorous(wx: string, zhi: string, c: Chart): boolean {
-  const w = monthWang(wx, c.ganzhi.month[1]);
-  if (isWangXiang(w)) return true;
-  const da = dayActs(zhi, wx, c.ganzhi.day[1]);
-  return da.includes("臨日建") || da.includes("日生");
-}
 
 /* ═══════════════ 逐爻事實標記 ═══════════════ */
 
@@ -205,39 +199,29 @@ function factTags(zhi: string, wx: string, c: Chart, moving: boolean): string[] 
   const dayZhi = c.ganzhi.day[1], monZhi = c.ganzhi.month[1];
   const kongSet = new Set(c.ganzhi.kong.split(""));
   const w = monthWang(wx, monZhi);
-  const vig = vigorous(wx, zhi, c);
-  const t: string[] = [w];
+  const ew = effWang(zhi, wx, c); // 實效旺衰：日辰入卦以旺論
+  const vig = vigorous(zhi, wx, c);
+  // 首欄為實效旺衰；與月令不同時併記月令，免得看盤的人以為程式把月令算錯了
+  const t: string[] = [ew === w ? w : `${ew}·月令${w}`];
 
   if (kongSet.has(zhi)) t.push(vig ? "假空" : "真空");
   if (zhi === monZhi) t.push("臨月建");
-  if (zhi === dayZhi) t.push("臨日建");
+  // 日辰入卦＝視同發動、以旺論（2026-08-28 裁決）；動爻臨日建則本就在動，只記臨值
+  if (zhi === dayZhi) t.push(moving ? "臨日建" : "日辰入卦·視同發動·以旺論");
   if (CHONG[monZhi] === zhi) t.push("月破");
-  // 日沖：旺相靜爻＝暗動（有用）；沖休囚靜爻＝日破。
-  // 此處的旺相只看月令，理由見 isAnDong()：日辰在沖它，就不可能同時生扶它。
-  if (CHONG[dayZhi] === zhi) t.push(moving ? "日沖" : isWangXiang(w) ? "暗動" : "日破");
+  // 日沖三分：動爻＝沖脫（進行而後散，仍作用）；旺相靜爻＝暗動（有生剋無沖合）；休囚靜爻＝日破。
+  // 靜爻此處的旺相只看月令，理由見 dongyao.isAnDong()：日辰在沖它，就不可能同時生扶它。
+  if (CHONG[dayZhi] === zhi) t.push(moving ? "沖脫" : isWangXiang(w) ? "暗動" : "日破");
+  if (CHONG[dayZhi] === zhi && CHONG[monZhi] === zhi) t.push("破盡");
+  if (CHONG[dayZhi] === zhi && kongSet.has(zhi)) t.push("沖空");
   if (HE6[monZhi] === zhi) t.push("月合");
   if (HE6[dayZhi] === zhi) t.push("日合");
-  // 入墓：唯休囚之爻才被關，旺相不入
-  if (!isWangXiang(w)) {
+  // 入墓：唯休囚之爻才被關，旺相不入（日辰入卦者以旺論，故不入墓）
+  if (!isWangXiang(ew)) {
     if (MU[wx] === monZhi) t.push("入月墓");
     if (MU[wx] === dayZhi) t.push("入日墓");
   }
   return t;
-}
-
-/** 暗動：日沖旺相之靜爻（rules.ts 第 33／37 行）。
- *
- *  「旺」取月令旺相二等，不併入日辰生扶——不是選擇從嚴，是日辰項在此結構上不可達：
- *  六組地支相沖（子午、丑未、寅申、卯酉、辰戌、巳亥）的五行關係只有相剋與比和兩種，
- *  沒有一組相生；同支更不可能相沖，故「臨日建」亦不成立。
- *  換言之日辰既然在沖它，就不可能同時生扶它，暗動的旺只能由月令決定。
- *
- *  真假空與入墓仍用 vigorous()（含日辰生扶）——那兩處沒有相沖的前提，
- *  rules.ts 明寫「日、月其一旺相」，日辰項在那裡是可達且必要的。 */
-function isAnDong(zhi: string, wx: string, c: Chart, moving: boolean): boolean {
-  if (moving) return false;
-  if (CHONG[c.ganzhi.day[1]] !== zhi) return false;
-  return isWangXiang(monthWang(wx, c.ganzhi.month[1]));
 }
 
 function fluxOf(c: Chart, i: number): string[] {
@@ -261,21 +245,23 @@ function fluxOf(c: Chart, i: number): string[] {
 function keyStateOf(c: Chart, keyIdx: number | null, hidden: boolean,
                     fu: { zhi: string; wx: string; pos: number } | undefined): KeyState {
   if (keyIdx == null) {
-    return { pos: null, hidden: false, flyPos: null, chuFu: null, wang: null,
-             dayActs: [], kong: null, mu: null, po: null, anDong: false, grade: "無力" };
+    return { pos: null, hidden: false, flyPos: null, chuFu: null, wang: null, effWang: null,
+             dayActs: [], kong: null, mu: null, po: null, poFatal: false,
+             anDong: false, riChen: false, chongTuo: false, grade: "無力" };
   }
   const dayZhi = c.ganzhi.day[1], monZhi = c.ganzhi.month[1];
   const kongSet = new Set(c.ganzhi.kong.split(""));
   const zhi = hidden ? fu!.zhi : c.ben[keyIdx].zhi;
   const wx = hidden ? fu!.wx : c.ben[keyIdx].wx;
   const w = monthWang(wx, monZhi);
+  const ew = effWang(zhi, wx, c); // 日辰入卦以旺論，凌駕月令
   const da = dayActs(zhi, wx, dayZhi);
-  const vig = vigorous(wx, zhi, c);
+  const vig = vigorous(zhi, wx, c);
   const moving = !hidden && c.moving[keyIdx];
 
   const kong = kongSet.has(zhi) ? (vig ? "假空" : "真空") as const : null;
   let mu: string | null = null;
-  if (!isWangXiang(w)) {
+  if (!isWangXiang(ew)) {
     if (MU[wx] === dayZhi) mu = "入日墓";
     else if (MU[wx] === monZhi) mu = "入月墓";
   }
@@ -283,8 +269,11 @@ function keyStateOf(c: Chart, keyIdx: number | null, hidden: boolean,
   if (CHONG[monZhi] === zhi) po = "月破";
   else if (!moving && CHONG[dayZhi] === zhi && !isWangXiang(w)) po = "日破";
   // 月破之「近乎無用」依 rules.ts 第 33 行限於休囚靜爻；旺相之爻或動爻逢月破不作廢論
-  const poFatal = po === "日破" || (po === "月破" && !isWangXiang(w) && !moving);
+  const poFatal = po === "日破" || (po === "月破" && !isWangXiang(ew) && !moving);
   const anDong = !hidden && isAnDong(zhi, wx, c, moving);
+  // 沖脫：動爻逢日沖，進行而後散——仍是動爻、仍作用，但主事成而後散
+  const chongTuo = !hidden && isChongTuo(zhi, c, moving);
+  const riChen = !hidden && !moving && isRiChen(zhi, c);
 
   // 出伏判定（rules.ts 第 25 行）：傾向可出；唯伏神同時受日、月、飛神所剋而無生扶才難出
   let chuFu: "易出" | "難出" | null = null;
@@ -299,9 +288,9 @@ function keyStateOf(c: Chart, keyIdx: number | null, hidden: boolean,
   }
 
   const disabled = kong === "真空" || mu !== null || poFatal;
-  const grade = disabled ? "無力" : (vig || anDong) ? "有力" : "平";
+  const grade = disabled ? "無力" : (vig || anDong || riChen) ? "有力" : "平";
   return { pos: keyIdx + 1, hidden, flyPos: hidden ? fu!.pos + 1 : null, chuFu,
-           wang: w, dayActs: da, kong, mu, po, poFatal, anDong, grade };
+           wang: w, effWang: ew, dayActs: da, kong, mu, po, poFatal, anDong, riChen, chongTuo, grade };
 }
 
 /* ═══════════════ 元神／忌神／仇神（rules.ts 第 26 行） ═══════════════
@@ -315,16 +304,17 @@ function supportOf(c: Chart, keyIdx: number | null, useWx: string | null): Suppo
   const jiWx = Object.keys(KE).find((k) => KE[k] === useWx)!;         // 剋用神者
   const chouWx = Object.keys(SHENG).find((k) => SHENG[k] === jiWx)!;  // 生忌神者（＝剋元神者）
 
-  const act = (i: number) => c.moving[i] || isAnDong(c.ben[i].zhi, c.ben[i].wx, c, c.moving[i]);
+  // 「發動」的範圍以 dongyao.isActive 為準：老陽老陰、日辰入卦、暗動皆算
+  const act = (i: number) => isActive(c, i);
   const pick = (wx: string) => c.ben.map((e, i) => (e.wx === wx && i !== keyIdx ? i : -1)).filter((i) => i >= 0);
   const yuan = pick(yuanWx), ji = pick(jiWx), chou = pick(chouWx);
 
   const yuanActive = yuan.some(act);
   const jiActive = ji.some(act);
-  const jiStrong = ji.some((i) => act(i) && isWangXiang(monthWang(c.ben[i].wx, c.ganzhi.month[1])));
+  const jiStrong = ji.some((i) => act(i) && isWangXiang(effWang(c.ben[i].zhi, c.ben[i].wx, c)));
   // 貪生忘剋：忌神剋用，但元神得氣居中通關
   const yuanQi = yuan.some((i) => isWangXiang(monthWang(c.ben[i].wx, c.ganzhi.month[1]))
-    || vigorous(c.ben[i].wx, c.ben[i].zhi, c));
+    || vigorous(c.ben[i].zhi, c.ben[i].wx, c));
   return {
     yuanPos: yuan.map((i) => i + 1), jiPos: ji.map((i) => i + 1), chouPos: chou.map((i) => i + 1),
     yuanActive, jiActive, jiStrong, tongGuan: jiActive && yuanQi,
@@ -400,7 +390,9 @@ export function projectCase(c: Chart, def: CaseDef): CaseState {
       roles,
       moving: c.moving[i],
       anDong: isAnDong(e.zhi, e.wx, c, c.moving[i]),
-      wang: monthWang(e.wx, c.ganzhi.month[1]),
+      riChen: !c.moving[i] && isRiChen(e.zhi, c),
+      chongTuo: isChongTuo(e.zhi, c, c.moving[i]),
+      wang: effWang(e.zhi, e.wx, c),
       flux: fluxOf(c, i),
       tags: factTags(e.zhi, e.wx, c, c.moving[i]),
     };
@@ -417,7 +409,7 @@ export function projectCase(c: Chart, def: CaseDef): CaseState {
   const movCount = c.moving.filter(Boolean).length;
   let tempo: Tempo = "normal";
   if (c.chong || movCount >= 3 || support.jiStrong) tempo = "urgent";
-  else if (c.he || fy || (movCount === 0 && !regions.some((r) => r.anDong))) tempo = "slow";
+  else if (c.he || fy || (movCount === 0 && !regions.some((r) => r.anDong || r.riChen))) tempo = "slow";
 
   const bianHi = c.bian ? TRIGRAM_BITS[c.bianBits.slice(3, 6).join("")] : null;
 

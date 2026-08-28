@@ -8,7 +8,8 @@
 //   ・不計修為好感、不入卦鑑（category="日運" 於 computeCollection 已排除）
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { buildChart, castCoins, chartText, huaJinTui, YAO_NAMES } from "./core.ts";
+import { buildChart, castCoins, huaJinTui, YAO_NAMES } from "./core.ts";
+import { chartTextFull, actorsOf } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
 import { pickQian, TIER_LABEL } from "./qian60.ts";
 import type { Qian, QianTier } from "./qian60.ts";
@@ -86,16 +87,19 @@ export function fortuneTier(c: Chart): FortuneTier {
     add(helped ? -1 : -2, helped ? "世爻假空" : "世爻真空");
   }
 
-  // ⑤ 入墓：唯休囚之爻才被關，旺相不入墓
-  if (ws <= 0 && (MU[shi.wx] === dayZhi || MU[shi.wx] === monZhi)) add(-1, "世爻入墓");
+  // ⑤ 入墓：唯休囚之爻才被關，旺相不入墓（世爻臨日建者以旺論，不入墓）
+  if (ws <= 0 && shi.zhi !== dayZhi && (MU[shi.wx] === dayZhi || MU[shi.wx] === monZhi)) add(-1, "世爻入墓");
 
-  // ⑥ 他爻發動對世爻之生剋（唯動爻能生剋他爻）
-  c.moving.forEach((mv, i) => {
-    if (!mv || i === shiIdx) return;
-    const e = c.ben[i];
-    if (SHENG[e.wx] === shi.wx) add(1, `${YAO_NAMES[i]}動來生世`);
-    else if (KE[e.wx] === shi.wx) add(-1, `${YAO_NAMES[i]}動來剋世`);
-  });
+  // ⑥ 他爻來剋來生世爻——「他爻」的範圍以 dongyao.ts 為準：
+  //    發動、日辰入卦、暗動、參戰之變爻皆算，不再只認老陽老陰。
+  //    地支同日辰者略過：那股力已在 ② 以「日辰生世／剋世」計過，不重複計次。
+  for (const a of actorsOf(c)) {
+    if (a.from === "日辰" || a.zhi === dayZhi) continue;
+    if (a.pos === shiIdx) continue; // 世爻自身與其變爻另見 ⑦
+    const who = `${YAO_NAMES[a.pos]}${a.from === "變爻" ? "變爻" : ""}${a.kind.split("·")[0]}`;
+    if (SHENG[a.wx] === shi.wx) add(1, `${who}來生世`);
+    else if (KE[a.wx] === shi.wx) add(-1, `${who}來剋世`);
+  }
 
   // ⑦ 世爻自身發動之化象（變爻只作用本位動爻）
   if (c.moving[shiIdx] && c.bian) {
@@ -161,7 +165,7 @@ export async function dailyFortune(db: SupabaseClient, p: {
     const jieqi = jieqiOf(y, m, d);
 
     const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
-    const ai = await callInterpret(ch!.persona_prompt, chartText(chart, FORTUNE_QUESTION), {
+    const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, FORTUNE_QUESTION), {
       fortune: { tierLabel, qian, jieqiLine: jieqi.line },
     });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
