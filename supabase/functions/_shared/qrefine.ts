@@ -2,6 +2,9 @@
 // 立場：只提議、不攔阻。任何失敗、超時、超額一律靜默放行（ok:true），絕不擋住起卦。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { QUESTION_CRAFT } from "./rules.ts";
+// 二選一偵測與本地預檢住在 qcheck.ts：零依賴、可單獨測，也免得與 chat.ts 成環
+import { EITHER_OR_ISSUE, isEitherOr, filterRewrites, preflight } from "./qcheck.ts";
+export { EITHER_OR_ISSUE, isEitherOr, preflight } from "./qcheck.ts";
 import { s2t } from "./chat.ts";
 import { logUsage } from "./services.ts";
 
@@ -21,22 +24,6 @@ export function normYong(s: string | null | undefined): { qin: string; viaShi?: 
   return null;
 }
 
-/* ---------- 本地預檢（零延遲零成本；命中才值得呼叫模型） ----------
-   ⚠ 前端 part2.html 有同一套規則的 JS 版（needsRefine），改這裡務必同步改那裡。
-   缺時限「不」列入觸發條件——多數人本來就不寫時限，每卦都攔會變成嘮叨；改寫時再幫他補上。 */
-export function preflight(qRaw: string): { need: boolean; issues: string[] } {
-  const q = String(qRaw ?? "").trim();
-  const issues: string[] = [];
-  if (!q) return { need: false, issues };
-  if (q.length < 6) issues.push("太短，看不出你問的是哪件事");
-  if (/(還有|另外|順便|以及|同時|順帶)/.test(q) || (q.match(/[?？]/g) ?? []).length > 1) issues.push("一次問了兩件事");
-  if (/(怎麼辦|該怎麼|怎樣才|怎麼樣才|為什麼|為何|如何是好|好不好|如何)/.test(q)) issues.push("是開放題，日後無從印證準不準");
-  if (/(如果|假如|要是|萬一)/.test(q)) issues.push("帶了假設，卦問不了還沒發生的假設");
-  if (/(好煩|好累|崩潰|焦慮|難過|想哭|不知道該|好迷茫|迷惘|心很亂)/.test(q)) issues.push("多是心情，還沒落到具體的事");
-  if (/(人生|一輩子|這輩子|未來)/.test(q) && q.length < 14) issues.push("問得太大，卦應不了一輩子");
-  return { need: issues.length > 0, issues };
-}
-
 export interface RefineResult {
   ok: boolean;                                   // true＝夠好，靜默放行（不出卡）
   issues: string[];                              // 問句的毛病（白話，給用戶看）
@@ -53,6 +40,10 @@ ${QUESTION_CRAFT}
 【你要做的】
 1. 判斷原話是否已經是合格問句（四要素齊備、無硬約束違規）。合格就回 ok=true，不要為了改而改。
 2. 不合格：列出白話毛病（不用術語，各一句、最多三條），並給二到三條改寫候選。候選之間要有差別——通常是「聚焦不同的事」或「不同的時間窗」，不是同一句換字。
+【二選一·最常犯·務必照做】原話若是「A 還是 B」「該選哪個」「哪個比較好」：
+　・毛病那一欄要明講：這一卦只答得了其中一條路，先挑一條問，另一條等這卦有結果之後再另占。
+　・改寫候選**每一句只問一條路**，且要把兩條路各擬一句出來讓他自己挑先問哪個（例：原話「接受新offer還是留在現職」→ 候選一「三個月內接下這份新工作，能不能順利上手？」候選二「三個月內留在現職，能不能有起色？」）。
+　・**任何一條候選都不准再出現「還是」「或是」「哪個比較」「該選哪」**——出現一次，整張建議就是錯的，比不給建議傷得更重。
 3. yong 欄只管一件事：【感情卦且問句已點明對象性別】問男方填「官鬼」、問女方填「妻財」。其餘所有問事一律填 null——用神由解卦人排角色表當場取定，不由你決定。
 
 【輸出】只輸出 JSON，不要任何前後說明、不要程式碼區塊圍籬：
@@ -108,7 +99,13 @@ export async function refineQuestion(db: SupabaseClient, p: { userId: string; qu
       userId: p.userId, mode: "refine", model: REFINE_MODEL, estimated: !data.usage,
       usage: { in: data.usage?.input_tokens ?? Math.ceil((REFINE_SYS.length + q.length) * 1.2), out: data.usage?.output_tokens ?? Math.ceil(text.length * 1.2) },
     });
-    return parseRefine(text) ?? PASS;
+    const r = parseRefine(text) ?? PASS;
+    // 原話是二選一時，模型放行也不算數：那種問句一卦取不出用神，毛病一定要講出來。
+    // （候選若全被攔掉，兩個入口都會因為沒得點而回到原本的問法——不阻斷起卦的立場不變。）
+    if (isEitherOr(q)) {
+      return { ...r, ok: false, issues: [EITHER_OR_ISSUE, ...r.issues.filter((i) => i !== EITHER_OR_ISSUE)].slice(0, 3) };
+    }
+    return r;
   } catch (e) {
     console.error("refine fail, pass silently", e instanceof Error ? e.message : String(e));
     return PASS;
@@ -123,10 +120,13 @@ export function parseRefine(text: string): RefineResult | null {
   if (!m) return null;
   try {
     const j = JSON.parse(m[0]);
-    const rewrites = (Array.isArray(j.rewrites) ? j.rewrites : [])
+    const raw = (Array.isArray(j.rewrites) ? j.rewrites : [])
       .map((r: unknown) => s2t(String(r ?? "").trim()))
-      .filter((r: string) => r.length >= 4 && r.length <= 40)
-      .slice(0, 3);
+      .filter((r: string) => r.length >= 4 && r.length <= 40);
+    // 二選一的候選一律丟掉：建議一句取不出用神的問句，比不建議傷得更重（規則已交代，這裡不靠自律）
+    const { kept, blocked } = filterRewrites(raw);
+    if (blocked.length) console.warn("refine 吐出二選一候選，已攔下：", blocked.join(" / "));
+    const rewrites = kept.slice(0, 3);
     const issues = (Array.isArray(j.issues) ? j.issues : [])
       .map((r: unknown) => s2t(String(r ?? "").trim()))
       .filter(Boolean).slice(0, 3);
