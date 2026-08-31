@@ -206,6 +206,15 @@ function trimIncomplete(text: string): string {
   return cut >= 0 ? t.slice(0, cut + 1) : t;
 }
 
+// 旁白裡冒出來的裸「＝」：沒有任何一行程式碼會產生它，是模型自己吐的。
+// 人設把動作框在全形＊…＊裡，而全形星號（＊ U+FF0A）在多數模型的語料裡極罕見，
+// 寫到旁白收尾時偶爾會滑到全形區隔壁那顆（＝ U+FF1D），寫成「＊他往後靠＝＊」。
+// 免費層小模型（gpt-oss／llama）最常犯，Haiku 偶爾也會。這裡按住的是徵狀：
+// 觀中閒聊不會出現算式，所以裸露的＝一律剝掉，只留「英數＝英數」那種真的等式。
+// deterministic、零 token、零延遲——與第一人稱正規化同一套治法。
+const STRAY_EQ_RE = /(?<![A-Za-z0-9])[=＝]+|[=＝]+(?![A-Za-z0-9])/g;
+export const scrubStrayEq = (text: string): string => text ? text.replace(STRAY_EQ_RE, "") : text;
+
 // 防污染回流：角色照規矩不該在聊天講計費，但舊歷史/記憶可能殘留「靈石/起卦需要」等污染句，
 // 被當 context 餵回去會自我強化（模型沿自己舊話繼續講）。注入前濾掉這類句子（治本在 prompt，此為長期保險）。
 const BILLING_RE = /靈石|起卦.{0,4}需要|付費|收費/;
@@ -417,7 +426,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     .select("role, body").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
   const turns = (history ?? []).reverse()
-    .map((t) => t.role === "assistant" ? { ...t, body: normalizeNarration(scrubBilling(t.body), characterId) || "（……）" } : t);
+    .map((t) => t.role === "assistant" ? { ...t, body: normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId) || "（……）" } : t);
   // 確保歷史以 assistant 回覆結尾（若最後一則是 user，去掉它，避免新訊息與它黏成「回上一句」）
   while (turns.length && turns[turns.length - 1].role === "user") turns.pop();
   // 連續探詢輪次：由最近一則助理回覆往前數 mark='probe' 的連續段（撞到非探詢即停）。
@@ -474,7 +483,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     known = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
   }
 
-  const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubBilling(m.body) : m.body}`).join("\n");
+  const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`).join("\n");
   // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
   const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶。";
@@ -885,9 +894,9 @@ export async function chat(db: SupabaseClient, p: {
     tier = "canned";
   }
 
-  // 統一清洗：剝機器標記→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
+  // 統一清洗：剝機器標記→剝裸＝→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
-  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(parseMarks(t).clean), p.characterId));
+  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId));
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
