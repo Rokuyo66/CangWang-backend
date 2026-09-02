@@ -33,29 +33,71 @@ async function followupPriceTag(userId: string, plan: string): Promise<string> {
 }
 
 /* ---------- TG helpers ---------- */
-async function tg(method: string, payload: Record<string, unknown>) {
-  const r = await fetch(`${TG}/${method}`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
-  });
-  if (!r.ok) console.error(method, await r.text());
-  return r;
+// 回傳 TG 的判定，不只是 Response：sendMessage 被打回時（HTML 解析失敗、訊息過長）
+// 舊版只 console.error 就算了，對用戶而言就是「打了指令沒反應」——最難查的一種壞法。
+// 現在把 description 帶回來，讓 send() 有機會補救。
+async function tg(method: string, payload: Record<string, unknown>): Promise<{ ok: boolean; description: string }> {
+  try {
+    const r = await fetch(`${TG}/${method}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (r.ok) { await r.body?.cancel(); return { ok: true, description: "" }; }
+    const body = await r.text();
+    console.error("TG_FAIL", method, r.status, body);
+    let description = body;
+    try { description = String(JSON.parse(body)?.description ?? body); } catch { /* 非 JSON 就用原文 */ }
+    return { ok: false, description };
+  } catch (e) {
+    // fetch 本身失敗（網路、DNS）：吞掉不讓它炸穿整個 handler，但要留下痕跡
+    console.error("TG_THROW", method, e instanceof Error ? e.message : String(e));
+    return { ok: false, description: "fetch failed" };
+  }
 }
 // Telegram HTML 不支援 <details>/<summary>，若模型誤吐會整段裸露——送出前剝掉標籤（保留內文），並收掉多餘空行
 const stripUnsupportedTags = (s: string) =>
   s.replace(/<\/?(?:details|summary)(?:\s[^>]*)?>/gi, "").replace(/\n{3,}/g, "\n\n").trim();
-const send = (chatId: number, text: string, extra: Record<string, unknown> = {}) =>
-  tg("sendMessage", { chat_id: chatId, text: stripUnsupportedTags(text), parse_mode: "HTML", ...extra });
+// 補救用：剝掉所有標籤、還原實體，變成純文字。寧可少了粗體，也不要整則發不出去。
+const toPlain = (s: string) =>
+  s.replace(/<[^>]+>/g, "")
+   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+const TG_TEXT_LIMIT = 3800;   // TG 硬上限 4096，留邊給實體與標籤
+
+// 送一則訊息。TG 打回來時不再靜默：
+//  ・can't parse entities → 同一則改用純文字重送（標價按鈕等 extra 照舊帶著）
+//  ・message is too long   → 切塊連發
+// 回傳是否真的送出去了，呼叫端要判斷時才判斷得了。
+async function send(chatId: number, text: string, extra: Record<string, unknown> = {}): Promise<boolean> {
+  const body = stripUnsupportedTags(text);
+  if (body.length > TG_TEXT_LIMIT) { await sendLong(chatId, body, extra); return true; }
+  const r = await tg("sendMessage", { chat_id: chatId, text: body, parse_mode: "HTML", ...extra });
+  if (r.ok) return true;
+  if (/can't parse entities|unsupported start tag|unclosed/i.test(r.description)) {
+    const r2 = await tg("sendMessage", { chat_id: chatId, text: toPlain(body), ...extra });
+    return r2.ok;
+  }
+  if (/message is too long/i.test(r.description)) { await sendLong(chatId, body, extra); return true; }
+  return false;
+}
 // TG 單則上限 4096 字：超長訊息按段落切塊連發（在換行處切，行內 <b>/<i> 標籤不會被腰斬）
-async function sendLong(chatId: number, text: string) {
-  const LIMIT = 3800;
-  if (text.length <= LIMIT) { await send(chatId, text); return; }
-  let rest = text;
+// extra（按鈕等）只掛在最後一塊，否則每塊都會長出一組鍵盤。
+async function sendLong(chatId: number, text: string, extra: Record<string, unknown> = {}) {
+  const LIMIT = TG_TEXT_LIMIT;
+  const chunks: string[] = [];
+  let rest = stripUnsupportedTags(text);
   while (rest.length > 0) {
-    if (rest.length <= LIMIT) { await send(chatId, rest); break; }
+    if (rest.length <= LIMIT) { chunks.push(rest); break; }
     let cut = rest.lastIndexOf("\n", LIMIT);
     if (cut < LIMIT / 2) cut = LIMIT; // 找不到合適換行就硬切
-    await send(chatId, rest.slice(0, cut));
+    chunks.push(rest.slice(0, cut));
     rest = rest.slice(cut).replace(/^\n+/, "");
+  }
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1;
+    const r = await tg("sendMessage", {
+      chat_id: chatId, text: chunks[i], parse_mode: "HTML", ...(isLast ? extra : {}),
+    });
+    // 切塊有可能把一組 <b> 攔腰砍斷；被打回就這一塊改純文字重送，不要整段消失
+    if (!r.ok) await tg("sendMessage", { chat_id: chatId, text: toPlain(chunks[i]), ...(isLast ? extra : {}) });
   }
 }
 const typing = (chatId: number) => tg("sendChatAction", { chat_id: chatId, action: "typing" });
@@ -102,16 +144,26 @@ const charKeyboard = {
 };
 
 /* ---------- 身分與會話 ---------- */
+// 這兩支跑在每一則訊息的最前面，任何一支拋出來，整個 onMessage 就此中止，
+// 而外層 catch 只印 log——對用戶就是全部指令一起「無反應」。所以：
+// 錯誤一律顯式檢查、拋出帶標籤的 Error（由入口回報給用戶），不要靠 `prof!.id` 炸成 TypeError。
 async function ensureUser(tgId: string, name?: string): Promise<string> {
-  const { data: idt } = await db.from("identities").select("user_id").eq("provider", "tg").eq("external_id", tgId).maybeSingle();
+  const { data: idt, error: idtErr } = await db.from("identities")
+    .select("user_id").eq("provider", "tg").eq("external_id", tgId).maybeSingle();
+  if (idtErr) throw new Error(`identities 查詢失敗：${idtErr.message}`);
   if (idt) return idt.user_id;
-  const { data: prof } = await db.from("profiles").insert({ display_name: name ?? null }).select("id").single();
-  await db.from("identities").insert({ provider: "tg", external_id: tgId, user_id: prof!.id });
-  await db.rpc("apply_lingshi", { p_user: prof!.id, p_action: "register", p_amount: GRANT_REGISTER });
-  return prof!.id;
+  const { data: prof, error: profErr } = await db.from("profiles")
+    .insert({ display_name: name ?? null }).select("id").single();
+  if (profErr || !prof) throw new Error(`建立 profile 失敗：${profErr?.message ?? "no row"}`);
+  const { error: bindErr } = await db.from("identities").insert({ provider: "tg", external_id: tgId, user_id: prof.id });
+  if (bindErr) throw new Error(`綁定 tg 身分失敗：${bindErr.message}`);
+  await db.rpc("apply_lingshi", { p_user: prof.id, p_action: "register", p_amount: GRANT_REGISTER });
+  return prof.id;
 }
 async function getSession(tgId: string) {
-  const { data } = await db.from("tg_sessions").select("*").eq("tg_id", tgId).maybeSingle();
+  const { data, error } = await db.from("tg_sessions").select("*").eq("tg_id", tgId).maybeSingle();
+  // 讀不到會話不該讓人卡死：記一筆、退回預設會話，讓指令照樣走完
+  if (error) console.error("SESSION_READ_FAIL", tgId, error.message);
   return data ?? { tg_id: tgId, state: "idle", pending_question: null, last_cast_id: null, character_id: null };
 }
 const saveSession = (s: Record<string, unknown>) =>
@@ -140,7 +192,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   // 原本只掛在最下面的閒聊分支，所有 /指令 與 followup_input／num_input／awaiting_cast
   // 狀態都會提前 return，提醒永遠跳不出來（卡在 awaiting_cast 的人一次都收不到）。
   // 例外：/start 是初次入觀的招呼流程，/sign 與 /fortune 本身就是要做那兩件事，不重複打擾。
-  if (!["/start", "/sign", "/fortune", "/運勢"].includes(text)) {
+  if (!["/start", "/sign", "/fortune", "/運勢", "/health"].includes(text)) {
     await maybeSignReminder(chatId, userId, ses);
   }
 
@@ -166,6 +218,47 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     await send(chatId, DISCLAIMER);
     return;
   }
+  // 觀主自檢：下次再遇上「指令無反應」，先打這一支。
+  //  ・這一支也沒反應 → 壞在函式本身或 webhook（沒部署、boot 就炸、secret 不合），不是某個 handler
+  //  ・有反應但某一列 ✗ → 直接指出壞在 DB 讀／DB 寫／TG API 哪一段
+  // getWebhookInfo 的 last_error_message 是 TG 那邊記的「我送過去被打回什麼」，最值錢的一行。
+  if (text === "/health") {
+    const ADMIN0 = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN0) { await send(chatId, "（此為觀主專用。）"); return; }
+    const mark = (ok: boolean) => ok ? "✅" : "✗";
+    const lines: string[] = ["🩺 <b>幾知觀自檢</b>", ""];
+
+    // 環境變數：只報有沒有設，不報內容
+    const envs = ["TG_BOT_TOKEN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TG_WEBHOOK_SECRET", "ANTHROPIC_API_KEY"];
+    lines.push("<b>環境</b>　" + envs.map((k) => `${mark(!!Deno.env.get(k))}${k.replace(/^SUPABASE_|^TG_/, "")}`).join("　"));
+
+    // DB 讀
+    const t0 = Date.now();
+    const { error: rErr } = await db.from("profiles").select("id", { count: "exact", head: true });
+    lines.push(`<b>DB 讀</b>　${mark(!rErr)} ${Date.now() - t0}ms${rErr ? "　" + esc(rErr.message) : ""}`);
+
+    // DB 寫（就寫自己這張會話表，不動別人的資料）
+    const t1 = Date.now();
+    const { error: wErr } = await db.from("tg_sessions").upsert({ tg_id: tgId, updated_at: new Date().toISOString() });
+    lines.push(`<b>DB 寫</b>　${mark(!wErr)} ${Date.now() - t1}ms${wErr ? "　" + esc(wErr.message) : ""}`);
+
+    // TG webhook 現況：待處理數與 TG 記下的最後一次錯誤
+    try {
+      const wh = await (await fetch(`${TG}/getWebhookInfo`)).json();
+      const r = wh?.result ?? {};
+      lines.push(
+        `<b>Webhook</b>　${mark(!!r.url)} 待處理 ${r.pending_update_count ?? "?"}` +
+        (r.last_error_message ? `\n<i>TG 最後一次錯誤（${r.last_error_date ? new Date(r.last_error_date * 1000).toISOString().slice(0, 16).replace("T", " ") : "?"} UTC）：${esc(String(r.last_error_message))}</i>` : ""),
+      );
+    } catch (e) {
+      lines.push(`<b>Webhook</b>　✗ ${esc(e instanceof Error ? e.message : String(e))}`);
+    }
+
+    lines.push("", `<i>台北時間 ${todayTW()}　會話狀態 ${esc(String(ses.state ?? "idle"))}　道緣 ${esc(CHAR_LABELS[ses.character_id] ?? "未結")}</i>`);
+    await send(chatId, lines.join("\n"));
+    return;
+  }
+
   if (text === "/stats") {
     const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
     if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
@@ -179,11 +272,11 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       const byChar = (s.casts_by_char ?? {}) as Record<string, number>;
       const charLine = Object.entries(byChar)
         .sort((a, b) => b[1] - a[1])
-        .map(([cid, c]) => `${CHAR_LABELS2[cid] ?? cid} ${n(c)}`).join("　") || "—";
+        .map(([cid, c]) => `${esc(CHAR_LABELS2[cid] ?? cid)} ${n(c)}`).join("　") || "—";
       const byAct = (s.ledger_by_action ?? {}) as Record<string, number>;
       const actLine = Object.entries(byAct)
         .sort((a, b) => b[1] - a[1])
-        .map(([a, c]) => `${labelOf(a)} ${n(c)}`).join("　") || "—";
+        .map(([a, c]) => `${esc(labelOf(a))} ${n(c)}`).join("　") || "—";
       head +=
         `<b>👥 規模</b>\n` +
         `總用戶 ${n(s.users_total)}　今日新增 ${n(s.users_today)}　近7日活躍 ${n(s.users_7d_active)}\n\n` +
@@ -225,14 +318,16 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       `<i>綜合準驗率（準1、部分0.5）：${accRate([p1, p2, p3])}</i>\n\n` +
       `<b>分角色</b>\n`;
     for (const [cid, arr] of Object.entries(byChar)) {
-      msg += `${CHAR_LABELS2[cid] ?? cid}：${arr[0]}/${arr[1]}/${arr[2]}（準驗 ${accRate(arr)}）\n`;
+      msg += `${esc(CHAR_LABELS2[cid] ?? cid)}：${arr[0]}/${arr[1]}/${arr[2]}（準驗 ${accRate(arr)}）\n`;
     }
     msg += `\n<b>分類別</b>\n`;
     for (const [cat, arr] of Object.entries(byCat)) {
-      msg += `${cat}：${arr[0]}/${arr[1]}/${arr[2]}（準驗 ${accRate(arr)}）\n`;
+      msg += `${esc(cat)}：${arr[0]}/${arr[1]}/${arr[2]}（準驗 ${accRate(arr)}）\n`;
     }
     msg += `\n<i>準/部分/不準</i>`;
-    await send(chatId, msg);
+    // 分角色＋分類別會隨資料長，早晚撞破 TG 的 4096 上限；撞破就是整則發不出去、指令看起來沒反應。
+    // 這一則一律走切塊發送。（角色／類別名來自 DB，上面都已 esc，避免 < 之類的字元讓 HTML 解析整則失敗。）
+    await sendLong(chatId, msg);
     return;
   }
 
@@ -928,14 +1023,23 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
 }
 
 /* ---------- 入口 ---------- */
+// update → 該回話的 chat id。出錯時要回一句給人看，得先知道回哪裡。
+// deno-lint-ignore no-explicit-any
+function chatIdOf(update: any): number | null {
+  const id = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
+  return typeof id === "number" ? id : null;
+}
+
 Deno.serve(async (req) => {
   // webhook secret 驗證（setWebhook 時指定 secret_token）
   const secret = Deno.env.get("TG_WEBHOOK_SECRET");
   if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
     return new Response("forbidden", { status: 403 });
   }
+  // deno-lint-ignore no-explicit-any
+  let update: any = null;
   try {
-    const update = await req.json();
+    update = await req.json();
     // 廣播指令攔截（僅管理員 /broadcast 與確認按鈕；其餘放行回原路由）
     const handled = await tryHandleBroadcast(update, db);
     if (handled) return new Response("ok");
@@ -943,7 +1047,22 @@ Deno.serve(async (req) => {
     else if (update.callback_query) await onCallback(update.callback_query);
   } catch (e) {
     // 印出完整錯誤到 log（含 stack），方便定位
+    const detail = e instanceof Error ? e.message : String(e);
     console.error("WEBHOOK_ERROR:", e instanceof Error ? e.stack ?? e.message : String(e));
+    // 再回一句給用戶。沒有這一句，任何一個中途拋出的錯（DB 連線、查詢炸掉）
+    // 對用戶就只是「打了指令，什麼都沒發生」——連壞在哪一步都問不出來。
+    // 觀主看得到錯誤本文，一般用戶只看到角色口吻的一句話。
+    const chatId = chatIdOf(update);
+    if (chatId !== null) {
+      const fromId = String(update?.message?.from?.id ?? update?.callback_query?.from?.id ?? "");
+      const isAdmin = fromId === (Deno.env.get("ADMIN_TG_ID") ?? "8674594142");
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: isAdmin
+          ? `⚠️ 觀中出了岔子：${detail}`
+          : "（觀中一時失神，這一步沒走完。）稍候再試一次；若一直如此，打 /start 重新入觀。",
+      }).catch(() => {});
+    }
   }
   return new Response("ok"); // 永遠 200，避免 TG 重送風暴
 });
