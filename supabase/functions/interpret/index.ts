@@ -435,14 +435,36 @@ Deno.serve(async (req) => {
     }
 
     // 領取收集獎勵：集滿不自動解鎖，玩家在卦曆點擊獎勵頭像才領取入袋
+    //
+    // 【2026-09-02 修】原本這裡寫完就直接回 ok，不看 update 的錯誤，也不確認真的寫進去了。
+    // 寫不進去時（RLS、欄位型別、暫時性連線錯）畫面照樣跳「集卦圓滿」的獲得彈窗，
+    // 但 claimed_rewards 還是空的——於是下一次 profile 依舊算出「有待領獎勵」，
+    // 卦曆那顆紅點永遠消不掉，而兩端都沒有任何一處說得出為什麼。
+    // 回報就是「收完離卦獎勵之後紅點消不掉」。與 set_guide_seen 當初那個坑同一個形狀：
+    // 記號沒蓋上卻回報成功，錯誤就此隱形。
     if (body.mode === "claim_reward") {
       const key = String(body.reward ?? "");
       const { eligible } = await computeCollection(db, uid, true);
       if (!eligible.includes(key)) return Response.json({ kind: "err", msg: "卦數未齊，尚不可領" }, { headers: CORS });
       const claimed = await claimedRewards(db, uid);
       if (claimed.includes(key)) return Response.json({ kind: "err", msg: "此獎已領過" }, { headers: CORS });
-      await db.from("profiles").update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
-      return Response.json({ kind: "ok", reward: key }, { headers: CORS });
+      // 錯誤一律 200＋kind:"err"（站內既有做法）：apiInterpret 只有非 2xx 才丟例外，
+      // 走 5xx 的話這句訊息根本到不了畫面上，使用者只會看到一串 HTTP 錯誤。
+      const { error: claimErr } = await db.from("profiles")
+        .update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
+      if (claimErr) {
+        console.error("claim_reward update failed", uid, key, claimErr.message);
+        return Response.json({ kind: "err", msg: "領取沒能存住，請再試一次" }, { headers: CORS });
+      }
+      // 讀回來確認，並把結果下發給前端。update 沒報錯不等於那一列真的變了
+      // （eq 條件沒對到任何一列時，PostgREST 一樣回成功）——而「以為領到了其實沒有」
+      // 正是這個 bug 最難查的地方，所以寧可多一次 select。
+      const after = await claimedRewards(db, uid);
+      if (!after.includes(key)) {
+        console.error("claim_reward not persisted", uid, key);
+        return Response.json({ kind: "err", msg: "領取沒能存住，請再試一次" }, { headers: CORS });
+      }
+      return Response.json({ kind: "ok", reward: key, claimed: after }, { headers: CORS });
     }
 
     // 設定玩家頭像（a~h 依解鎖數；r07~r10 需已解鎖。御三家 01~06/11~13 不屬玩家池）
