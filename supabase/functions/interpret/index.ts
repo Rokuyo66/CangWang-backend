@@ -67,8 +67,15 @@ const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],
 // 定價以「簽到月收約 283 顆」為尺，一套約當一個月的簽到量，買得下但要攢。
 const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porcelain: 320 };
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
-// 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
-const ahUnlockedCount = (signinTotal: number) => 5 + Math.min(3, Math.floor(signinTotal / 7));
+// 玩家 a~h 頭像解鎖數：註冊即有 AH_FREE 張，之後每滿 AH_PER 次簽到 +1，直到 8 張領齊。
+// 【2026-09-02 改】原本是「註冊 5 張，7／14／21 各解一張」，最後一張要累計 21 次。
+// 觀主的設計意圖是「14 次就該全開」，所以改成註冊 6 張、7 與 14 各解一張。
+// 這裡算的一直是 signin_total（累計），不是 sign_streak——斷簽補簽都不影響頭像進度。
+// 前端 part2.html 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
+const AH_FREE = 6;
+const AH_PER = 7;
+const ahUnlockedCount = (signinTotal: number) =>
+  Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
 // CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -428,14 +435,36 @@ Deno.serve(async (req) => {
     }
 
     // 領取收集獎勵：集滿不自動解鎖，玩家在卦曆點擊獎勵頭像才領取入袋
+    //
+    // 【2026-09-02 修】原本這裡寫完就直接回 ok，不看 update 的錯誤，也不確認真的寫進去了。
+    // 寫不進去時（RLS、欄位型別、暫時性連線錯）畫面照樣跳「集卦圓滿」的獲得彈窗，
+    // 但 claimed_rewards 還是空的——於是下一次 profile 依舊算出「有待領獎勵」，
+    // 卦曆那顆紅點永遠消不掉，而兩端都沒有任何一處說得出為什麼。
+    // 回報就是「收完離卦獎勵之後紅點消不掉」。與 set_guide_seen 當初那個坑同一個形狀：
+    // 記號沒蓋上卻回報成功，錯誤就此隱形。
     if (body.mode === "claim_reward") {
       const key = String(body.reward ?? "");
       const { eligible } = await computeCollection(db, uid, true);
       if (!eligible.includes(key)) return Response.json({ kind: "err", msg: "卦數未齊，尚不可領" }, { headers: CORS });
       const claimed = await claimedRewards(db, uid);
       if (claimed.includes(key)) return Response.json({ kind: "err", msg: "此獎已領過" }, { headers: CORS });
-      await db.from("profiles").update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
-      return Response.json({ kind: "ok", reward: key }, { headers: CORS });
+      // 錯誤一律 200＋kind:"err"（站內既有做法）：apiInterpret 只有非 2xx 才丟例外，
+      // 走 5xx 的話這句訊息根本到不了畫面上，使用者只會看到一串 HTTP 錯誤。
+      const { error: claimErr } = await db.from("profiles")
+        .update({ claimed_rewards: [...claimed, key] }).eq("id", uid);
+      if (claimErr) {
+        console.error("claim_reward update failed", uid, key, claimErr.message);
+        return Response.json({ kind: "err", msg: "領取沒能存住，請再試一次" }, { headers: CORS });
+      }
+      // 讀回來確認，並把結果下發給前端。update 沒報錯不等於那一列真的變了
+      // （eq 條件沒對到任何一列時，PostgREST 一樣回成功）——而「以為領到了其實沒有」
+      // 正是這個 bug 最難查的地方，所以寧可多一次 select。
+      const after = await claimedRewards(db, uid);
+      if (!after.includes(key)) {
+        console.error("claim_reward not persisted", uid, key);
+        return Response.json({ kind: "err", msg: "領取沒能存住，請再試一次" }, { headers: CORS });
+      }
+      return Response.json({ kind: "ok", reward: key, claimed: after }, { headers: CORS });
     }
 
     // 設定玩家頭像（a~h 依解鎖數；r07~r10 需已解鎖。御三家 01~06/11~13 不屬玩家池）

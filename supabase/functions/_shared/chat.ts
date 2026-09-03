@@ -2,7 +2,7 @@
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
-import { QUESTION_CRAFT } from "./rules.ts";
+import { QUESTION_CRAFT, fixGuaciChars } from "./rules.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
@@ -27,16 +27,35 @@ const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸�
 // 第一人稱正規化：只有旁白（＊…＊，或舊格式（…））內的「我」轉第三人稱；其餘一律視為台詞，保留「我」。
 // 舊版反過來（「」外全轉）——台詞常裸寫不帶「」，會把台詞的「我」誤轉成牠/他（「逗我玩」變「逗牠玩」），視角穿幫。
 // 治「模型把動作寫成第一人稱」＋「舊污染回灌當 few-shot」。deterministic、零 token、零延遲。
+//
+// 【2026-09-02 修】舊註解寫「未成對的＊不會被匹配，原樣保留」——那句是錯的，而且是承重的。
+// 模型漏寫一個收尾的＊時（或 trimIncomplete 從中間切斷時），那顆孤兒＊會跟**下一個**＊配成一對，
+// 把中間的台詞整段吞進「旁白」，於是台詞裡的「我」被改成他。實際長相：
+//
+//   ＊停頓，他的聲音變得很低        ← 這裡漏了收尾的＊
+//   「……我知道。」                  ← 被吞進上一段，變成「……他知道。」
+//   ＊他往前靠了半步＊
+//
+// 回報就是「大師兄為什麼突然講第三人稱」。兩道防線：
+//   ① 旁白不跨行（[^＊\n]）——孤兒＊再也搆不到下一行的＊，吞不到台詞。
+//   ② 「」『』內一律不動，即使落在旁白段裡。台詞永遠是台詞，這一條不該有例外。
+// 只有 ① 的話，同一行內的孤兒＊仍可能吞掉同行的台詞；只有 ② 的話，沒帶引號的台詞仍會被吞。
 const THIRD_PERSON: Record<string, string> = { daoshi_m: "他", daoshi_f: "她", lingshou: "牠" };
 function normalizeNarration(text: string, characterId: string): string {
   if (!text) return text;
   const pron = THIRD_PERSON[characterId] ?? "他";
-  // 捕獲組使 split 保留分隔符；奇數段＝旁白（正規化），偶數段＝台詞（不動）。未成對的＊不會被匹配，原樣保留。
-  return text.split(/(＊[^＊]*＊|（[^）]*）)/).map((seg, i) => {
+  // 旁白段裡再挖一次：引號內是台詞，一個字都不許動。
+  const narrate = (seg: string): string =>
+    seg.split(/(「[^」]*」|『[^』]*』)/)
+       .map((t, j) => (j % 2 === 0 ? t.replace(/我/g, pron) : t))
+       .join("");
+  // 捕獲組使 split 保留分隔符；奇數段＝旁白（正規化），偶數段＝台詞（不動）。
+  return text.split(/(＊[^＊\n]*＊|（[^）\n]*）)/).map((seg, i) => {
     if (i % 2 === 0) return seg;               // 台詞：保留「我」
-    return seg.replace(/我/g, pron);           // 旁白：我→他/她/牠（我的→X的、我們→X們自動涵蓋）
+    return narrate(seg);                        // 旁白：我→他/她/牠（我的→X的、我們→X們自動涵蓋）
   }).join("");
 }
+export const __normalizeNarration = normalizeNarration;   // 測試用（dev/narration-test.mts）
 const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【絕對禁止·最高優先】你只記得上面實際列出的卦。不可虛構任何你與他的往事，不可提到上面沒列出的卦、個股或事件，不可說「去年」「上次」「之前你說過」這類話——沒列出的，就是從沒發生過。不確定就只聊當下這句，絕不腦補。（例外：上面若附了卦紙原文，那段是真的，該認就認，不可否認自己寫過的卦理。）";
@@ -894,9 +913,11 @@ export async function chat(db: SupabaseClient, p: {
     tier = "canned";
   }
 
-  // 統一清洗：剝機器標記→剝裸＝→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
+  // 統一清洗：剝機器標記→剝裸＝→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體→干支用字校正
+  // fixGuaciChars 必須排在 s2t 之後：s2t 保護的是「別把簡體丑轉成醜」，
+  // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
-  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId));
+  const polish = (t: string): string => fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId)));
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
