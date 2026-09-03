@@ -67,8 +67,15 @@ const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],
 // 定價以「簽到月收約 283 顆」為尺，一套約當一個月的簽到量，買得下但要攢。
 const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porcelain: 320 };
 const AH_KEYS = ["a","b","c","d","e","f","g","h"];
-// 玩家 a~h 頭像解鎖數：註冊解 5，之後每滿 7 次簽到 +1，上限 8
-const ahUnlockedCount = (signinTotal: number) => 5 + Math.min(3, Math.floor(signinTotal / 7));
+// 玩家 a~h 頭像解鎖數：註冊即有 AH_FREE 張，之後每滿 AH_PER 次簽到 +1，直到 8 張領齊。
+// 【2026-09-02 改】原本是「註冊 5 張，7／14／21 各解一張」，最後一張要累計 21 次。
+// 觀主的設計意圖是「14 次就該全開」，所以改成註冊 6 張、7 與 14 各解一張。
+// 這裡算的一直是 signin_total（累計），不是 sign_streak——斷簽補簽都不影響頭像進度。
+// 前端 part2.html 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
+const AH_FREE = 6;
+const AH_PER = 7;
+const ahUnlockedCount = (signinTotal: number) =>
+  Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
 // CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
 const CORS = {
   "Access-Control-Allow-Origin": "*",
