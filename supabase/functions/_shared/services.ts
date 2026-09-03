@@ -3,7 +3,7 @@ import { YAO_NAMES, huaJinTui } from "./core.ts";
 // Chart 是 interface，得走 import type——混在值 import 裡，node 的型別剝除
 // （dev/billing-test.mts 就是靠它跑）會照著去 core.ts 找一個不存在的 export。
 import type { Chart } from "./core.ts";
-import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged } from "./rules.ts";
+import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
@@ -296,7 +296,10 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     usedModel = fallbackModel;
     r = await callModel(fallbackModel);
   }
-  const { text, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
+  const { text: rawText, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
+  // 干支用字校正擺在最前面，parseTagged 與 reading 兩條路才吃得到同一份修好的字。
+  // 擺在 parseTagged 之後的話，digest 與 suggested 會漏掉——那兩個也是要給人看的。
+  const text = fixGuaciChars(rawText);
 
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
   const estimated = rawIn == null || rawOut == null;

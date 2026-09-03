@@ -2,7 +2,7 @@
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
-import { QUESTION_CRAFT } from "./rules.ts";
+import { QUESTION_CRAFT, fixGuaciChars } from "./rules.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
@@ -894,9 +894,11 @@ export async function chat(db: SupabaseClient, p: {
     tier = "canned";
   }
 
-  // 統一清洗：剝機器標記→剝裸＝→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體
+  // 統一清洗：剝機器標記→剝裸＝→裁半句(過 token)→旁白第一人稱轉第三人稱→強制繁體→干支用字校正
+  // fixGuaciChars 必須排在 s2t 之後：s2t 保護的是「別把簡體丑轉成醜」，
+  // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
-  const polish = (t: string): string => s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId));
+  const polish = (t: string): string => fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId)));
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
