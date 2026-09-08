@@ -50,6 +50,7 @@ param(
   [switch]$Notes,                        # 附回評評語
   [int]$NoteN = 20,                      # 評語列幾則
   [switch]$Sql,                          # 只印 SQL
+  [switch]$Raw,                          # 診斷用：印出第一支查詢的原始回應就停
   [decimal]$Twd = 32,                    # 美元兌台幣
   # KIMI 單價（美元／百萬 token）。見上方說明：這是參數不是事實，對帳後請改成你的實際數字。
   [decimal]$KimiIn = 0.95,
@@ -92,15 +93,82 @@ if ($Sql -and ($Email -or $TgId -or $Find)) {
   exit 1
 }
 
+# ── 回應正規化 ────────────────────────────────────────────────────
+# Management API 的回應形狀不是永遠一樣：一般是「每列一個物件」的陣列，
+# 但實測也遇過整包變成「單一物件、每個欄位是一條等長陣列」（欄式）的回法。
+# 欄式若不轉回列，症狀不是報錯而是**每一列都印出同一組數字**——那比報錯危險，
+# 因為它看起來像一份正常的報表。這支專門把任何一種形狀收斂回「一列一個物件」。
+function ConvertTo-Rows {
+  param($Data)
+  if ($null -eq $Data) { return @() }
+
+  # 包裝層：{ result: [...] } / { data: [...] } / { rows: [...] }
+  if ($Data -is [psobject] -and $Data -isnot [object[]]) {
+    foreach ($k in @('result', 'data', 'rows')) {
+      $p = $Data.PSObject.Properties[$k]
+      if ($p -and $null -ne $p.Value) { return (ConvertTo-Rows $p.Value) }
+    }
+  }
+
+  $arr = @($Data)
+  if ($arr.Count -eq 0) { return @() }
+
+  # 欄式 → 列式。判定條件抓緊一點：單一物件、且**每一個**欄位都是等長陣列。
+  # 本腳本的查詢沒有任何一欄回傳陣列，所以不會誤判到正常的單列結果。
+  if ($arr.Count -eq 1 -and $arr[0] -is [psobject]) {
+    $props = @($arr[0].PSObject.Properties)
+    if ($props.Count -gt 0) {
+      $allArrays = -not ($props | Where-Object { $_.Value -isnot [array] })
+      if ($allArrays) {
+        $n = @($props[0].Value).Count
+        $sameLen = -not ($props | Where-Object { @($_.Value).Count -ne $n })
+        if ($sameLen -and $n -ge 1) {
+          return @(0..($n - 1) | ForEach-Object {
+            $i = $_
+            $o = [ordered]@{}
+            foreach ($p in $props) { $o[$p.Name] = @($p.Value)[$i] }
+            [pscustomobject]$o
+          })
+        }
+      }
+    }
+  }
+
+  # 列式：單值陣列攤平（有些回法會把純量包成一元陣列）
+  return @($arr | ForEach-Object {
+    $row = $_
+    if ($row -isnot [psobject]) { return $row }
+    $o = [ordered]@{}
+    foreach ($p in $row.PSObject.Properties) {
+      $v = $p.Value
+      if ($v -is [array] -and @($v).Count -eq 1) { $v = @($v)[0] }
+      $o[$p.Name] = $v
+    }
+    [pscustomobject]$o
+  })
+}
+
 function Invoke-Sql {
   param([string]$Query)
   $body = @{ query = $Query } | ConvertTo-Json -Depth 3 -Compress
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
   try {
-    return Invoke-RestMethod -Method Post `
+    # 用 Invoke-WebRequest 拿原始文字再自己 ConvertFrom-Json：
+    # 這樣 -Raw 診斷看得到真實回應，反序列化的行為也不隨 PowerShell 版本飄。
+    $resp = Invoke-WebRequest -Method Post `
       -Uri "https://api.supabase.com/v1/projects/$ProjectRef/database/query" `
       -Headers @{ Authorization = "Bearer $Token"; 'Content-Type' = 'application/json' } `
       -Body $bytes
+    $text = $resp.Content
+    if ($Raw) {
+      Write-Host ""
+      Write-Host "── 原始回應（前 1200 字）──" -ForegroundColor Cyan
+      Write-Host $text.Substring(0, [math]::Min(1200, $text.Length))
+      Write-Host ""
+      Write-Host "（-Raw 只印形狀，不含 token。把這段貼回來就能對症下藥。）" -ForegroundColor DarkGray
+      exit 0
+    }
+    return (ConvertTo-Rows ($text | ConvertFrom-Json))
   } catch {
     $detail = $_.ErrorDetails.Message
     if (-not $detail) { $detail = $_.Exception.Message }
@@ -244,6 +312,21 @@ $SQL_MAIN =
   "from casts c left join feedback f on f.cast_id = c.id " +
   "where $NOTFORTUNE$SCOPEC$WINC group by 1 order by 1;"
 
+# 3b. 同一張表按型號再切一次。實測資料裡 CLAUDE 底下混了 sonnet 與 haiku
+#     （haiku 是日運與早期追問用的），把兩者併成一個品牌會讓每卦成本與卦數失真，
+#     而真正要決定的是「哪一個型號當主力」。
+$SQL_MAIN_MODEL =
+  "select coalesce(c.model,'(未記錄)') as model, " +
+  "count(*) as casts, " +
+  "count(*) filter (where c.due_date is not null) as due_total, " +
+  "count(*) filter (where c.due_date is not null and c.due_date <= current_date) as due_arrived, " +
+  "count(*) filter (where f.verdict in (1,2,3)) as answered, " +
+  "count(*) filter (where f.verdict = 1) as hit, " +
+  "count(*) filter (where f.verdict = 2) as part, " +
+  "count(*) filter (where f.verdict = 3) as miss " +
+  "from casts c left join feedback f on f.cast_id = c.id " +
+  "where $NOTFORTUNE$SCOPEC$WINC group by 1 order by count(*) desc;"
+
 # 4. 追問次數：卦解得清不清楚的旁證（同一批卦被追問越多，通常是首解沒講明白）
 $SQL_FOLLOWUP =
   "select $ENGC as engine, count(*) as followups " +
@@ -300,6 +383,7 @@ if ($Sql) {
     @{ n = "1 引擎時間軸";     q = $SQL_TIMELINE },
     @{ n = "2 型號明細";       q = $SQL_MODELS },
     @{ n = "3 主表";           q = $SQL_MAIN },
+    @{ n = "3b 主表（按型號）"; q = $SQL_MAIN_MODEL },
     @{ n = "4 追問次數";       q = $SQL_FOLLOWUP },
     @{ n = "5 分類拆解";       q = $SQL_BYCAT },
     @{ n = "6 擬題對照";       q = $SQL_BYSRC },
@@ -326,7 +410,9 @@ function Wilson {
   $d = 1 + $z * $z / $n
   $c = ($p + $z * $z / (2 * $n)) / $d
   $h = $z * [math]::Sqrt($p * (1 - $p) / $n + $z * $z / (4 * $n * $n)) / $d
-  return @{ lo = [math]::Max(0, $c - $h); hi = [math]::Min(1, $c + $h); p = $p }
+  # 用 0.0 / 1.0 而不是 0 / 1：整數字面量會讓 PowerShell 選到 Max(int,int) 的多載，
+  # 把 double 四捨五入成整數——區間於是永遠變成 0–100%，而且不報錯。
+  return @{ lo = [math]::Max(0.0, $c - $h); hi = [math]::Min(1.0, $c + $h); p = $p }
 }
 # erf 近似（Abramowitz-Stegun 7.1.26），只為了把 z 換成 p 值。
 function Erf {
@@ -411,6 +497,26 @@ $rows = foreach ($m in $main) {
 $rows | Format-Table -Property * -AutoSize
 Write-Host "應驗率＝應驗÷已回評；加權分＝(應驗+0.5×部分)÷已回評；回報率＝已回評÷應期已到的卦" -ForegroundColor DarkGray
 Write-Host "95%CI＝應驗率的 Wilson 信賴區間。兩個引擎的區間重疊，就是還分不出高下。" -ForegroundColor DarkGray
+
+Write-Host ""
+Write-Host "同一批卦按型號切（品牌底下不只一個型號時，這張才是決策用的）" -ForegroundColor DarkGray
+$byModel = foreach ($m in @(Invoke-Sql $SQL_MAIN_MODEL)) {
+  $n = [int]$m.answered
+  $w = Wilson ([int]$m.hit) $n
+  [pscustomobject]@{
+    型號     = $m.model
+    卦數     = $m.casts
+    給應期   = $m.due_total
+    應期已到 = $m.due_arrived
+    已回評   = $n
+    應驗     = $m.hit
+    部分     = $m.part
+    未應     = $m.miss
+    應驗率   = "$(Pct $m.hit $n)%"
+    '95%CI'  = $(if ($n -gt 0) { "$([math]::Round(100*$w.lo,1))-$([math]::Round(100*$w.hi,1))%" } else { "" })
+  }
+}
+$byModel | Format-Table -Property * -AutoSize
 
 Write-Host ""
 Write-Host "旁證（不靠回評，看得出批文品質與回報行為的差別）" -ForegroundColor DarkGray
