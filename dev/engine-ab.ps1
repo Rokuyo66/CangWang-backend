@@ -78,6 +78,13 @@ if (-not $Sql) {
     Write-Host "（anon / service_role key 是 eyJ 開頭的 JWT，那兩把在這裡不能用。）"
     exit 1
   }
+  # 前綴重複：貼上時前面又自己打了一次 sbp_。API 只會回 401，訊息裡看不出是這個原因，
+  # 而 401 會讓人去懷疑權限、去重發 token——先在這裡講清楚，省掉那一圈。
+  if ($Token -match '^sbp_sbp_') {
+    Write-Host "token 的 sbp_ 前綴重複了（$($Token.Substring(0, [math]::Min(12, $Token.Length)))…）。" -ForegroundColor Red
+    Write-Host "整串只該有一個 sbp_ 開頭，把多的那個刪掉。"
+    exit 1
+  }
 }
 
 if ($Sql -and ($Email -or $TgId -or $Find)) {
