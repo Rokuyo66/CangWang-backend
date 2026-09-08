@@ -39,7 +39,8 @@
 //   node dev/gua-eval.mts -n 30
 //   node dev/gua-eval.mts --miss                   # 只抽「未應」的卦（爭議最大、最有料）
 //   node dev/gua-eval.mts --models claude-sonnet-4-6,kimi-k2.6,claude-haiku-4-5-20251001
-//   node dev/gua-eval.mts --cases dev/.eval/fixture-xxx.json    # 重跑同一批（改了 rules 之後對照用）
+//   node dev/gua-eval.mts --cases last             # 重跑最近那一批（改了 rules 之後對照用）
+//   node dev/gua-eval.mts --cases dev/.eval/fixture-2026-09-08T05-26-37.json   # 指定某一批
 //
 // 需要的環境變數：
 //   $env:SUPABASE_ACCESS_TOKEN = "sbp_..."   # 抽卦盤用（同 dev/casts.ps1）
@@ -55,7 +56,7 @@
 //   report-<時間>.md      盲測讀本：問題、盤面、A/B 兩份批文、後來實際發生什麼
 //   key-<時間>.json       答案鍵＋每個模型的延遲、token、成本、備援次數
 
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -285,8 +286,20 @@ async function main() {
   // ── 1. 取卦盤
   let cases: Fixture[];
   if (casesPath) {
-    cases = JSON.parse(readFileSync(casesPath, "utf8"));
-    console.log(`重跑既有樣本：${casesPath}（${cases.length} 張）`);
+    // --cases last：挑 dev/.eval 裡最新的 fixture。檔名帶時間戳，手打很容易錯一個字元，
+    // 而「重跑上一批」正是這支最常做的事（改完 rules.ts 前後對照）。
+    let cp = casesPath;
+    if (cp === "last" || cp === "latest") {
+      const found = existsSync(outDir)
+        ? readdirSync(outDir).filter((f) => f.startsWith("fixture-") && f.endsWith(".json"))
+            .map((f) => path.join(outDir, f))
+            .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+        : [];
+      if (!found.length) { console.log(`${outDir} 裡找不到任何 fixture-*.json。先不帶 --cases 跑一次產生樣本。`); return; }
+      cp = found[0];
+    }
+    cases = JSON.parse(readFileSync(cp, "utf8"));
+    console.log(`重跑既有樣本：${cp}（${cases.length} 張）`);
   } else {
     console.log(`抽樣中……（已回評、排除日運${missOnly ? "、只取未應" : ""}）`);
     const where = missOnly ? "f.verdict = 3" : "f.verdict in (1,2,3)";
