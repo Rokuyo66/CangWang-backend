@@ -16,3 +16,7 @@ dev/form.html
 # 進 repo 的是四張 .dc.html 與 canvas.json（真正的設計來源），成品用它們重建：
 #   見 dev/design/xinji/README.md
 dev/design/*/[a-z]*-*.html
+
+# 盲測產出：裡面是真實用戶的問題與回評評語，還有兩份完整批文。
+# 這是個人資料，不進 repo。要留存就自己備份到 repo 以外的地方。
+dev/.eval/
