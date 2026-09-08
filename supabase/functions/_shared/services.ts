@@ -99,8 +99,24 @@ const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // KIMI 硬超時：edge→.cn 跨境慢（實測約 33 tok/s），偶發掛住會拖死整個 function 被平台掐成 546。
 // 逾時就 abort 丟錯，交給備援換家重打；上限取 edge 牆鐘（150s）內留得住備援餘裕的值。
 const KIMI_TIMEOUT_MS = Number(Deno.env.get("KIMI_TIMEOUT_MS") ?? "100000");
-// 卦理規則的快取存活時間。設 "5m" 可退回舊行為（見 system 組裝處的說明）。
-const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
+// 卦理規則的快取存活時間："1h" / "5m" / "off"。
+//
+// 預設是 off，這是量出來的，不是省事：2026-09-08 讀 ai_usage，cast 這一路
+// 快取寫入 335,543 token、讀取只有 58,564——命中率 14.8%。
+// 而快取的算術是：寫入加價（1h 是 2 倍、5m 是 1.25 倍），命中才打一折。
+//   1h 的損益平衡點在命中率 52.6%（2 - 1.9h < 1）
+//   5m 的損益平衡點在 21.7%
+// 14.8% 遠低於兩者，等於「付 1.72 倍的錢，辦一件本來要省錢的事」。
+//
+// 根因是流量密度，不是程式：206 次初解散在 86 天，一天 2.4 卦，平均間隔十小時，
+// 而 1h 快取要有人在同一小時內再問一次才划算。（0043 檔頭寫的「每小時個位數次
+// 解卦」是當初的估計，實際差了約十倍——那份 migration 是既成歷史不改，
+// 正確的數字記在這裡。）
+//
+// ⚠ 什麼時候該改回 "1h"：初解量到每天 20–40 卦（≈ 每小時湊得到三次呼叫）。
+//   那時 2 倍的寫入才有足夠的讀取攤提，快取會自己開始賺錢。改環境變數即可，不必重部署。
+const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "off";
+const CACHE_OFF = CACHE_TTL === "off" || CACHE_TTL === "none";
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
 // 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
@@ -147,10 +163,18 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
   // 那樣的快取是在多花錢。1h 寫入雖是 2 倍，但一寫多讀，整體省 7 成上下。
   // 角色聲線放在快取斷點之後：三個角色各有一份，擺進前綴會裂成三份快取。
-  const system = [
-    { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
-    { type: "text", text: `【角色聲線】\n${persona}` },
-  ];
+  // off 時整塊不帶 cache_control。這裡不能只把 CACHE_TTL 填成 "off" 送出去——
+  // 那是個不合法的 ttl，API 回 400，下面的補救會把 ttl 拿掉重打，結果是
+  // 「快取沒關成，還每次多一趟往返」。要關就從這裡不放這個欄位。
+  const system = CACHE_OFF
+    ? [
+        { type: "text", text: ruleText },
+        { type: "text", text: `【角色聲線】\n${persona}` },
+      ]
+    : [
+        { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
+        { type: "text", text: `【角色聲線】\n${persona}` },
+      ];
   // 用神提示：所有 mode 一體適用——追問/深展/評卦沿用首解已取定之用神，避免中途改取自打嘴巴
   const yongHint = opts.yong
     ? `\n\n【用神已取定】此卦用神為「${opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.qin}」${
@@ -283,9 +307,15 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   };
 
   // 主模型失敗 → 備援換家重打一次；備援也掛才真的丟錯（呼叫端照舊處理）
-  const fallbackModel = isKimiModel(model)
+  // "off" 要兩個方向都關。原本只關了 Claude→KIMI 那一邊，KIMI→Claude 照樣會換家，
+  // 於是「關掉備援」這件事只做到一半——離線盲測就是被這個咬到：要求 kimi 卻拿回
+  // claude 的批文，比出來的是同一個模型。
+  const fallbackOff = FALLBACK_KIMI === "off";
+  const fallbackModel = fallbackOff
+    ? null
+    : isKimiModel(model)
     ? FALLBACK_CLAUDE
-    : (Deno.env.get("KIMI_API_KEY") && FALLBACK_KIMI !== "off" ? FALLBACK_KIMI : null);
+    : (Deno.env.get("KIMI_API_KEY") ? FALLBACK_KIMI : null);
   let usedModel = model;
   let r: Awaited<ReturnType<typeof callModel>>;
   try {

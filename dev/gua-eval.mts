@@ -146,8 +146,13 @@ type Result = {
    INTERPRET_FORCE_MODEL 是模組載入時就抓進 const 的，同一個行程裡再改環境變數
    對它沒有作用。ESM 的 module cache 也不會因為換環境變數就重新求值。
    開子行程是唯一能保證「這一輪真的用了這個模型」而且完全走生產程式碼的做法。 */
-async function runWorker(model: string, fixturePath: string, outPath: string) {
+async function runWorker(model: string, fixturePath: string, outPath: string, keepGoing: boolean) {
   process.env.INTERPRET_FORCE_MODEL = model;
+  // 盲測一定要關備援。開著的話，要求 kimi 而 kimi 掛掉時會拿回 claude 的批文，
+  // 並排比較的就變成同一個模型自己跟自己比——而且讀本上看不出來。
+  // （順帶：備援開著時丟出來的是「備援的錯誤」，主模型的真正錯誤只寫進 console。
+  //   上一輪的報告因此在 claude 那欄印出 kimi 的 401，看起來像叫錯了模型。）
+  process.env.INTERPRET_FALLBACK_MODEL = "off";
   shimDeno();
 
   const { callInterpret } = await import("../supabase/functions/_shared/services.ts");
@@ -183,10 +188,38 @@ async function runWorker(model: string, fixturePath: string, outPath: string) {
         usage: { in: 0, out: 0, cacheWrite: 0, cacheRead: 0 }, stop_reason: null,
         error: e instanceof Error ? e.message : String(e),
       });
-      process.stderr.write(`    [${model}] ${i + 1}/${cases.length}  ✗ ${ms}ms ${e instanceof Error ? e.message : e}\n`);
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`    [${model}] ${i + 1}/${cases.length}  ✗ ${ms}ms ${msg}\n`);
+      // 第一張就掛＝幾乎一定是設定問題（金鑰、區域、模型名），不是運氣。
+      // 這時候把剩下 19 張跑完只會燒錢，還產出一份整本都是錯誤訊息的讀本——
+      // 上一輪就是這樣浪費了 40 次呼叫。停下來，把診斷講清楚。
+      if (i === 0 && !keepGoing) {
+        writeFileSync(outPath, JSON.stringify(out), "utf8");
+        process.stderr.write(`\n  ✗ [${model}] 第一張就失敗，停止這一輪（要硬跑完加 --keep-going）\n`);
+        process.stderr.write(`    ${diagnose(model, msg)}\n`);
+        process.exit(2);
+      }
     }
   }
   writeFileSync(outPath, JSON.stringify(out), "utf8");
+}
+
+/** 把供應商的錯誤翻成「你該去改哪個環境變數」 */
+function diagnose(model: string, msg: string): string {
+  const isKimi = /^(kimi|moonshot)/i.test(model);
+  if (/401|authentication|invalid.*key|unauthorized/i.test(msg)) {
+    if (isKimi) {
+      const base = process.env.KIMI_API_BASE ?? "https://api.moonshot.ai/v1（預設，國際版）";
+      return `KIMI 認證失敗。目前 KIMI_API_BASE=${base}\n` +
+        `    金鑰跨區不通用：大陸版 platform.kimi.com 的金鑰要配 https://api.moonshot.cn/v1，\n` +
+        `    國際版 platform.kimi.ai 的金鑰要配 https://api.moonshot.ai/v1。兩者對調就是這個 401。`;
+    }
+    return `Anthropic 認證失敗。檢查 ANTHROPIC_API_KEY 有沒有設、是不是 sk-ant- 開頭的完整字串。`;
+  }
+  if (/404|not_found|model/i.test(msg)) return `型號名可能不對：「${model}」在該供應商那邊查無此模型。`;
+  if (/429|rate/i.test(msg)) return `被限流了。等一下再跑，或減少 -n。`;
+  if (/timeout|abort/i.test(msg)) return `逾時。KIMI 大陸版跨境本來就慢，可調 KIMI_TIMEOUT_MS。`;
+  return `原始錯誤如上。`;
 }
 
 /* ═══ 成本 ═══ */
@@ -291,8 +324,10 @@ async function main() {
     console.log(`\n── ${m} ──`);
     const rp = path.join(outDir, `raw-${stamp}-${m.replace(/[^a-z0-9.-]/gi, "_")}.json`);
     await new Promise<void>((resolve, reject) => {
-      const ch = spawn(process.execPath, [self, "--worker", m, fixturePath, rp], { stdio: ["ignore", "inherit", "inherit"] });
-      ch.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${m} 的子行程以 ${code} 結束`))));
+      const wargs = [self, "--worker", m, fixturePath, rp];
+      if (has("--keep-going")) wargs.push("--keep-going");
+      const ch = spawn(process.execPath, wargs, { stdio: ["ignore", "inherit", "inherit"] });
+      ch.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${m} 沒有跑完（子行程結束碼 ${code}）。上面那段診斷講了原因；修好再跑一次，樣本用 --cases ${fixturePath} 指同一批。`))));
       ch.on("error", reject);
     });
     results[m] = JSON.parse(readFileSync(rp, "utf8"));
@@ -313,10 +348,16 @@ async function main() {
   const BRANDS = /claude|anthropic|sonnet|haiku|opus|kimi|moonshot|月之暗面|gpt|openai|gemini/gi;
   const blind = (t: string) => t.replace(BRANDS, "▮▮");
   const key: Record<string, unknown>[] = [];
+  // 只有「每個模型都成功」的卦才進讀本。缺一份的並排沒有意義，而把錯誤訊息
+  // 排進讀本會讓人一頁一頁翻過二十段一模一樣的 401——上一輪就是這樣。
+  const usable = cases.filter((c) => models.every((m) => results[m].find((x) => x.id === c.id)?.ok));
+  const broken = cases.filter((c) => !usable.includes(c));
+
   const md: string[] = [
     `# 解卦盲測讀本　${stamp}`,
     "",
-    `共 ${cases.length} 張卦，每張兩份批文。**A / B 每一張都獨立隨機對調過**，讀完之前不要開 key 檔。`,
+    `共 ${usable.length} 張卦，每張兩份批文。**A / B 每一張都獨立隨機對調過**，讀完之前不要開 key 檔。`,
+    ...(broken.length ? [`（另有 ${broken.length} 張因為呼叫失敗沒有進讀本，列在最後。）`] : []),
     "",
     "讀法：先看問題與盤面，再讀 A、B，判斷哪一份「更準、更有用」。建議每張只記一個字：A、B 或 =。",
     "",
@@ -326,7 +367,7 @@ async function main() {
     "",
   ];
 
-  cases.forEach((c, idx) => {
+  usable.forEach((c, idx) => {
     const pair = models.map((m) => ({ m, r: results[m].find((x) => x.id === c.id) }));
     // Fisher-Yates 洗這一張的 A/B（模型多於兩個時同樣適用）
     for (let i = pair.length - 1; i > 0; i--) {
@@ -343,8 +384,11 @@ async function main() {
     pair.forEach((p, i) => {
       md.push(`### ${labels[i]}`);
       md.push("");
-      md.push(p.r?.ok ? (blind(p.r.reading) || "（空批文）") : `（這一份失敗了：${blind(p.r?.error ?? "不明")}）`);
+      md.push(blind(p.r!.reading) || "（空批文）");
       if (p.r?.due) md.push(`\n*應期：${p.r.due}*`);
+      // 備援換家：這一份其實不是掛名的那個模型寫的。不標出來的話，讀本上會有一組
+      // 「同一個模型自己跟自己比」而看不出來。批文照留，但要說清楚它不算數。
+      if (p.r && p.r.actual_model !== p.m) md.push(`\n> ⚠ 這一份是備援模型寫的，不列入比較。`);
       md.push("");
     });
     md.push(`**後來實際發生**：${c.note ?? "（用戶沒留評語，只點了「" + (V[c.verdict] ?? "?") + "」）"}`);
@@ -362,6 +406,21 @@ async function main() {
       上線當時: { model: c.orig_model, verdict: V[c.verdict] ?? c.verdict, note: c.note },
     });
   });
+
+  if (broken.length) {
+    md.push("## 未納入的卦（呼叫失敗）");
+    md.push("");
+    md.push("錯誤訊息原樣保留——它是拿來查設定的，不是給人盲讀的。");
+    md.push("");
+    for (const c of broken) {
+      md.push(`- **${c.question}**`);
+      for (const m of models) {
+        const r = results[m].find((x) => x.id === c.id);
+        if (r && !r.ok) md.push(`    - \`${m}\`：${r.error}`);
+      }
+    }
+    md.push("");
+  }
 
   const reportPath = path.join(outDir, `report-${stamp}.md`);
   writeFileSync(reportPath, md.join("\n"), "utf8");
@@ -412,7 +471,14 @@ async function main() {
 /* ═══ 進入點 ═══ */
 const a = process.argv.slice(2);
 if (a[0] === "--worker") {
-  await runWorker(a[1], a[2], a[3]);
+  await runWorker(a[1], a[2], a[3], a.includes("--keep-going"));
 } else {
-  await main();
+  // 設定錯誤是這支最常見的失敗，而它已經在上面印過一段人看得懂的診斷了。
+  // 再吐一份 node 的堆疊只會把那段診斷推到螢幕外。
+  try {
+    await main();
+  } catch (e) {
+    console.error(`\n${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
 }
