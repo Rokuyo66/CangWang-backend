@@ -47,10 +47,12 @@ export const stanceOf = (tier: QianTier): StanceInfo => STANCE[tier];
  *  付費三套的價目以呼叫端傳進來的 THEME_PRICES 為準——價目只有一份，在 interpret/index.ts。
  *  規則：App 裡沒解鎖的，小工具也不給用；解了竹簡，小工具才選得到竹簡。
  *  但兩邊可以各選各的——桌面想用夜觀、App 裡用竹簡，是合理的，不強制同步。 */
+// key 與名稱以前端 part2.html 的 THEME_FREE／THEME_PAID／THEME_LABEL 為準。
+// 尤其兩個字面上會猜錯的：宣紙的 key 是 paper（不是 xuan），porcelain 叫青花（不是青瓷）。
 export const THEME_NAMES: Record<string, string> = {
-  xuan: "宣紙", night: "夜觀", bamboo: "竹簡", cinnabar: "硃砂", porcelain: "青瓷",
+  paper: "宣紙", night: "夜觀", bamboo: "竹簡", cinnabar: "硃砂", porcelain: "青花",
 };
-export const BUILTIN_THEMES = ["xuan", "night"];
+export const BUILTIN_THEMES = ["paper", "night"];
 
 export interface WidgetTheme {
   key: string;

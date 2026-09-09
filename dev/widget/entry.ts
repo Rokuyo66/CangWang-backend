@@ -19,42 +19,45 @@ import type { QianTier } from "../../supabase/functions/_shared/qian60.ts";
 import { stanceOf, themeList } from "../../supabase/functions/_shared/widget.ts";
 
 /* ---------- 配色 ----------
-   五套：內建二（宣紙、夜觀）＋ 付費三（竹簡、硃砂、青瓷）。
-   每套七個色 ＋ 一層可選材質。材質不是裝飾——竹簡沒有那道直紋就只是一張黃紙，
+   五套：內建二（宣紙、夜觀）＋ 付費三（竹簡、硃砂、青花）。
+   色票不是這裡定的——直接抄自前端 src/part1.html 的 :root 與 [data-theme=…]，
+   每套只覆寫那 13 個變數。小工具貼在桌面上與 App 並排看得到，
+   自己另配一套「像那個顏色」的近似色，兩邊擺在一起就會像兩個 App。
+
+   對應：card ← --paper（App 的紙面）／stage ← --paper-2（襯在後面的桌布）
+        line ← --paper-edge　ink ← --ink　dim ← --ink-faint
+        gold ← --gold　seal ← --cinnabar（青花那套的 --cinnabar 是鈷藍，照收不改）
+
+   材質是小工具自己加的一層：竹簡沒有那道直紋就只是一張綠紙，
    而配色要賣得掉，靠的正是「一眼看得出是哪一套」。 */
 interface Palette {
   mode: "light" | "dark";
-  paper: string; card: string; line: string;
+  stage: string; card: string; line: string;
   ink: string; dim: string; gold: string; seal: string;
-  texture?: string;   // 疊在卡片上的一層 background
+  texture?: string;
 }
 
 const PALETTES: Record<string, Palette> = {
-  // 主站那一組（src/part1.html 的 :root），心跡同系
-  xuan: { mode: "light", paper: "#F2EBDA", card: "#FFFDF8", line: "#E0D5BF",
-    ink: "#221E1A", dim: "#8A7C68", gold: "#9A7B3F", seal: "#B5402E" },
-  // 卦案那一組墨底（dev/play/shell.html）
-  night: { mode: "dark", paper: "#12100E", card: "#1A1714", line: "#332C25",
-    ink: "#E8E0D4", dim: "#8B8073", gold: "#C8A86B", seal: "#A8623F" },
-  // 竹簡：竹片黃底、墨綠字，直紋是簡與簡之間的縫
-  bamboo: { mode: "light", paper: "#3E432F", card: "#CDB884", line: "#A38F5D",
-    ink: "#2C3120", dim: "#6B6444", gold: "#7A6428", seal: "#9C4A2E",
-    texture: "repeating-linear-gradient(90deg, rgba(60,48,20,.16) 0 1.5px, rgba(0,0,0,0) 1.5px 27px)" },
-  // 硃砂：赭底、砂紅印記；金字只給數字與重點
-  cinnabar: { mode: "dark", paper: "#20100D", card: "#361A15", line: "#5A2B22",
-    ink: "#F2DED4", dim: "#B08A7C", gold: "#D8A05A", seal: "#C0483A",
-    texture: "radial-gradient(120% 90% at 80% 0%, rgba(192,72,58,.20), rgba(0,0,0,0) 60%)" },
-  // 青瓷：釉色、冰裂
-  porcelain: { mode: "light", paper: "#C9D6CE", card: "#EDF3EF", line: "#C3D2CA",
-    ink: "#22302B", dim: "#6E8079", gold: "#5F8474", seal: "#B5402E",
-    texture: "repeating-linear-gradient(63deg, rgba(34,48,43,.055) 0 1px, rgba(0,0,0,0) 1px 46px), repeating-linear-gradient(-51deg, rgba(34,48,43,.045) 0 1px, rgba(0,0,0,0) 1px 63px)" },
+  paper: { mode: "light", stage: "#EBE1CC", card: "#F2EBDA", line: "#E0D4B8",
+    ink: "#221E1A", dim: "#8A7E6C", gold: "#9A7B3F", seal: "#B5402E" },
+  night: { mode: "dark", stage: "#1D1914", card: "#15120E", line: "#2A2218",
+    ink: "#ECE3D1", dim: "#857B68", gold: "#C9A45C", seal: "#D86A52" },
+  bamboo: { mode: "light", stage: "#D3D9BC", card: "#E4E7D3", line: "#AEBB92",
+    ink: "#12210F", dim: "#6E8455", gold: "#5C8A2E", seal: "#96421F",
+    texture: "repeating-linear-gradient(90deg, rgba(18,33,15,.13) 0 1.5px, rgba(0,0,0,0) 1.5px 27px)" },
+  cinnabar: { mode: "dark", stage: "#38100D", card: "#220907", line: "#4E1A15",
+    ink: "#FAE2E0", dim: "#A2756E", gold: "#E0913F", seal: "#E34234",
+    texture: "radial-gradient(120% 90% at 80% 0%, rgba(227,66,52,.20), rgba(0,0,0,0) 60%)" },
+  porcelain: { mode: "light", stage: "#DEE8F5", card: "#F5F8FC", line: "#A6BFDF",
+    ink: "#001F52", dim: "#5878A8", gold: "#2A6BB8", seal: "#003DA5",
+    texture: "repeating-linear-gradient(63deg, rgba(0,31,82,.05) 0 1px, rgba(0,0,0,0) 1px 46px), repeating-linear-gradient(-51deg, rgba(0,31,82,.04) 0 1px, rgba(0,0,0,0) 1px 63px)" },
 };
 
 const PRICES = { bamboo: 260, cinnabar: 260, porcelain: 320 };
 
 /* ---------- 假狀態（原型才有；上線時由 mode:"widget" 回） ---------- */
 const st = {
-  theme: "xuan",
+  theme: "paper",
   owned: ["bamboo"] as string[],   // 這個帳號在 App 裡解了竹簡，所以小工具選得到竹簡
   signed: false,
   tier: null as QianTier | null,   // null＝今日未測
@@ -89,7 +92,7 @@ function widget(size: "s" | "m" | "l"): HTMLElement {
   const pal = PALETTES[st.theme];
   const box = el("div", `w w-${size} ${pal.mode}`);
   const v = box.style as unknown as CSSStyleDeclaration & { setProperty(k: string, x: string): void };
-  v.setProperty("--paper", pal.paper); v.setProperty("--card", pal.card);
+  v.setProperty("--card", pal.card);
   v.setProperty("--line", pal.line); v.setProperty("--ink", pal.ink);
   v.setProperty("--dim", pal.dim); v.setProperty("--gold", pal.gold);
   v.setProperty("--seal", pal.seal);
@@ -222,7 +225,7 @@ function paint() {
   root.appendChild(controls());
 
   const stage = el("div", "stage");
-  (stage.style as CSSStyleDeclaration).background = PALETTES[st.theme].paper;
+  (stage.style as CSSStyleDeclaration).background = PALETTES[st.theme].stage;
   for (const [size, cap] of [["s", "小　2×2"], ["m", "中　4×2"], ["l", "大　4×4"]] as const) {
     const cell = el("div", "cell");
     cell.appendChild(widget(size));

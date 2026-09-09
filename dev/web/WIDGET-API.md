@@ -53,11 +53,11 @@ body `{"mode":"widget"}`。錯誤一律 200 ＋ `{kind:"err", msg:"…"}`。
   "themes": {
     "owned": ["bamboo"],
     "list": [
-      { "key": "xuan",      "name": "宣紙", "locked": false, "price": null },
+      { "key": "paper",     "name": "宣紙", "locked": false, "price": null },
       { "key": "night",     "name": "夜觀", "locked": false, "price": null },
       { "key": "bamboo",    "name": "竹簡", "locked": false, "price": 260 },
       { "key": "cinnabar",  "name": "硃砂", "locked": true,  "price": 260 },
-      { "key": "porcelain", "name": "青瓷", "locked": true,  "price": 320 }
+      { "key": "porcelain", "name": "青花", "locked": true,  "price": 320 }
     ]
   },
   "lingshi": 128
@@ -136,19 +136,17 @@ body `{"mode":"widget"}`。錯誤一律 200 ＋ `{kind:"err", msg:"…"}`。
 
 | key | 名 | 底 | 卡 | 墨 | 印記 | 材質 |
 |---|---|---|---|---|---|---|
-| `xuan` | 宣紙 | `#F2EBDA` | `#FFFDF8` | `#221E1A` | `#B5402E` | — |
+| `paper` | 宣紙 | `#F2EBDA` | `#FFFDF8` | `#221E1A` | `#B5402E` | — |
 | `night` | 夜觀 | `#12100E` | `#1A1714` | `#E8E0D4` | `#A8623F` | — |
 | `bamboo` | 竹簡 | `#3E432F` | `#CDB884` | `#2C3120` | `#9C4A2E` | 直紋（簡與簡之間的縫） |
 | `cinnabar` | 硃砂 | `#20100D` | `#361A15` | `#F2DED4` | `#C0483A` | 右上暈開 |
-| `porcelain` | 青瓷 | `#C9D6CE` | `#EDF3EF` | `#22302B` | `#B5402E` | 冰裂 |
+| `porcelain` | 青花 | `#C9D6CE` | `#EDF3EF` | `#22302B` | `#B5402E` | 冰裂 |
 
 材質不是裝飾——竹簡沒有那道直紋就只是一張黃紙，而配色要賣得掉，
 靠的正是「一眼看得出是哪一套」。
 
-> **接前端時要確認一件事：** 內建兩套的 key（`xuan`／`night`）是這裡定的字串。
-> 主站若已用別的字串稱呼宣紙與夜觀，改 `_shared/widget.ts` 的 `THEME_NAMES`
-> 與 `BUILTIN_THEMES` 對齊即可——付費那三個 key（`bamboo`／`cinnabar`／`porcelain`）
-> 是既有的，已經寫進 `owned_themes`，不能改。
+> key 與名稱以前端 `part2.html` 的 `THEME_FREE`／`THEME_PAID`／`THEME_LABEL` 為準，
+> 已對齊。兩個容易猜錯的：宣紙是 `paper`（不是 `xuan`），`porcelain` 叫**青花**（不是青瓷）。
 
 ---
 

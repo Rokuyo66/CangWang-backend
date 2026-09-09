@@ -141,7 +141,7 @@ await t("節氣帶得出襯底圖資產鍵，24 個節氣一個都不缺", () =>
 await t("沒解鎖的配色一律 locked，內建兩套永遠不鎖", () => {
   const list = themeList([], PRICES);
   const by = Object.fromEntries(list.map((x: any) => [x.key, x]));
-  eq(by.xuan.locked, false, "宣紙是內建，不該鎖");
+  eq(by.paper.locked, false, "宣紙是內建，不該鎖");
   eq(by.night.locked, false, "夜觀是內建，不該鎖");
   eq(by.bamboo.locked, true, "沒買竹簡卻給用了");
   eq(by.bamboo.price, 260, "價目要跟著出，前端才標得出解鎖條件");
