@@ -84,11 +84,25 @@ const TERM_TEXT: Record<string, { onDay: string; daily: string }> = {
   大寒: { onDay: "今日大寒。一年最後一節，寒極將春——舊歲收尾，該了的了一了。", daily: "大寒第{n}日，雞始乳，水澤腹堅。" },
 };
 
+// 節氣 → 貼紙資產鍵。與 0053_sticker_jieqi.sql 的 stickers.id／asset 同一組字串，
+// 不是另取的一套拼音——桌面小工具拿它當襯底圖（assets/stickers/jieqi/<asset>.webp），
+// 走的就是節氣包那 24 張圖，換圖只換前端資產，這裡不動。
+const TERM_ASSET: Record<string, string> = {
+  立春: "lichun", 雨水: "yushui", 驚蟄: "jingzhe", 春分: "chunfen", 清明: "qingming", 穀雨: "guyu",
+  立夏: "lixia", 小滿: "xiaoman", 芒種: "mangzhong", 夏至: "xiazhi", 小暑: "xiaoshu", 大暑: "dashu",
+  立秋: "liqiu", 處暑: "chushu", 白露: "bailu", 秋分: "qiufen", 寒露: "hanlu", 霜降: "shuangjiang",
+  立冬: "lidong", 小雪: "xiaoxue", 大雪: "daxue", 冬至: "dongzhi", 小寒: "xiaohan", 大寒: "dahan",
+};
+
+/** 節氣名 → 貼紙資產鍵；查無回空字串（前端據此不畫襯底，而不是畫出一張破圖）。 */
+export const jieqiAssetOf = (name: string): string => TERM_ASSET[name] ?? "";
+
 export interface JieqiInfo {
   name: string;      // 節氣名
   dayIndex: number;  // 入此節氣第幾日（交節當日＝1）
   isToday: boolean;  // 今日是否正逢交節
   line: string;      // 給用戶看的一句
+  asset: string;     // 襯底圖資產鍵（節氣包貼紙），見 TERM_ASSET
 }
 
 /** 查某個台北日期所處的節氣。y/m/d 為台北曆日。
@@ -105,7 +119,7 @@ export function jieqiOf(y: number, m: number, d: number): JieqiInfo {
   const name = TERMS[i];
   const t = TERM_TEXT[name];
   return {
-    name, dayIndex, isToday: dayIndex === 1,
+    name, dayIndex, isToday: dayIndex === 1, asset: jieqiAssetOf(name),
     line: dayIndex === 1 ? t.onDay : t.daily.replace("{n}", String(dayIndex)),
   };
 }
