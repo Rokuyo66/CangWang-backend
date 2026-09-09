@@ -5,6 +5,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
+import { widgetState } from "../_shared/widget-state.ts";
 import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
@@ -323,6 +324,14 @@ Deno.serve(async (req) => {
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
+    }
+
+    // 桌面小工具：一支請求回完「今天是什麼日子／簽到了沒／今日行止／可用配色」。
+    // 刻意不是 profile 的子集也不是它的擴充——profile 為了首頁要打七八個 count，
+    // 而小工具一天被系統喚醒數次，那些數字它一個都不畫。兩者分開，各自能瘦。
+    // 額度一律不回：問卦鈕上不標剩幾卦（見 _shared/widget.ts 開頭）。
+    if (body.mode === "widget") {
+      return Response.json({ kind: "ok", ...await widgetState(db, { userId: uid, themePrices: THEME_PRICES }) }, { headers: CORS });
     }
 
     // 初次問事引導看完：記在帳號，換裝置不會再跳一次。
