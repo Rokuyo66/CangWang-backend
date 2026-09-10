@@ -164,10 +164,14 @@ function widget(size: "s" | "m" | "l"): HTMLElement {
 
   // ③ 底列：簽到 ＋ 問卦。問卦鈕永遠在、永遠最顯眼，且不標剩餘次數。
   const foot = el("div", "foot");
-  const sign = el("button", "sign" + (st.signed ? " on" : ""),
-    st.signed ? (size === "s" ? "已簽" : "已簽到") : (size === "s" ? "簽到" : "今日簽到"));
-  sign.onclick = () => { st.signed = true; fire("簽到", "cangwang://signin?from=widget"); };
-  foot.appendChild(sign);
+  // 簽到鈕只在「還沒簽」時存在。簽完了就整顆收掉，讓問卦鈕拉滿整行——
+  // 「已簽到」是一件做完的事，佔著半行底列每天提醒你它做完了，
+  // 換來的是問卦鈕小一半。桌面上那一排只該留還沒做的事。
+  if (!st.signed) {
+    const sign = el("button", "sign", "簽到");
+    sign.onclick = () => { st.signed = true; fire("簽到", "cangwang://signin?from=widget"); };
+    foot.appendChild(sign);
+  }
   const ask = el("button", "ask", "問　卦");
   ask.onclick = () => fire("問卦", "cangwang://cast?from=widget");
   foot.appendChild(ask);
