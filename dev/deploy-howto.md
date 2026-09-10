@@ -73,6 +73,40 @@ npm i -g supabase
 
 ---
 
+## 第 0 步 · 先確認手上這份開得起來
+
+```powershell
+node dev/boot-check.mts
+```
+
+看到「✅ 全部載得起來」再往下走。**這一步不能跳。**
+
+為什麼：模組之間對不起來（A 檔要的 export 在 B 檔裡不存在）不會在編輯器裡紅字，
+`supabase functions deploy` 也照樣說部署成功——要等到雲端起不了機，
+而每一支請求都回 `BOOT_ERROR` 之後才看得見。從使用者的角度那不是「某個功能壞了」，
+是整個觀不見了：登入進得去（Auth 不經這支函式），但一動就「Failed to fetch」。
+
+2026-09-10 就這樣掛過一次：送上去的 `services.ts` 是新的、`rules.ts` 是舊的
+（同一個 commit 改的兩個檔，卻只有一個是新的），雲端的日誌寫著
+
+```
+Uncaught SyntaxError: The requested module './rules.ts'
+does not provide an export named 'fixGuaciChars'
+```
+
+那次的根因不是程式碼，是**送上去的工作目錄不乾淨**。所以出現 ❌ 時，
+先看的不是那個檔案，而是 `git status`：
+
+```powershell
+git status                # 有沒有未合併／被本機改壞的檔
+git log --oneline -1      # 現在停在哪一顆
+```
+
+改壞了就還原那一個檔（`git checkout -- <路徑>`）；整棵樹都不對就先 `git stash`
+再切回要部署的分支。乾淨之後重跑 `node dev/boot-check.mts`，綠了才部署。
+
+---
+
 ## 第 1 步 · 更新資料庫
 
 `migrate.ps1` 在 DB 裡開了一本帳（`public._migrations`），記錄哪幾支跑過。
