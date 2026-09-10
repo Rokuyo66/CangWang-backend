@@ -61,7 +61,10 @@ const st = {
   owned: ["bamboo"] as string[],   // 這個帳號在 App 裡解了竹簡，所以小工具選得到竹簡
   signed: false,
   tier: null as QianTier | null,   // null＝今日未測
-  assetBase: "",                   // 節氣圖根目錄；原型手上沒有圖，留空走退路
+  // 節氣圖根目錄。圖在前端 repo（CangWang-web 的 assets/stickers/jieqi），
+  // 這個 repo 手上沒有，所以預設留空走「節氣二字」那條退路。
+  // 要看真圖：dev/widget.html?assets=file:///D:/CangWang-web/dist/stickers/jieqi
+  assetBase: new URLSearchParams(location.search).get("assets") || "",
 };
 
 /* ---------- 真資料：干支、節氣、籤 ---------- */

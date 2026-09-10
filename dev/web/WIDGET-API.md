@@ -154,7 +154,10 @@ body `{"mode":"widget"}`。錯誤一律 200 ＋ `{kind:"err", msg:"…"}`。
 
 `jieqi.asset` 是節氣包那 24 張貼紙的資產鍵（與 `0053_sticker_jieqi.sql` 的
 `stickers.id`／`asset` 同一組字串，不是另取的一套拼音）：
-`assets/stickers/jieqi/<asset>.webp`。
+`assets/stickers/jieqi/<asset>.webp`。24 張圖已經在前端 repo 裡了。
+
+Android 小工具讀的是 APK 內 `assets/public/stickers/jieqi/`——`cap sync` 把
+`dist/` 整包放在那裡，所以原生端與網頁用的是同一份檔案，換圖不必動原生程式碼。
 
 它是襯底，不是插圖：壓在右側、透明度一成上下、不要蓋到問卦鈕。
 `asset` 為空字串或圖檔載不到時要有退路——原型退成節氣二字的大字。
