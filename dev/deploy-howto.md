@@ -249,10 +249,32 @@ Supabase 的門口會先幫你擋一次，Telegram 那條路會被擋在門外�
 ### 確認它活著
 
 ```powershell
-curl.exe -s -X POST "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/interpret" -H "Content-Type: application/json" -d '{\"mode\":\"wall\"}'
+Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"mode":"wall"}' `
+  -Uri "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/interpret"
 ```
 
-看到 `{"kind":"ok",...}` 開頭的一大串就對了。
+看到一大包貼文資料（`kind : ok`）就對了。
+
+**為什麼不用 curl.exe。** 原本這裡寫的是
+
+```powershell
+curl.exe ... -d '{\"mode\":\"wall\"}'
+```
+
+那是 PowerShell 5.1 時代的寫法：當年 PS 會重新解析原生指令的參數，所以引號得自己跳脫。
+PowerShell 7.3 起改了規則（`$PSNativeCommandArgumentPassing = 'Standard'`），
+反斜線原樣送出去，curl 收到的是 `{\"mode\":\"wall\"}`——不是合法的 JSON。
+函式於是回 `bad request`，而那看起來很像後端壞了，其實後端好得很。
+`Invoke-RestMethod` 是 PowerShell 自己的東西，沒有這層轉手，兩個版本都對。
+
+回應的意思：
+
+| 回什麼 | 意思 |
+|---|---|
+| `kind : ok` ＋ 一堆資料 | 函式活著，這一步過了 |
+| `bad request` | 函式活著，只是你送的 JSON 壞了（多半是引號寫法） |
+| `{"code":"BOOT_ERROR"}` | 函式起不了機——回第 0 步跑 `node dev/boot-check.mts` |
+| `401` ／ `Missing authorization header` | 部署時漏了 `--no-verify-jwt` |
 
 ---
 
