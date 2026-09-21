@@ -99,7 +99,9 @@ function wangOfCast(c: CastRow): { wang: Wang; score: number; basis: string } | 
   let basis: string;
   if (c.yong_via_shi || (!c.yong_qin && !c.yong_via_ying)) {
     yao = chart.ben[(chart.shi ?? 1) - 1];
-    basis = c.yong_via_shi ? "世爻" : "世爻（此卦未取定用神）";
+    // 「未取單一用神」涵蓋兩種：舊卦沒取定，以及解卦人判定此問無單一成敗所繫而全盤論。
+    // 兩者都沒有可跟的那一爻，溫度線一律退回世爻（問自身），basis 據實說明。
+    basis = c.yong_via_shi ? "世爻" : "世爻（此卦未取單一用神）";
   } else if (c.yong_via_ying) {
     yao = chart.ben[(chart.ying ?? 1) - 1];
     basis = "應爻";
