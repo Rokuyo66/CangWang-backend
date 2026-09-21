@@ -258,12 +258,12 @@ const slot = (raw: string | undefined, cap: number): string | null => {
 
 export function parseMarks(text: string): {
   clean: string; probe: boolean; ask: boolean;
-  draft: string | null; draftYong: { qin: string; viaShi?: boolean } | null;
+  draft: string | null; draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null;
   draftTopic: string | null; draftGist: string | null;
 } {
   let clean = text ?? "";
   let draft: string | null = null;
-  let draftYong: { qin: string; viaShi?: boolean } | null = null;
+  let draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null = null;
   let draftTopic: string | null = null;
   let draftGist: string | null = null;
 
@@ -789,7 +789,7 @@ export interface ChatResult {
   wantCast: boolean;   // AI 判定疑似想問卦（探詢輪一律 false——那是在問清楚，不是在邀他起卦）
   probe: boolean;      // 這則是探詢輪（角色在問清楚缺的線索）：不出起卦鈕、不計費
   draft: string | null;// 角色替他理好、待他點頭的問句
-  draftYong: { qin: string; viaShi?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
+  draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
   xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
   msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
 }

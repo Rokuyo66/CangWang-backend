@@ -974,7 +974,7 @@ Deno.serve(async (req) => {
     // 卦曆列表
     if (body.mode === "history") {
       const { data: casts } = await db.from("casts")
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, feedback(verdict, note)")
+        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, feedback(verdict, note)")
         .eq("user_id", uid).order("created_at", { ascending: false }).limit(60);
       return Response.json({ kind: "ok", casts: casts ?? [] }, { headers: CORS });
     }
@@ -982,7 +982,7 @@ Deno.serve(async (req) => {
     // 重溫單卦（含追問串）
     if (body.mode === "cast_detail") {
       const { data: c } = await db.from("casts")
-        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, feedback(verdict, note)")
+        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, feedback(verdict, note)")
         .eq("id", body.cast_id).eq("user_id", uid).maybeSingle();
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
       const { data: fus } = await db.from("followups").select("question, answer, created_at")
@@ -1056,7 +1056,7 @@ Deno.serve(async (req) => {
       if (type === "cast") {
         // 分享卦：後端讀 casts 快照，驗 cast.user_id 是本人；複製 reading/卦名/角色進 posts，不 live join
         const { data: c } = await db.from("casts")
-          .select("user_id, question, gua_ben, gua_bian, reading, character_id, chart, yong_qin, yong_via_shi")
+          .select("user_id, question, gua_ben, gua_bian, reading, character_id, chart, yong_qin, yong_via_shi, yong_via_ying")
           .eq("id", body.cast_id).maybeSingle();
         if (!c || c.user_id !== uid) return Response.json({ kind: "err", msg: "只能分享自己的卦" }, { headers: CORS });
         snapshot = { question: c.question, gua_ben: c.gua_ben, gua_bian: c.gua_bian, reading: stripReadingGuide(c.reading) };
@@ -1065,6 +1065,7 @@ Deno.serve(async (req) => {
           snapshot.chart = c.chart;
           snapshot.yong_qin = c.yong_qin ?? null;
           snapshot.yong_via_shi = c.yong_via_shi ?? null;
+          snapshot.yong_via_ying = c.yong_via_ying ?? null;
         }
         charId = c.character_id;
       }
@@ -1283,7 +1284,7 @@ Deno.serve(async (req) => {
           characterId: body.character_id ?? "daoshi_m",
           question: body.question, channel: body.channel ?? "web",
           numbers: body.numbers, lines: body.lines, // ← 網頁傳已起好的卦
-          yongQin: body.yong_qin, yongViaShi: body.yong_via_shi,
+          yongQin: body.yong_qin, yongViaShi: body.yong_via_shi, yongViaYing: body.yong_via_ying,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
           questionRaw: body.question_raw, questionSource: body.question_source,
       clientToken: typeof body.client_token === "string" ? body.client_token : undefined,

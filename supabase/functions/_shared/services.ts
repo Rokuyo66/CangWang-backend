@@ -134,7 +134,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   followup?: { prevReading: string; question: string };
   deepen?: { briefReading: string };
   comment?: { prevReading: string; prevAuthor?: string };
-  yong?: { qin: string; viaShi?: boolean; pos?: number | null };
+  yong?: { qin: string; viaShi?: boolean; viaYing?: boolean; pos?: number | null };
   fortune?: { tierLabel: string; qian: Qian; jieqiLine: string }; // 日運卦：等第與籤由程式算定後傳入
   monthly?: { ym: string };   // 月誌卷首語：chartText 位置改放該月紀錄摘要（見 xinji.statsDigest）
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
@@ -152,10 +152,18 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     { type: "text", text: `【角色聲線】\n${persona}` },
   ];
   // 用神提示：所有 mode 一體適用——追問/深展/評卦沿用首解已取定之用神，避免中途改取自打嘴巴
+  // 取應爻為用者另掛一句錨點提醒：這一路最容易在追問／展開時被悄悄改回六親路徑，
+  // 一改回去，「那個人」就換成了別人，前後兩段論斷會指向兩個不同對象。
+  const yongAnchor = opts.yong?.viaYing
+    ? "（此為【交涉】取法：應爻即對方其人，原忌仇神一律以應爻五行推，世應生剋為主軸；妻財、官鬼只作費用與案子的分項補述，不得拿它們的旺衰去斷那個人的狀態）"
+    : "";
   const yongHint = opts.yong
-    ? `\n\n【用神已取定】此卦用神為「${opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.qin}」${
-        opts.yong.pos != null ? `，鎖定於${YAO_NAMES[opts.yong.pos]}` : opts.yong.viaShi ? "" : "（不上卦，依伏神論出伏）"
-      }，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。${
+    ? `\n\n【用神已取定】此卦用神為「${
+        opts.yong.viaShi ? `世爻（${opts.yong.qin}）` : opts.yong.viaYing ? `應爻（${opts.yong.qin}）` : opts.yong.qin
+      }」${
+        opts.yong.pos != null ? `，鎖定於${YAO_NAMES[opts.yong.pos]}`
+        : (opts.yong.viaShi || opts.yong.viaYing) ? "" : "（不上卦，依伏神論出伏）"
+      }${yongAnchor}，此為問事者已指定之取用，依此為用神論斷，不得另取或改判。${
         mode === "cast" ? "（此提示連同盤面術語僅供你推斷，初步正文中不得出現任何此類字眼。）" : ""
       }`
     : "";

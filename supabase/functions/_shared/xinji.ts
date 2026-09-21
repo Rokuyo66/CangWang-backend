@@ -17,6 +17,7 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { monthWang, type Wang } from "./case.ts";
+import { pickUsePos, type Chart } from "./core.ts";
 import { FORTUNE_CATEGORY, normalizeQuestion } from "./rules.ts";
 
 // 台北日界。services.ts 有一支同樣的 taipeiToday()，這裡不 import 它——
@@ -55,7 +56,7 @@ interface CastRow {
   id: string; question: string | null; digest: string | null; reading: string | null;
   gua_ben: string; gua_bian: string | null; chart: unknown;
   character_id: string | null; category: string | null;
-  yong_qin: string | null; yong_via_shi: boolean | null;
+  yong_qin: string | null; yong_via_shi: boolean | null; yong_via_ying: boolean | null;
   due_date: string | null; created_at: string;
 }
 
@@ -63,7 +64,7 @@ const THREAD_COLS =
   "id, user_id, title, subject, category, question_norm, status, opened_at, closed_at, last_cast_at";
 const CAST_COLS =
   "id, question, digest, reading, gua_ben, gua_bian, chart, character_id, category, " +
-  "yong_qin, yong_via_shi, due_date, created_at";
+  "yong_qin, yong_via_shi, yong_via_ying, due_date, created_at";
 
 /* ═══════════════ 溫度線 ═══════════════ */
 
@@ -72,9 +73,13 @@ const WANG_SCORE: Record<Wang, number> = { 死: 0, 囚: 1, 休: 2, 相: 3, 旺: 
 
 /** 一卦的用神旺衰。
  *
- *  用神取法沿用該卦當時取定的（casts.yong_qin／yong_via_shi）——那是解卦當下
- *  依所問之事落定的，事後另取一個會讓同一條線前後不同基準，畫出來的起伏是假的。
+ *  用神取法沿用該卦當時取定的（casts.yong_qin／yong_via_shi／yong_via_ying）——那是解卦
+ *  當下依所問之事落定的，事後另取一個會讓同一條線前後不同基準，畫出來的起伏是假的。
  *  沒取定的舊卦退回世爻（＝問自身），並在回傳標明 basis，前端才說得出這條線的依據。
+ *
+ *  取爻走 pickUsePos，與解卦當下鎖定的是同一爻。這裡原本是 ben.find(qin===)，
+ *  取的是最低的那一爻；pickUsePos 則避世、優先應爻。同一六親兩現時兩者會鎖到不同爻，
+ *  於是溫度線畫的是另一爻的旺衰——基準對不上解卦，那條線就不是這一卦的線。
  *
  *  只取月令旺衰（rules.ts 第 33 行的第一層），不進日辰生剋沖合。
  *  理由：這條線要跨月比較，日辰是當天的偶然，月令才是那段時間的底氣；
@@ -84,6 +89,7 @@ function wangOfCast(c: CastRow): { wang: Wang; score: number; basis: string } | 
     ben?: { zhi: string; wx: string; qin: string }[];
     fushen?: { wx: string; qin: string }[];
     shi?: number;
+    ying?: number;
     ganzhi?: { month?: string };
   } | null;
   const monZhi = chart?.ganzhi?.month?.slice(-1);
@@ -91,13 +97,17 @@ function wangOfCast(c: CastRow): { wang: Wang; score: number; basis: string } | 
 
   let yao: { wx: string } | undefined;
   let basis: string;
-  if (c.yong_via_shi || !c.yong_qin) {
+  if (c.yong_via_shi || (!c.yong_qin && !c.yong_via_ying)) {
     yao = chart.ben[(chart.shi ?? 1) - 1];
     basis = c.yong_via_shi ? "世爻" : "世爻（此卦未取定用神）";
+  } else if (c.yong_via_ying) {
+    yao = chart.ben[(chart.ying ?? 1) - 1];
+    basis = "應爻";
   } else {
-    yao = chart.ben.find((e) => e.qin === c.yong_qin)
-      ?? (chart.fushen ?? []).find((e) => e.qin === c.yong_qin);
-    basis = c.yong_qin + (chart.ben.some((e) => e.qin === c.yong_qin) ? "" : "（伏神）");
+    // chart 是入庫時序列化的 Chart，欄位齊全；此處的寬鬆型別只是為了容忍舊列缺欄
+    const pos = pickUsePos(chart as unknown as Chart, c.yong_qin!);
+    yao = pos != null ? chart.ben[pos] : (chart.fushen ?? []).find((e) => e.qin === c.yong_qin);
+    basis = c.yong_qin! + (pos != null ? "" : "（伏神）");
   }
   if (!yao?.wx) return null;
   const wang = monthWang(yao.wx, monZhi);
