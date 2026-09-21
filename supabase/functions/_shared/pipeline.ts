@@ -79,8 +79,9 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   userId: string; quotaKey: string; characterId: string; question: string; channel: string;
   numbers?: [number, number, number]; // 報三數起卦（路一）；無則模擬擲卦
   lines?: number[];                    // 網頁已起好的卦（路二）：6個值6/7/8/9，初→上。有則用此卦不重起
-  yongQin?: string;                    // 前端已取定的用神六親（與盤面一致）
+  yongQin?: string;                    // 前端已取定的用神六親（與盤面一致）；亦收「世爻」「應爻」二字
   yongViaShi?: boolean;                // 用神是否取世爻
+  yongViaYing?: boolean;               // 用神是否取應爻（問與外人交涉之對方本人，見 rules.ts【交涉】）
   castDate?: { y: number; m: number; d: number; hour: number | null }; // 手動排盤自填占時；無則用當下台北時
   questionRaw?: string;                // 擬題／改寫前護道人的原話（無擬題則為空）
   questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
@@ -140,22 +141,28 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     : p.numbers ? castByNumbers(...p.numbers).lines : castCoins().lines;
   const chart = buildChart(lines, y, m, d, hour);
   const ctext = chartTextFull(chart, p.question);
-  // 問事者指定的用神；取「世爻」時六親須由盤面世爻決定——TG 擬題只給得出「世爻」二字，沒有盤面可判
-  const askedQin = p.yongQin === "世爻" ? chart.ben[chart.shi - 1].qin : p.yongQin;
+  // 問事者指定的用神；取「世爻」「應爻」時六親須由盤面該爻決定——TG 擬題只給得出那兩個字，沒有盤面可判
+  const askedQin = p.yongQin === "世爻" ? chart.ben[chart.shi - 1].qin
+    : p.yongQin === "應爻" ? chart.ben[chart.ying - 1].qin
+    : p.yongQin;
   const askedViaShi = p.yongQin === "世爻" ? true : p.yongViaShi;
+  const askedViaYing = p.yongQin === "應爻" ? true : p.yongViaYing;
 
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
   const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
   const ai = await callInterpret(ch!.persona_prompt, ctext, askedQin
-    ? { yong: { qin: askedQin, viaShi: askedViaShi, pos: pickUsePos(chart, askedQin, askedViaShi) } }
+    ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } }
     : {});
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
   // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。
   // 落定後存檔，追問／完整卦理／換人評卦一律沿用同一用神，不會中途改取自打嘴巴。
-  const aiYong = ai.yong as { qin: string | null; viaShi: boolean } | null;
-  const yongQin = askedQin ?? (aiYong ? (aiYong.viaShi ? chart.ben[chart.shi - 1].qin : aiYong.qin) : null);
+  const aiYong = ai.yong as { qin: string | null; viaShi: boolean; viaYing: boolean } | null;
+  const yongQin = askedQin ?? (aiYong
+    ? (aiYong.viaShi ? chart.ben[chart.shi - 1].qin : aiYong.viaYing ? chart.ben[chart.ying - 1].qin : aiYong.qin)
+    : null);
   const yongViaShi = askedViaShi ?? (aiYong ? aiYong.viaShi : null);
+  const yongViaYing = askedViaYing ?? (aiYong ? aiYong.viaYing : null);
 
   // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
   // 占期即今日，任何早於占期的 due 都不可能是「應期」，避免曆上出現往回設定的紅點。
@@ -172,7 +179,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     category: ai.category, lines, chart, gua_ben: chart.benName, gua_bian: chart.bianName,
     palace: chart.palace, reading: ai.reading, digest: ai.digest, suggested: ai.suggested,
     due_date: ai.due, model: ai.model, tokens_in: ai.usage.in, tokens_out: ai.usage.out,
-    yong_qin: yongQin, yong_via_shi: yongViaShi,
+    yong_qin: yongQin, yong_via_shi: yongViaShi, yong_via_ying: yongViaYing,
     // 原話與來源：日後可比對「擬題過的卦」與「原句卦」的回評準確率
     question_raw: p.questionRaw ?? null,
     question_raw_norm: p.questionRaw ? normalizeQuestion(p.questionRaw) : null,
@@ -229,13 +236,20 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   }
 
   // yong 一併回傳：前端據此把盤面的用/原/忌/仇標記補上（起卦當下不再要求用戶先選用神）
+  // pos 一併給：同一六親兩現時，光靠 qin 標不出是哪一爻——前端會標到另一爻上去，
+  // 而那一爻常常是另一個人（用神取應爻時尤其明顯）。四神環則仍由 qin 之五行推。
   // freeLeft 一併回：起完這一卦，下一卦是白揭還是償香火當場就定了，
   // 前端不必再打一次 profile 才敢改按鈕上的標價。
   return {
     kind: "ok" as const, castId: cast!.id as string, chart, reading: ai.reading, appendix,
     suggested: ai.suggested, paid: bill.paid, freeLeft: bill.freeLeft ?? 0,
     castCost: COST_EXTRA_CAST, breakthrough,
-    yong: yongQin ? { qin: yongQin, viaShi: !!yongViaShi } : null,
+    yong: yongQin
+      ? {
+          qin: yongQin, viaShi: !!yongViaShi, viaYing: !!yongViaYing,
+          pos: pickUsePos(chart, yongQin, !!yongViaShi, !!yongViaYing),
+        }
+      : null,
   };
 }
 
@@ -244,7 +258,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   userId: string; castId: string; question: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, category")
+    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, yong_via_ying, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
@@ -257,7 +271,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
     followup: { prevReading: cast.reading ?? "", question: p.question },
-    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
+    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   await db.from("followups").insert({ cast_id: p.castId, question: p.question, answer: ai.reading, paid_lingshi: bill.paid });
@@ -266,9 +280,14 @@ export async function followupInterpret(db: SupabaseClient, p: {
 }
 
 /** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
-function yongOpts(chart: Chart, yongQin?: string | null, yongViaShi?: boolean | null) {
+function yongOpts(chart: Chart, yongQin?: string | null, yongViaShi?: boolean | null, yongViaYing?: boolean | null) {
   return yongQin
-    ? { yong: { qin: yongQin, viaShi: yongViaShi ?? undefined, pos: pickUsePos(chart, yongQin, yongViaShi ?? undefined) } }
+    ? {
+        yong: {
+          qin: yongQin, viaShi: yongViaShi ?? undefined, viaYing: yongViaYing ?? undefined,
+          pos: pickUsePos(chart, yongQin, yongViaShi ?? undefined, yongViaYing ?? undefined),
+        },
+      }
     : {};
 }
 
@@ -302,7 +321,7 @@ export async function commentCast(db: SupabaseClient, p: {
   userId: string; castId: string; newCharacterId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, question, chart, reading, character_id, yong_qin, yong_via_shi, category")
+    .select("id, question, chart, reading, character_id, yong_qin, yong_via_shi, yong_via_ying, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
@@ -317,7 +336,7 @@ export async function commentCast(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
-    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi),
+    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   return { kind: "ok" as const, comment: ai.reading, paid: COST_COMMENT };
@@ -329,7 +348,7 @@ export async function deepenCast(db: SupabaseClient, p: {
   userId: string; castId: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, deep_reading, yong_qin, yong_via_shi, category")
+    .select("id, character_id, question, chart, reading, deep_reading, yong_qin, yong_via_shi, yong_via_ying, category")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
@@ -346,7 +365,7 @@ export async function deepenCast(db: SupabaseClient, p: {
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
   const ctext = chartTextFull(chart, cast.question ?? "");
-  const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi);
+  const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
   try {
     const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });

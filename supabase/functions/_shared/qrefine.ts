@@ -12,11 +12,14 @@ export const REFINE_PER_DAY = Number(Deno.env.get("REFINE_PER_DAY") ?? "20"); //
 
 export const YONG_QIN = ["妻財", "官鬼", "父母", "子孫", "兄弟"];
 
-/** 模型回的用神字串 → 前端/後端通用結構；不認得回 null（交還既有取用神流程） */
-export function normYong(s: string | null | undefined): { qin: string; viaShi?: boolean } | null {
+/** 模型回的用神字串 → 前端/後端通用結構；不認得回 null（交還既有取用神流程）
+ *  世／應先於六親比對：「應爻（父母）」這種寫法先掃六親會被當成一般的父母為用，
+ *  父母兩現時就鎖到另一爻、換成另一個人（同 rules.ts parseTagged 的理由）。 */
+export function normYong(s: string | null | undefined): { qin: string; viaShi?: boolean; viaYing?: boolean } | null {
   const t = s2t(String(s ?? "").trim());
   if (!t || t === "null" || t === "無") return null;
   if (t.includes("世")) return { qin: "世爻", viaShi: true };
+  if (t.includes("應")) return { qin: "應爻", viaYing: true };
   for (const q of YONG_QIN) if (t.includes(q)) return { qin: q };
   return null;
 }
@@ -48,7 +51,7 @@ export interface RefineResult {
   ok: boolean;                                   // true＝夠好，靜默放行（不出卡）
   issues: string[];                              // 問句的毛病（白話，給用戶看）
   rewrites: string[];                            // 最多三條改寫候選
-  yong: { qin: string; viaShi?: boolean } | null; // 改寫同時取定的用神（可直通起卦，省一次彈窗）
+  yong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null; // 改寫同時取定的用神（可直通起卦，省一次彈窗）
 }
 
 const PASS: RefineResult = { ok: true, issues: [], rewrites: [], yong: null };

@@ -144,9 +144,15 @@ export function huaJinTui(fromZhi: string, toZhi: string): string {
   return "";
 }
 
-/** 用神取爻（前端顯示與後端提示共用同一鎖定）：問己取世；兩現避世、優先應爻、次取近應；不上卦回 null（依伏神論） */
-export function pickUsePos(c: Chart, qin: string, viaShi?: boolean): number | null {
+/** 用神取爻（前端顯示與後端提示共用同一鎖定）：問己取世、問外人取應；
+ *  兩現避世、優先應爻、次取近應；不上卦回 null（依伏神論）
+ *
+ *  viaShi／viaYing 是「用神就是這一爻」的直取，不是六親查找——問自身運勢以世為用、
+ *  問與外人交涉之對方以應為用（見 rules.ts【交涉】），這兩種取法都不該再繞回六親比對：
+ *  世爻與應爻的六親常有兩現，繞六親會鎖到另一爻上去。 */
+export function pickUsePos(c: Chart, qin: string, viaShi?: boolean, viaYing?: boolean): number | null {
   if (viaShi) return c.shi - 1;
+  if (viaYing) return c.ying - 1;
   const cand = c.ben.map((e, i) => (e.qin === qin ? i : -1)).filter((i) => i >= 0);
   if (cand.length <= 1) return cand.length ? cand[0] : null;
   const shi = c.shi - 1, ying = c.ying - 1;
