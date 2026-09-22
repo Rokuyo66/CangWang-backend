@@ -92,14 +92,38 @@ const ahUnlockedCount = (signinTotal: number) =>
 // ⚠ 只放一個值。網頁版與 APK 的 Origin 未必相同（WebView 常見的是
 //   https://localhost，也可能根本不送 Origin），要收之前先確認兩邊實際送什麼，
 //   收錯了是整個 App 打不到後端。這是 env，改完不必重新部署函式。
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN")?.trim() || "*";
-if (ALLOWED_ORIGIN === "*") console.warn("ALLOWED_ORIGIN 未設定：CORS 仍是萬用字元");
+// 允許的來源，逗號分隔。本站有兩個：網頁版的網域，與 APK 的 WebView
+// （Capacitor 在 Android 上預設以 https://localhost 供裝，那就是它送出的 Origin）。
+// 單一值擋不住這件事——收成一個網域，APK 就打不到後端；為了 APK 放回 *，等於沒收。
+//
+//   ALLOWED_ORIGINS=https://你的網域,https://localhost
+//
+// 沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，就不會有人記得它還開著。
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? Deno.env.get("ALLOWED_ORIGIN") ?? "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+if (!ALLOWED_ORIGINS.length) console.warn("ALLOWED_ORIGINS 未設定：CORS 仍是萬用字元");
+
+// 各處回應仍舊帶這一份（132 個呼叫點不必動）。真正送出去的 Allow-Origin
+// 由最外層依當次請求覆寫——見檔尾 Deno.serve 的包裝。
 const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  ...(ALLOWED_ORIGIN === "*" ? {} : { "Vary": "Origin" }),
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-internal-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+/** 這一次請求該回什麼 Allow-Origin。名單沒設就回 *；設了但來源不在名單上，
+ *  就完全不給這個標頭——瀏覽器那一側會自己擋下來，而這是對的：
+ *  回一個對不上的值，只會讓錯誤訊息更難懂。
+ *  沒有 Origin 標頭的（TG bot、排程、curl）不受影響，CORS 本來就只管瀏覽器。 */
+function corsFor(req: Request): Record<string, string> {
+  if (!ALLOWED_ORIGINS.length) return {};
+  const origin = req.headers.get("origin");
+  if (!origin) return {};
+  // Vary 一定要帶：少了它，CDN 會把某一個網域拿到的回應快取給所有人
+  return ALLOWED_ORIGINS.includes(origin)
+    ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" }
+    : { "Access-Control-Allow-Origin": "", "Vary": "Origin" };
+}
 
 // 卦案服務層的 Result → HTTP。錯誤一律 200＋kind:"err"，與站內既有做法一致
 // （前端那支 callInterpret 只有非 2xx 才丟例外，訊息要能顯示就不能走 4xx）。
@@ -260,7 +284,7 @@ async function postDetailResponse(postId: unknown, viewerId: string | null = nul
   }, { headers: CORS });
 }
 
-Deno.serve(async (req) => {
+async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
 
@@ -1502,4 +1526,19 @@ Deno.serve(async (req) => {
     console.error(e);
     return new Response("internal error", { status: 500, headers: CORS });
   }
+}
+
+/* 對外的入口。handle() 裡每一處回應都帶著那份預設的 CORS（萬用字元），
+   這裡依當次請求把 Allow-Origin 換掉——這樣收緊來源只動一個地方，
+   不必去改一百三十幾個 `{ headers: CORS }`。改那麼多處，漏一個就是一個
+   偶發的、只在某一條路徑上出現的 CORS 錯誤，而那種問題最難查。 */
+Deno.serve(async (req: Request) => {
+  const res = await handle(req);
+  const over = corsFor(req);
+  if (!Object.keys(over).length) return res;      // 名單沒設，或這次沒有 Origin
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(over)) {
+    if (v) headers.set(k, v); else headers.delete(k);
+  }
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 });
