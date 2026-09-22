@@ -6,14 +6,16 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "..
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetState } from "../_shared/widget-state.ts";
-import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
-import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
+import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
+import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
+import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import {
@@ -28,12 +30,22 @@ import {
   voiceKeep, voiceList, voiceDelete, clipQuotaOf,
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
-import { castTexts, speakCast, speakChat, ttsQuota } from "../_shared/tts.ts";
+import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const GRANT_REGISTER = 50;
-const COST_MEND = 10;                       // 斷簽補簽費用（靈石），可調
+// 斷簽補簽費用見價目表（COST.signin_mend）
+
+// 定期定額一次約幾期。綠界月繳上限 99 期；訂 12 期是刻意的——
+// 一年後會自己停，而那時的價目、方案、成本結構多半都已經不是現在這一套了。
+// 到期前續約要使用者再按一次，比「扣到他卡停用為止」乾淨。
+const ECPAY_EXEC_TIMES = Number(Deno.env.get("ECPAY_EXEC_TIMES") ?? "12");
+// 使用者在綠界結帳頁按「返回商店」時導回哪裡。純前端、不可信，
+// 發不發牒一概看伺服器對伺服器那條回呼，與這個網址無關。
+// 寫成函式而不是常數：預設值要讀 ALLOWED_ORIGINS，而那個在下面才宣告。
+const ecpayClientBack = () =>
+  Deno.env.get("ECPAY_CLIENT_BACK") ?? ALLOWED_ORIGINS[0] ?? "";
 const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? ""; // 觀主內部 user_id：可刪任意廣場貼文
 const LEDGER_WINDOW = 600;                  // 收支查詢一次最多撈幾筆流水（分組後一列可代表數十筆）
 const POST_DAILY_LIMIT = 5;                 // 每日發文上限（沿用 free_quota）
@@ -65,7 +77,7 @@ function parseCastDate(cd: unknown): { y: number; m: number; d: number; hour: nu
 // 靈石經濟等於自我瓦解，沒人需要買。下修到一輪 66 顆（約 283/月）：
 // 仍足以支撐日常追問與換評，但要開完整卦理或大量加卦就得付費。
 // 維持單一貨幣（不另立「限定用途靈石」）——兩種貨幣只會生出「這顆為什麼不能用」的客服。
-const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],[20,10]];
+// 簽到獎勵見 _shared/prices.ts 的 SIGN_REWARDS（原本兩支各寫一份，TG 那份是網頁的 2.1 倍）
 // 可解鎖配色售價（靈石）。零 AI 邊際成本，屬純毛利品項；
 // 定價以「簽到月收約 283 顆」為尺，一套約當一個月的簽到量，買得下但要攢。
 const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porcelain: 320 };
@@ -77,6 +89,14 @@ const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 前端 part2.html 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
 const AH_FREE = 6;
 const AH_PER = 7;
+/** 本月還剩幾次免費朗讀。只有最高階有，其餘階恆為 0——
+ *  所以先問方案，0 的話連 tts_usage 都不必查。 */
+async function ttsFreeLeftOf(uid: string, plan: string): Promise<number> {
+  const max = await ttsFreeOf(db, plan);
+  if (max <= 0) return 0;
+  return (await ttsQuota(db, uid, plan)).free_left;
+}
+
 const ahUnlockedCount = (signinTotal: number) =>
   Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
 // CORS：瀏覽器跨網域呼叫必需。
@@ -305,13 +325,125 @@ async function postDetailResponse(postId: unknown, viewerId: string | null = nul
   }, { headers: CORS });
 }
 
+/* ═══ 綠界回呼 ═══════════════════════════════════════════════════
+   這一支與這支 function 裡其他每一條路都不一樣，三件事都不同：
+
+   一、【不是 JSON】綠界送的是 application/x-www-form-urlencoded。
+       所以它必須攔在 req.json() 之前——下面那一行 body = await req.json()
+       會直接對它拋出，而拋出的結果是綠界收不到 1|OK、然後一直重送。
+   二、【不是我們的使用者】沒有 JWT、沒有 x-internal-key。驗證完全靠
+       CheckMacValue，那是唯一能證明「這包真的是綠界送的」的東西。
+       ⚠ 少了它，任何人都能 POST 一包 RtnCode=1 過來拿一個月的藏往。
+   3、【回的不是 JSON】綠界只認字面的 1|OK。回別的（包括 {"ok":true}）
+       它一律當作失敗，然後在接下來幾小時內重送同一筆。
+
+   部署時記得：這條路要能不帶 JWT 進來，所以 interpret 必須以
+   --no-verify-jwt 部署（見 dev/deploy-howto.md）。少了它，綠界連
+   我們的程式都碰不到——它會收到閘道層的 401，而 function 的日誌
+   一行都不會有。 */
+async function ecpayReturn(req: Request): Promise<Response> {
+  // 綠界收不到 1|OK 就重送。所以這一支的每一條失敗路徑都要想清楚該回什麼：
+  //   回 1|OK   ＝「這筆我收下了，別再送」
+  //   回其他    ＝「我沒收到，請重送」
+  // 驗章失敗回 0|CheckMacValueError（重送也沒用，但要讓對方知道錯在哪）；
+  // 我們自己這側壞掉（資料庫掛了）則要回非 1|OK，讓綠界稍後重送——
+  // 那才是重送機制存在的意義。
+  const fail = (why: string) => new Response(`0|${why}`, { status: 200 });
+
+  let p: Record<string, string>;
+  try {
+    const form = await req.formData();
+    p = Object.fromEntries([...form.entries()].map(([k, v]) => [k, String(v)]));
+  } catch {
+    return fail("BadForm");
+  }
+
+  if (!await verifyCallback(p)) {
+    // 這一行是整條金流唯一的防線，所以它要留得下痕跡——
+    // 真有人在打這個端點時，日誌裡要看得出來。
+    console.error("ECPAY_BAD_MAC", JSON.stringify(p).slice(0, 500));
+    return fail("CheckMacValueError");
+  }
+
+  const tradeNo = String(p.MerchantTradeNo ?? "");
+  const { data: order } = await db.from("orders")
+    .select("id, user_id, plan, amount, status").eq("merchant_trade_no", tradeNo).maybeSingle();
+  if (!order) {
+    // 簽章對得上卻找不到訂單：這不可能是偽造的（他簽得出來就表示他有金鑰），
+    // 比較可能是我們這側的訂單沒寫進去，或是測試環境的單送到正式環境來了。
+    // 回 1|OK 讓它別再送——重送一百次也變不出一筆訂單來。
+    console.error("ECPAY_ORDER_NOT_FOUND", tradeNo);
+    return new Response("1|OK", { status: 200 });
+  }
+
+  const verdict = classifyCallback(p);
+  if (verdict.act === "ignore") {
+    console.warn("ECPAY_IGNORED", tradeNo, verdict.why);
+    return new Response("1|OK", { status: 200 });
+  }
+  if (verdict.act === "fail") {
+    // 扣款失敗（卡片過期、額度不足）。首期失敗就把訂單標成 failed；
+    // 續期失敗不動訂單狀態——牒還在效期內，到期自然歸零（planOf 看 plan_until），
+    // 不必也不該在這裡把人降級。
+    console.warn("ECPAY_PAYMENT_FAILED", tradeNo, verdict.why);
+    if (order.status === "pending") {
+      await db.from("orders").update({ status: "failed", raw: p }).eq("id", order.id);
+    }
+    return new Response("1|OK", { status: 200 });
+  }
+
+  // 金額以我們自己那一列為準，不採信回傳值。
+  // 綠界回的 Amount 本身是可信的（它在簽章範圍內），但「這一階該收多少」
+  // 是我們的事——用回傳值去發牒，等於把定價權交給對方。
+  const amount = order.amount;
+
+  // 約定條件要在發牒之前寫回去：apply_subscription_payment 讀 orders.frequency
+  // 決定這一期延幾個月。寫在它之後的話，首期會用預設的 1 個月——
+  // 目前只賣月繳所以看不出差別，等哪天賣季繳就會變成「付了三個月只延一個月」。
+  if (order.status === "pending") {
+    await db.from("orders").update({
+      period_type: p.PeriodType ?? null,
+      frequency: Number(p.Frequency ?? "1") || 1,
+      exec_times: Number(p.ExecTimes ?? "0") || null,
+      gwsr: p.Gwsr ?? null,
+      raw: p,
+    }).eq("id", order.id);
+  }
+
+  const { data: r, error } = await db.rpc("apply_subscription_payment", {
+    p_order: order.id,
+    p_ecpay_trade_no: String(p.TradeNo ?? p.Gwsr ?? tradeNo),
+    p_exec_time: verdict.execTime,
+    p_amount: amount,
+    p_raw: p,
+  });
+  if (error) {
+    // 我們這側壞了。回非 1|OK 讓綠界稍後重送——這是唯一一種「該重送」的情況，
+    // 而 apply_subscription_payment 本身是冪等的，重送不會重複發牒。
+    console.error("ECPAY_APPLY_FAILED", tradeNo, error.message);
+    return fail("ServerError");
+  }
+
+  console.log("ECPAY_OK", tradeNo, "期", verdict.execTime,
+    (r as { duplicate?: boolean } | null)?.duplicate ? "(重送)" : "");
+  return new Response("1|OK", { status: 200 });
+}
+
 async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
 
+  // 綠界的回呼：攔在 req.json() 之前。它送的是表單不是 JSON，
+  // 走到下面那一行會直接拋——而拋出的結果是綠界收不到 1|OK、然後一直重送。
+  if (new URL(req.url).searchParams.get("ecpay") === "return") return await ecpayReturn(req);
+
   // deno-lint-ignore no-explicit-any
   let body: any;
   try { body = await req.json(); } catch { return new Response("bad request", { status: 400, headers: CORS }); }
+
+  // 價目（lingshi_prices，快取 60 秒）。放在這裡是因為下面每一條路都可能扣費或
+  // 顯示價格，而讀不到時它會自己沿用預設、不拋——不會因為價目而擋掉請求。
+  await refreshPrices(db);
 
   // 先軟解析身分：下面三支是免認證的公開端點，但「這是誰」會影響它們回什麼
   // （封鎖名單要濾掉）。軟＝解不出來就當訪客，不擋——一個過期的 token 不該讓人
@@ -405,10 +537,13 @@ async function handle(req: Request): Promise<Response> {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
-        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
-        followupCost: COST_FOLLOWUP,
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
+        followupCost: COST.followup, prices: priceTable(),
+        // 朗讀鈕上要標「免費剩 N 次」或「💎66」，而那要在按下去之前就知道。
+        // 只帶免費次數，不帶完整用量：這一包已經夠大了，其餘等真的按下去再回。
+        ttsFreeLeft: await ttsFreeLeftOf(uid, plan),
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
@@ -457,6 +592,98 @@ async function handle(req: Request): Promise<Response> {
         ownedThemes: [...owned, key] }, { headers: CORS });
     }
 
+
+    /* ═══ 訂閱 ═══════════════════════════════════════════════════
+       玉牒的方案表。價格是資料（plans 那張表），所以這裡只是照抄，
+       不做任何計算——前端顯示的數字與結帳時送出去的數字必須是同一個來源。 */
+    if (body.mode === "plan_list") {
+      const { data: rows } = await db.from("plans")
+        .select("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort")
+        .eq("active", true).order("sort");
+      const plan = await planOf(db, uid);
+      const { data: prof } = await db.from("profiles").select("plan_until").eq("id", uid).maybeSingle();
+      const { data: ord } = await db.from("orders")
+        .select("id, plan, status, created_at").eq("user_id", uid).eq("status", "active")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      // 每日額度一併帶下來。這幾個數字住在 services.ts／chat.ts 的 PLAN_* 表裡
+      // （額度不落資料——查詢時直接 limit N，升降方案自動成立），前端若自己抄一份，
+      // 調額度那天方案頁會繼續寫著舊數字，而實際給的是新的。
+      const quotas = (rows ?? []).map((r) => {
+        const id = (r as { id: string }).id;
+        return {
+          ...(r as Record<string, unknown>),
+          casts: PLAN_CASTS[id] ?? PLAN_CASTS.free,
+          followups: PLAN_FOLLOWUPS[id] ?? PLAN_FOLLOWUPS.free,
+          chats: chatQuotaOf(id),
+          memories: memoryQuotaOf(id),
+          pins: pinQuotaOf(id),
+        };
+      });
+      return Response.json({
+        kind: "ok",
+        plans: quotas,
+        current: plan,
+        plan_until: (prof as { plan_until?: string } | null)?.plan_until ?? null,
+        // 有沒有正在跑的定期定額。退訂要去綠界那側辦，畫面上至少要說得出「你有」
+        subscription: ord ?? null,
+        // 金流沒設好時不要讓人按下去才發現。按鈕該是灰的，不是會爆炸的。
+        payable: ecpayConfigured(),
+      }, { headers: CORS });
+    }
+
+    /* 開一張訂單，回一包「照原樣 POST 給綠界」的表單參數。
+       【為什麼不由後端直接轉址】綠界要的是 POST 一包表單，而 302 只帶得動 GET。
+       所以標準做法是後端簽好交給前端，前端拿一個隱藏表單送出去。
+
+       【參數在前端手上會不會被改】會。所以金額與方案一律以 orders 那一列為準：
+       回呼進來時我們查的是 merchant_trade_no，發的牒是 orders.plan，
+       收的錢是 orders.amount——綠界回傳的業務欄位一概不採信。
+       他改了前端的金額，綠界那側的簽章就對不上，連結帳頁都進不去。 */
+    if (body.mode === "subscribe_create") {
+      if (!ecpayConfigured()) {
+        return Response.json({ kind: "err", msg: "金流尚未開通" }, { headers: CORS });
+      }
+      const { data: plan } = await db.from("plans")
+        .select("id, label, twd, active").eq("id", String(body.plan ?? "")).maybeSingle();
+      if (!plan || !(plan as { active: boolean }).active) {
+        return Response.json({ kind: "err", msg: "沒有這一階" }, { headers: CORS });
+      }
+      const row = plan as { id: string; label: string; twd: number };
+      if (!(row.twd > 0)) {
+        return Response.json({ kind: "err", msg: "這一階尚未開賣" }, { headers: CORS });
+      }
+
+      // 同一個人短時間內按好幾次，會開出好幾張 pending 訂單。那不是錯——
+      // 他可能第一次跳出去沒付完。pending 不發牒、不扣錢，留著無妨，
+      // 真正防重複的是 order_payments 那條 unique（同一期只生效一次）。
+      const tradeNo = merchantTradeNo();
+      const { data: order, error: orderErr } = await db.from("orders").insert({
+        user_id: uid, plan: row.id, merchant_trade_no: tradeNo, amount: row.twd,
+        status: "pending", period_type: "M", frequency: 1, exec_times: ECPAY_EXEC_TIMES,
+      }).select("id").single();
+      if (orderErr || !order) {
+        console.error("subscribe_create insert failed", orderErr?.message);
+        return Response.json({ kind: "err", msg: "訂單開不起來，請稍後再試" }, { headers: CORS });
+      }
+
+      // 兩條回呼都指到同一個端點：首期走 ReturnURL、之後每一期走 PeriodReturnURL，
+      // 而兩邊要做的事完全一樣（記一期、延一個月、發該期靈石）。
+      // 分成兩支的話，「續期那一支」是上線一個月後才第一次被執行的程式。
+      const back = `${SUPABASE_URL}/functions/v1/interpret?ecpay=return`;
+      const { action, fields } = await buildPeriodCheckout({
+        merchantTradeNo: tradeNo,
+        amount: row.twd,
+        itemName: `幾知觀玉牒・${row.label}`,
+        tradeDesc: "月繳訂閱",
+        returnUrl: back,
+        periodReturnUrl: back,
+        clientBackUrl: ecpayClientBack(),
+        frequency: 1,
+        execTimes: ECPAY_EXEC_TIMES,
+      });
+      return Response.json({ kind: "ok", order_id: order.id, action, fields }, { headers: CORS });
+    }
+
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
     if (body.mode === "signin") {
       const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -473,10 +700,10 @@ async function handle(req: Request): Promise<Response> {
       if (broken) {
         // 尚未決定 → 回報斷簽，前端彈窗問「補簽續連 / 重新開始」（不寫入）
         if (body.mend === undefined)
-          return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST_MEND, lingshi: bal0, canAfford: bal0 >= COST_MEND }, { headers: CORS });
+          return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST.signin_mend, lingshi: bal0, canAfford: bal0 >= COST.signin_mend }, { headers: CORS });
         if (body.mend === true) {
-          if (bal0 < COST_MEND) return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST_MEND, lingshi: bal0, canAfford: false }, { headers: CORS });
-          await db.rpc("apply_lingshi", { p_user: uid, p_action: "signin_mend", p_amount: -COST_MEND });
+          if (bal0 < COST.signin_mend) return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST.signin_mend, lingshi: bal0, canAfford: false }, { headers: CORS });
+          await db.rpc("apply_lingshi", { p_user: uid, p_action: "signin_mend", p_amount: -COST.signin_mend });
           newStreak = streak + 1; mended = true;     // 補簽 → 續連
         } else {
           newStreak = 1;                             // 不補 → 重新開始

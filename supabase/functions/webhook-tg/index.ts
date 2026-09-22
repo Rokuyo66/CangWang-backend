@@ -7,7 +7,8 @@ import { syncGuaFromCasts } from "../_shared/collection.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf, deleteAccount, DELETE_PHRASE } from "../_shared/services.ts";
+import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, castFreeLeft, followupFreeLeft, planOf, deleteAccount, DELETE_PHRASE } from "../_shared/services.ts";
+import { COST, refreshPrices, SIGN_REWARDS } from "../_shared/prices.ts";
 import { labelOf } from "../_shared/ledger.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
@@ -23,7 +24,7 @@ const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
 // 同一條台北日界，按鈕上寫「免費」按下去才不會扣靈石。額度依方案分級，不可寫死 free。
 async function castPriceTag(tgId: string, userId: string): Promise<string> {
   const left = await castFreeLeft(db, `tg:${tgId}`, await planOf(db, userId));
-  return left > 0 ? `免費剩${left}卦` : `耗${COST_EXTRA_CAST}靈石`;
+  return left > 0 ? `免費剩${left}卦` : `耗${COST.extra_cast}靈石`;
 }
 // 追問按鈕標價文字。追問額度早已從「每卦 N 次」改成「每人每日 N 次」（見 billFollowup），
 // 這裡卻還在數 casts.followup_used 對 FREE_FOLLOWUPS_PER_CAST——那個常數在 services 已不存在
@@ -31,7 +32,7 @@ async function castPriceTag(tgId: string, userId: string): Promise<string> {
 // 改讀 followupFreeLeft，與計費同一把每日額度、同一個方案。
 async function followupPriceTag(userId: string, plan: string): Promise<string> {
   const left = await followupFreeLeft(db, userId, plan);
-  return left > 0 ? `免費剩${left}次` : `靈石${COST_FOLLOWUP}`;
+  return left > 0 ? `免費剩${left}次` : `靈石${COST.followup}`;
 }
 
 /* ---------- TG helpers ---------- */
@@ -494,8 +495,8 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     await send(chatId,
       `🪙 <b>你的靈石</b>：${prof?.lingshi ?? 0}\n\n` +
       "<b>靈石用途</b>\n" +
-      `・加問一卦：${wPlan === "free" ? "每日" : "你的方案每日"} ${PLAN_CASTS[wPlan] ?? FREE_CASTS_PER_DAY} 卦免費（今日尚餘 ${wCastLeft} 卦），之後每卦 ${COST_EXTRA_CAST} 靈石\n` +
-      `・追問：每日 ${PLAN_FOLLOWUPS[wPlan] ?? FREE_FOLLOWUPS_PER_DAY} 次免費（今日尚餘 ${wFollowLeft} 次），之後每次 ${COST_FOLLOWUP} 靈石\n` +
+      `・加問一卦：${wPlan === "free" ? "每日" : "你的方案每日"} ${PLAN_CASTS[wPlan] ?? FREE_CASTS_PER_DAY} 卦免費（今日尚餘 ${wCastLeft} 卦），之後每卦 ${COST.extra_cast} 靈石\n` +
+      `・追問：每日 ${PLAN_FOLLOWUPS[wPlan] ?? FREE_FOLLOWUPS_PER_DAY} 次免費（今日尚餘 ${wFollowLeft} 次），之後每次 ${COST.followup} 靈石\n` +
       "・補簽：補回中斷的連續簽到（費用＝中斷天數×5）\n\n" +
       "<b>靈石來源</b>\n" +
       "・每日上香 /sign（連續七日有大獎）\n" +
@@ -816,7 +817,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     const { data: cast } = await db.from("casts").select("character_id").eq("id", ses.last_cast_id).maybeSingle();
     const origin = cast?.character_id ?? ses.character_id;
     const others = ["daoshi_m", "daoshi_f", "lingshou"].filter((id) => id !== origin);
-    await send(chatId, `想聽哪位也看看這一卦？（消耗靈石 ${COST_COMMENT}）`, {
+    await send(chatId, `想聽哪位也看看這一卦？（消耗靈石 ${COST.comment}）`, {
       reply_markup: { inline_keyboard: [others.map((id) => ({ text: CHAR_LABELS[id], callback_data: `comment_do:${id}` }))] },
     });
     return;
@@ -934,7 +935,7 @@ async function showWho(chatId: number, userId: string, ses: Record<string, any>)
 }
 
 // 七日循環獎勵：[靈石, 好感]，index 0=第1天…6=第7天
-const SIGN_REWARDS: [number, number][] = [[10,0],[10,0],[15,5],[15,0],[20,0],[20,0],[50,10]];
+// 簽到獎勵見 _shared/prices.ts 的 SIGN_REWARDS（原本兩支各寫一份，TG 那份是網頁的 2.1 倍）
 const todayTW = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) =>
   Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400_000);
@@ -1095,7 +1096,7 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     return;
   }
   if (r.kind === "paywall") {
-    await send(chatId, `今日免費卦已盡，靈石也不足了（加卦需 ${r.need ?? COST_EXTRA_CAST} 顆，你有 ${r.lingshi ?? 0} 顆）。\n（明日簽到可得靈石；訂閱功能尚在閉關中。）`);
+    await send(chatId, `今日免費卦已盡，靈石也不足了（加卦需 ${r.need ?? COST.extra_cast} 顆，你有 ${r.lingshi ?? 0} 顆）。\n（明日簽到可得靈石；訂閱功能尚在閉關中。）`);
     await saveSession({ ...ses, state: "idle" });
     return;
   }
@@ -1107,13 +1108,13 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
   const suggRows = (r.suggested ?? []).map((s: string, i: number) => [{ text: `❓ ${s.slice(0, 24)}（${fuTag}）`, callback_data: `fu:${i}` }]);
   // 今日免費卦進度尾註：直接用起卦當下算出的 freeLeft，不再回頭重查（重查會與剛剛那筆賽跑）
   const leftNow = r.freeLeft ?? 0;
-  const quotaNote = `\n\n<i>（今日免費卦尚餘 ${leftNow} 卦${leftNow <= 0 ? "，之後加卦每卦 " + COST_EXTRA_CAST + " 靈石" : ""}）</i>`;
+  const quotaNote = `\n\n<i>（今日免費卦尚餘 ${leftNow} 卦${leftNow <= 0 ? "，之後加卦每卦 " + COST.extra_cast + " 靈石" : ""}）</i>`;
   await send(chatId, mdToTG(r.reading) + (r.paid ? `\n\n<i>（額度外加卦，靈石 −${r.paid}）</i>` : "") + (r.appendix ?? "") + quotaNote, {
     reply_markup: { inline_keyboard: [
-      [{ text: `📜 展開完整卦理（靈石${COST_DEEPEN}）`, callback_data: "deepen" }],
+      [{ text: `📜 展開完整卦理（靈石${COST.deepen}）`, callback_data: "deepen" }],
       ...suggRows,
       [{ text: `✍️ 針對此卦再追問（${fuTag}）`, callback_data: "fu_input" }],
-      [{ text: `💬 換人評此卦（靈石${COST_COMMENT}）`, callback_data: "comment" }],
+      [{ text: `💬 換人評此卦（靈石${COST.comment}）`, callback_data: "comment" }],
     ] },
   });
   if (r.breakthrough) await send(chatId, "⚡ " + esc(r.breakthrough.message));
@@ -1165,6 +1166,7 @@ Deno.serve(async (req) => {
   let update: any = null;
   try {
     update = await req.json();
+    await refreshPrices(db);   // 價目（快取 60 秒、讀不到沿用預設、不拋）
     // 廣播指令攔截（僅管理員 /broadcast 與確認按鈕；其餘放行回原路由）
     const handled = await tryHandleBroadcast(update, db);
     if (handled) return new Response("ok");

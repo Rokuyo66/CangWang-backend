@@ -98,14 +98,14 @@ $IDENT_VIEW =
 $PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知幾'; cangwang = '藏往' }
 $QUOTAS = @(
   @{ n = '每日免費起卦'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 8   },
-  @{ n = '每日免費追問'; free = 2; guanwei = 3;  zhiji = 8;  cangwang = 20  },
-  @{ n = '每日免費閒聊'; free = 8; guanwei = 20; zhiji = 50; cangwang = 100 },
+  @{ n = '每日免費追問'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 20  },
+  @{ n = '每日免費閒聊'; free = 8; guanwei = 12; zhiji = 30; cangwang = 100 },
   @{ n = '共憶注入則數'; free = 6; guanwei = 12; zhiji = 24; cangwang = 40  },
   @{ n = '注入對話輪數'; free = 6; guanwei = 8;  zhiji = 12; cangwang = 16  },
   @{ n = '可釘選回憶'  ; free = 0; guanwei = 1;  zhiji = 3;  cangwang = 5   },
   @{ n = '心跡同時在記'; free = 1; guanwei = 3;  zhiji = 8;  cangwang = 20  },
   @{ n = '語音收藏段數'; free = 3; guanwei = 10; zhiji = 30; cangwang = 100 },
-  @{ n = '每月朗讀字數'; free = 5000; guanwei = 12000; zhiji = 30000; cangwang = 60000 },
+  @{ n = '每月免費朗讀'; free = 0; guanwei = 0;  zhiji = 0;  cangwang = 8   },   # 次數，不再是字數（0059）
   @{ n = '卦案記憶檔案'; free = 1; guanwei = 3;  zhiji = 3;  cangwang = 3   }
 )
 
@@ -205,25 +205,29 @@ if ($acts.Count -eq 0) {
   }
   $rows | Format-Table -AutoSize
 
-  # 朗讀額度是唯一「按月結算、會累積」的一項，所以另外把現況查出來——
-  # 光看上表只知道上限，看不出這個帳號現在還剩多少，而回報「語音載不下來」
-  # 時要看的正是這個數字。
+  # 朗讀是唯一「按月結算」的一項，所以另外把現況查出來——上表只說得出上限，
+  # 說不出這個帳號現在還剩幾次，而回報「朗讀按了沒反應」時要看的正是這個。
+  #
+  # 0059 之後計價方式改了：不再是每月幾字，是「最高階每月幾次免費、其餘單次扣靈石」。
+  # 所以這裡要問的是次數，不是字數。字數仍然記著（帳單照字數出），但它不再是額度。
   $ym = (Get-Date).ToUniversalTime().AddHours(8).ToString('yyyy-MM')
   $m1 = Q "$ym-01"
   # 一行寫完：PowerShell 的續行是反引號不是反斜線，而反斜線在這裡會被
   # 當成字面字元吃進 SQL 裡，錯得很難看出來。
-  $q = "select coalesce(sum(chars), 0) as used from tts_usage where user_id = " + (Q $t.id) + "::uuid and day >= $m1::date and day < ($m1::date + interval '1 month');"
+  $q = "select coalesce(sum(chars),0) as chars, coalesce(sum(readings),0) as n, coalesce(sum(free_readings),0) as f from tts_usage where user_id = " + (Q $t.id) + "::uuid and day >= $m1::date and day < ($m1::date + interval '1 month');"
   $tts = @(Invoke-Sql $q)[0]
-  $ttsCaps = @{ free = 5000; guanwei = 12000; zhiji = 30000; cangwang = 60000 }
-  $ttsMax  = $ttsCaps[[string]$effective]
-  if (-not $ttsMax) { $ttsMax = 5000 }
-  $ttsUsed = [int]$tts.used
-  $ttsLeft = [Math]::Max(0, $ttsMax - $ttsUsed)
-  $ttsSegs = [Math]::Floor($ttsLeft / 1300)
+  $ttsFree = @{ free = 0; guanwei = 0; zhiji = 0; cangwang = 8 }[[string]$effective]
+  if (-not $ttsFree) { $ttsFree = 0 }
+  $freeUsed = [int]$tts.f
+  $freeLeft = [Math]::Max(0, $ttsFree - $freeUsed)
+  $costRow  = @(Invoke-Sql "select cost from lingshi_prices where action = 'tts_reading';")
+  $ttsCost  = if ($costRow.Count -gt 0) { [int]$costRow[0].cost } else { 66 }
   Write-Host ""
-  Write-Host "本月朗讀（$ym 台北）　已用 $ttsUsed ／ $ttsMax 字　還剩 $ttsLeft 字（約 $ttsSegs 段）"
-  if ($ttsLeft -eq 0) {
-    Write-Host "  ⚠ 額度用完了，朗讀會被擋下。下個月一號重新計算。" -ForegroundColor Yellow
+  Write-Host "本月朗讀（$ym 台北）　共 $([int]$tts.n) 次（$([int]$tts.chars) 字）　免費已用 $freeUsed ／ $ttsFree　還剩 $freeLeft 次"
+  if ($ttsFree -eq 0) {
+    Write-Host "  這一階沒有免費次數，每念一次扣 $ttsCost 靈石（免費次數只給最高階）。"
+  } elseif ($freeLeft -eq 0) {
+    Write-Host "  ⚠ 本月免費次數用完，之後每念一次扣 $ttsCost 靈石。下個月一號重新計算。" -ForegroundColor Yellow
   }
 
   Write-Host "另外三項不是數字，是有無："

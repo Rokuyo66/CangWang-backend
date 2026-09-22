@@ -6,7 +6,8 @@ import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { collectedGua, recordGua } from "./collection.ts";
-import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { COST } from "./prices.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -254,7 +255,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   return {
     kind: "ok" as const, castId: cast!.id as string, chart, reading: ai.reading, appendix,
     suggested: ai.suggested, paid: bill.paid, freeLeft: bill.freeLeft ?? 0,
-    castCost: COST_EXTRA_CAST, breakthrough,
+    castCost: COST.extra_cast, breakthrough,
     yong: yongQin
       ? {
           qin: yongQin, viaShi: !!yongViaShi, viaYing: !!yongViaYing,
@@ -334,7 +335,7 @@ async function addCultivation(db: SupabaseClient, userId: string, characterId: s
   return event;
 }
 
-/** 換人評卦：另一角色就同卦結論給看法，扣 COST_COMMENT 靈石，不重算卦理 */
+/** 換人評卦：另一角色就同卦結論給看法，扣 COST.comment 靈石，不重算卦理 */
 export async function commentCast(db: SupabaseClient, p: {
   userId: string; castId: string; newCharacterId: string;
 }) {
@@ -345,8 +346,8 @@ export async function commentCast(db: SupabaseClient, p: {
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
-  const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment", p_amount: -COST_COMMENT, p_ref: p.castId });
-  if (payErr) return { kind: "paywall" as const, cost: COST_COMMENT };
+  const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment", p_amount: -COST.comment, p_ref: p.castId });
+  if (payErr) return { kind: "paywall" as const, cost: COST.comment };
 
   // 取原評卦人稱呼，傳給新角色，避免張冠李戴（如觀貓評的卻說成師妹）
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
@@ -357,10 +358,10 @@ export async function commentCast(db: SupabaseClient, p: {
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
-  return { kind: "ok" as const, comment: ai.reading, paid: COST_COMMENT };
+  return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
 }
 
-/** 展開完整卦理（首次生成扣 COST_DEEPEN 靈石；已生成過重看免費）
+/** 展開完整卦理（首次生成扣 COST.deepen 靈石；已生成過重看免費）
  *  完整度保證：撞 max_tokens 或結尾斷半句 → 一次 prefill 接續補完；仍不完整 → 退款、不存半成品。 */
 export async function deepenCast(db: SupabaseClient, p: {
   userId: string; castId: string;
@@ -375,10 +376,10 @@ export async function deepenCast(db: SupabaseClient, p: {
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   // 首次展開：扣靈石（不足則擋）
-  const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen", p_amount: -COST_DEEPEN, p_ref: p.castId });
-  if (payErr) return { kind: "paywall" as const, cost: COST_DEEPEN };
+  const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen", p_amount: -COST.deepen, p_ref: p.castId });
+  if (payErr) return { kind: "paywall" as const, cost: COST.deepen };
 
-  const refund = () => db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen_refund", p_amount: COST_DEEPEN, p_ref: p.castId });
+  const refund = () => db.rpc("apply_lingshi", { p_user: p.userId, p_action: "deepen_refund", p_amount: COST.deepen, p_ref: p.castId });
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
@@ -404,7 +405,7 @@ export async function deepenCast(db: SupabaseClient, p: {
       return { kind: "incomplete" as const };
     }
     await db.from("casts").update({ deep_reading: deep }).eq("id", p.castId);
-    return { kind: "ok" as const, deep, cached: false, paid: COST_DEEPEN };
+    return { kind: "ok" as const, deep, cached: false, paid: COST.deepen };
   } catch (e) {
     console.error("deepen failed", e);
     await refund();

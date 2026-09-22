@@ -8,6 +8,7 @@ import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
+import { COST } from "./prices.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
@@ -19,7 +20,7 @@ const FREE_TIMEOUT_MS = Number(Deno.env.get("FREE_TIMEOUT_MS") ?? "6000");
 const FREE_TIER = Deno.env.get("FREE_CHAT_TIER") ?? "on";
 
 export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天扣 1 點
-export const COST_CHAT = Number(Deno.env.get("LINGSHI_PER_CHAT") ?? "1");  // 免費額度用完後，每則聊天扣靈石
+// 每則聊天的靈石（免費額度用完後）已併入 _shared/prices.ts 的價目表
 export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（只增不減）
 export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（大師兄分層：300/500/800）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
@@ -77,7 +78,10 @@ const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更
 export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
 // 閒聊依方案分級。改成本表之前，免費層每日 15 句約佔免費成本的四成四，
 // 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
-export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 20, zhiji: 50, cangwang: 100 };
+// 2026-09-22：觀微 20→12、知幾 50→30。閒聊單價低（NT$0.07／則）但額度大，
+// 所以它是兩個中階裡最不痛的那一刀——砍追問或起卦會直接砍掉升級的理由，
+// 砍閒聊只是把「聊不完的」變成「夠聊」。藏往不動，它是利潤來源不是成本問題。
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 12, zhiji: 30, cangwang: 100 };
 export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
 // 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
 // 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。
@@ -838,7 +842,7 @@ export async function chat(db: SupabaseClient, p: {
   let used = (q && q.last_reset === today) ? q.used_today : 0;
   const chatQuota = chatQuotaOf(p.plan ?? "free");
   const withinFree = used < chatQuota;
-  const canPay = lingshi >= COST_CHAT;
+  const canPay = lingshi >= COST.chat;
 
   // 危機攔截：必須在限流之前——否則一句「我不想活了」可能被「吵。一分鐘轟這麼多句」
   // 打發掉，那是這個產品能犯的最糟的一個錯。
@@ -920,8 +924,8 @@ export async function chat(db: SupabaseClient, p: {
       used += 1;
       await db.from("free_quota").upsert({ key: qkey, used_today: used, last_reset: today });
     } else {
-      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST_CHAT });
-      lingshi -= COST_CHAT; cost = COST_CHAT;
+      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST.chat });
+      lingshi -= COST.chat; cost = COST.chat;
     }
   }
   if (!reply) {

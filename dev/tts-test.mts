@@ -56,7 +56,10 @@ function fakeMinimax(encode = hex) {
 }
 
 const seed = () => ({
-  profiles: [{ id: U, lingshi: 100 }],
+  // 靈石給足：這一支測的是合成、分軌與快取，計費另有 dev/tts-quota-test.mts。
+  // 給 100 顆的話第二次朗讀就會因為餘額不足而失敗，而失敗的原因與這裡要測的事無關。
+  profiles: [{ id: U, lingshi: 100000 }],
+  plans: [{ id: "cangwang", tts_free_readings: 8 }],
   casts: [
     { id: CAST, user_id: U, character_id: "daoshi_m", question: "問前程", reading: "## 斷語\n事緩則圓。\n＊他沒有轉身＊\n再等三日。" },
     { id: "cast-2", user_id: "someone-else", character_id: "daoshi_f", question: "別人的", reading: "別人的批文。" },
@@ -177,30 +180,36 @@ await t("重聽同一段不再打 API", async () => {
   eq(JSON.stringify(again.parts), JSON.stringify(first.parts), "拿到的網址該一樣");
 });
 
-console.log("\n── 額度 ──");
-await t("額度用完擋得住", async () => {
+console.log("\n── 計費 ──");
+await t("靈石不足擋得住，而且一個字都不送去合成", async () => {
   const s = seed();
-  // 台北日：額度以台北日界計，用 UTC 日期會在下午四點之後放到錯的那一天
-  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-  s.tts_usage.push({ user_id: U, day, chars: 99999 });
-  const db = fakeDb(s); const mm = fakeMinimax();
-  ok((await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf)).includes("額度"), "該擋");
-  eq(mm.calls.length, 0, "擋下時不該打 API");
-});
-await t("額度只差一點時，不會念到一半才斷——一個字都不合成", async () => {
-  const s = seed();
-  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-  // 這一卦要念的字不只 3 個，額度只剩 3：一段一段扣的話會先合成前幾段
-  // 再回失敗，使用者花了錢一個字也沒聽到。
-  s.tts_usage.push({ user_id: U, day, chars: 5000 - 3 });
+  s.profiles[0].lingshi = 3;              // 不夠念一次
   const db = fakeDb(s); const mm = fakeMinimax();
   const msg = await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch).then(errOf);
-  ok(msg.includes("額度"), "該擋，得到：" + msg);
+  ok(msg.includes("靈石"), "該擋，得到：" + msg);
+  // 一段一段扣的話，長批文會在中間某一段扣不動：前幾段已經合成、已經付錢，
+  // 然後整支回失敗，使用者花了錢一個字也沒聽到。那是所有失敗方式裡最糟的一種。
   eq(mm.calls.length, 0, "擋下時一個字都不該送去合成");
-  eq((db as any)._store.tts_usage[0].chars, 5000 - 3, "擋下時不該扣掉任何額度");
+  eq((db as any)._store.profiles[0].lingshi, 3, "擋下時餘額必須原封不動");
+  eq((db as any)._store.tts_usage.length, 0, "擋下時不該留用量紀錄");
+});
+await t("一次朗讀只收一次錢，不論它被切成幾段", async () => {
+  const s = seed();
+  const db = fakeDb(s); const mm = fakeMinimax();
+  const p = payloadOf(await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch));
+  ok((p.parts as any[]).length >= 2, "這一卦該被切成不只一段（換嗓子），否則這條測不到東西");
+  eq(100000 - (db as any)._store.profiles[0].lingshi, p.paid, "扣的數與回報的數要一致");
+  eq((db as any)._store.tts_usage[0].readings, 1, "切成幾段都只算一次");
+});
+await t("最高階走免費次數，不扣靈石", async () => {
+  const db = fakeDb(seed()); const mm = fakeMinimax();
+  const p = payloadOf(await speakCast(db as any, U, "cangwang", CAST, "body", mm.doFetch));
+  eq(p.used_free, true, "藏往第一次該走免費次數");
+  eq(p.paid, 0, "不該扣靈石");
+  eq((db as any)._store.profiles[0].lingshi, 100000, "餘額必須原封不動");
 });
 
-await t("命中快取的重聽不吃額度", async () => {
+await t("命中快取的重聽不收錢", async () => {
   const db = fakeDb(seed()); const mm = fakeMinimax();
   await speakCast(db as any, U, PLAN, CAST, "body", mm.doFetch);
   const used1 = (db as any)._store.tts_usage[0].chars;
