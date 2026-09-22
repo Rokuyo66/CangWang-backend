@@ -137,7 +137,9 @@ const HELP_TEXT =
   "🧠 /memory 查看聊天記憶　/forget 清除記憶\n" +
   "🚪 /gua 明確進入問卦　/start 重新入觀\n" +
   "🗑 /deleteme 刪除帳號與全部資料（不可復原）\n\n" +
-  "<i>每日免費三卦，每卦含兩次追問。</i>\n" +
+  // 這一行原本寫死「每日免費三卦，每卦含兩次追問」——那是 2026-08 之前的規矩。
+  // 額度改過兩次而這句沒跟著改，等於指南對使用者說了兩年的假話。改成讀現行值。
+  `<i>每日免費 ${FREE_CASTS_PER_DAY} 卦、${FREE_FOLLOWUPS_PER_DAY} 次追問；持玉牒者加碼。</i>\n` +
   "<i>📜 /about 服務性質與免責須知</i>";
 const charKeyboard = {
   inline_keyboard: [[
@@ -369,6 +371,45 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     }
     return;
   }
+  /* 站內信廣播：/mail 標題｜內文
+     與 /broadcast 的差別要講清楚，否則兩支遲早會被誤用：
+       /broadcast → 推到 Telegram，只有綁過 TG 的人收得到，看完就過去了
+       /mail      → 寫進信箱，網頁與 App 的人都收得到，而且留著
+
+     停機公告、調價說明這種「要留著讓人回去看」的，走這支。 */
+  if (text.startsWith("/mail")) {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const raw = text.slice(5).trim();
+    const sep = raw.indexOf("｜") >= 0 ? "｜" : "|";
+    const i = raw.indexOf(sep);
+    if (!raw || i <= 0) {
+      await send(chatId,
+        "<b>站內信廣播</b>\n\n" +
+        "<code>/mail 標題｜內文</code>\n\n" +
+        "內文可以換行，直接在訊息裡按 Shift+Enter。\n" +
+        "寄出後所有「現在已經註冊」的人都會收到，之後才註冊的不會——\n" +
+        "新來的人不該一進來就看到一疊他沒有份的舊信。\n\n" +
+        "<i>與 /broadcast 的差別：那支推到 Telegram、看完就過去；這支寫進信箱、留著。</i>");
+      return;
+    }
+    const subject = raw.slice(0, i).trim();
+    const bodyText = raw.slice(i + sep.length).trim();
+    if (!subject || !bodyText) { await send(chatId, "標題與內文都要有。"); return; }
+
+    const { data: mailId, error } = await db.rpc("mail_send", {
+      p_user: null, p_subject: subject, p_body: bodyText, p_kind: "system",
+    });
+    if (error) { await send(chatId, `寄不出去：${tgEsc(error.message)}`); return; }
+    // 收得到的人數＝現在的註冊數。先報一次，免得寄完不知道寄給了誰
+    const { count } = await db.from("profiles").select("id", { count: "exact", head: true });
+    await send(chatId,
+      `📬 <b>已寄出</b>　${count ?? 0} 人收得到\n\n` +
+      `<b>${tgEsc(subject)}</b>\n${tgEsc(bodyText.slice(0, 300))}${bodyText.length > 300 ? "…" : ""}\n\n` +
+      `<i>id ${tgEsc(String(mailId ?? "")).slice(0, 8)}</i>`);
+    return;
+  }
+
   if (text === "/collection" || text === "/卦籤" || text === "/圖鑑") {
     // 卦鑑（永久表，見 0051）。順手對一次 casts 把漏的補回——
     // 舊版直接數 casts，起卦破千之後會被 db-max-rows 切掉，收集度看起來會縮水。

@@ -114,4 +114,29 @@ select * from (
          coalesce(max(tts_free_readings)::text, '—')
     from plans where id = 'cangwang'
 
+  union all
+  -- ⑩ 站內信（0060／0061）
+  --    兩張表、四支 function。缺了的話信寄不出去也收不到，而兩邊都不會報錯——
+  --    寄信端是 perform（回傳值被丟掉），收信端只會看到一個空信箱。
+  select 10, '⑩ 站內信（0060／0061）',
+         case when (select count(*) from pg_tables
+                     where schemaname = 'public' and tablename in ('mail','mail_state')) = 2
+               and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public'
+                       and p.proname in ('mail_list','mail_unread','mail_mark','mail_send','birthday_due')) = 5
+              then '✅ 表與函式都在' else '❌ 缺東西' end,
+         coalesce((select string_agg(p.proname, '、' order by p.proname)
+                     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                    where n.nspname = 'public'
+                      and p.proname in ('mail_list','mail_unread','mail_mark','mail_send','birthday_due')), '—')
+
+  union all
+  -- ⑪ 三位角色的生日都設好了（0061）
+  --    佔位值是 03-03／07-07／11-11，六六要改成他設定的那幾天。
+  --    沒設的話生日信永遠不會寄，而那件事不會有任何徵兆——排程每天跑、每天沒事做。
+  select 11, '⑪ 角色生日（0061）',
+         case when count(*) = 3 then '✅ 三位都有' else '⚠ 只有 ' || count(*)::text || ' 位' end,
+         coalesce(string_agg(name || ' ' || birthday, '、' order by id), '—')
+    from characters where birthday is not null and coalesce(birthday_letter, '') <> ''
+
 ) r order by ord;

@@ -544,6 +544,9 @@ async function handle(req: Request): Promise<Response> {
         // 朗讀鈕上要標「免費剩 N 次」或「💎66」，而那要在按下去之前就知道。
         // 只帶免費次數，不帶完整用量：這一包已經夠大了，其餘等真的按下去再回。
         ttsFreeLeft: await ttsFreeLeftOf(uid, plan),
+        // 信箱未讀數。與心跡、廣場的紅點一樣由 profile 一起帶回來——
+        // 為了一個數字另打一支 API，是把便宜的東西做貴。
+        mailUnread: Number((await db.rpc("mail_unread", { p_user: uid })).data ?? 0),
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
@@ -682,6 +685,37 @@ async function handle(req: Request): Promise<Response> {
         execTimes: ECPAY_EXEC_TIMES,
       });
       return Response.json({ kind: "ok", order_id: order.id, action, fields }, { headers: CORS });
+    }
+
+
+    /* ═══ 站內信 ═══════════════════════════════════════════════
+       三種信走同一個信箱（0060）：觀主的廣播、角色的生日信、下架通知。
+       分三個地方各做一套的話，紅點就會有三個，而使用者只想知道「有沒有新的」。
+
+       內容全在資料庫那一側算好（mail_list），這裡只負責把 uid 交過去——
+       可見性的規則（廣播只給寄出時已註冊的人）寫在 SQL 裡一份，不在這裡再判一次。 */
+    if (body.mode === "mail_list") {
+      const { data, error } = await db.rpc("mail_list", {
+        p_user: uid,
+        p_limit: Math.min(50, Math.max(1, Number(body.limit ?? 30))),
+        p_offset: Math.max(0, Number(body.offset ?? 0)),
+      });
+      if (error) {
+        console.error("mail_list failed", uid, error.message);
+        return Response.json({ kind: "err", msg: "信箱讀不到" }, { headers: CORS });
+      }
+      return Response.json({ kind: "ok", mail: data ?? [] }, { headers: CORS });
+    }
+
+    // 讀了／刪了。兩件事同一支 RPC——它們都只是在 mail_state 上記一筆。
+    if (body.mode === "mail_mark") {
+      if (!body.mail_id) return Response.json({ kind: "err", msg: "沒說哪一封" }, { headers: CORS });
+      await db.rpc("mail_mark", {
+        p_user: uid, p_mail: String(body.mail_id),
+        p_read: body.read !== false, p_delete: body.delete === true,
+      });
+      const { data: n } = await db.rpc("mail_unread", { p_user: uid });
+      return Response.json({ kind: "ok", unread: Number(n ?? 0) }, { headers: CORS });
     }
 
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
