@@ -81,4 +81,37 @@ select * from (
     ) q
    where n > 0
 
+  union all
+  -- ⑦ 訂閱與價目這幾張表真的到位了（0058／0059）
+  --    少任何一張，程式端不會當掉——它會沿用寫死的預設價，然後你在資料庫裡
+  --    改價改了半天沒有反應，而那種「改了沒效」最難查。
+  select 7, '⑦ 訂閱與價目的表（0058／0059）',
+         case when count(*) = 4 then '✅ 四張都在' else '❌ 缺 ' || (4 - count(*))::text || ' 張' end,
+         coalesce(string_agg(tablename, '、' order by tablename), '—')
+    from pg_tables
+   where schemaname = 'public'
+     and tablename in ('plans', 'orders', 'order_payments', 'lingshi_prices')
+
+  union all
+  -- ⑧ 價目表的值與程式端的預設一致
+  --    兩邊本來就該一樣（dev/pricing-test.mts 在 CI 那一側釘著），這裡驗的是
+  --    「線上這一份有沒有被套用」——migration 漏套的話，程式沿用預設，
+  --    看起來一切正常，直到有人 update 了價卻發現沒動靜。
+  select 8, '⑧ 靈石價目已套用（0059）',
+         case when count(*) >= 7 then '✅ ' || count(*)::text || ' 項' 
+              else '❌ 只有 ' || count(*)::text || ' 項，應為 7' end,
+         coalesce(string_agg(action || '=' || cost::text, '、' order by action), '—')
+    from lingshi_prices
+
+  union all
+  -- ⑨ 最高階的免費朗讀次數（0059）
+  --    這一欄沒套用的話預設是 0，於是藏往的使用者每念一次都被扣 66 顆靈石，
+  --    而方案頁上寫著「每月免費朗讀 8 次」——那是最快收到客訴的一種不一致。
+  select 9, '⑨ 藏往的免費朗讀次數（0059）',
+         case when coalesce(max(tts_free_readings), 0) > 0
+              then '✅ ' || max(tts_free_readings)::text || ' 次／月'
+              else '❌ 是 0——方案頁寫的與實際扣的會對不上' end,
+         coalesce(max(tts_free_readings)::text, '—')
+    from plans where id = 'cangwang'
+
 ) r order by ord;
