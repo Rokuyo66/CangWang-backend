@@ -6,14 +6,15 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "..
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetState } from "../_shared/widget-state.ts";
-import { chat, COST_CHAT, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
-import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
+import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
+import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import {
@@ -33,7 +34,7 @@ import { castTexts, speakCast, speakChat, ttsQuota } from "../_shared/tts.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const GRANT_REGISTER = 50;
-const COST_MEND = 10;                       // 斷簽補簽費用（靈石），可調
+// 斷簽補簽費用見價目表（COST.signin_mend）
 const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? ""; // 觀主內部 user_id：可刪任意廣場貼文
 const LEDGER_WINDOW = 600;                  // 收支查詢一次最多撈幾筆流水（分組後一列可代表數十筆）
 const POST_DAILY_LIMIT = 5;                 // 每日發文上限（沿用 free_quota）
@@ -65,7 +66,7 @@ function parseCastDate(cd: unknown): { y: number; m: number; d: number; hour: nu
 // 靈石經濟等於自我瓦解，沒人需要買。下修到一輪 66 顆（約 283/月）：
 // 仍足以支撐日常追問與換評，但要開完整卦理或大量加卦就得付費。
 // 維持單一貨幣（不另立「限定用途靈石」）——兩種貨幣只會生出「這顆為什麼不能用」的客服。
-const SIGN_REWARDS: [number, number][] = [[5,0],[5,0],[8,5],[8,0],[10,0],[10,0],[20,10]];
+// 簽到獎勵見 _shared/prices.ts 的 SIGN_REWARDS（原本兩支各寫一份，TG 那份是網頁的 2.1 倍）
 // 可解鎖配色售價（靈石）。零 AI 邊際成本，屬純毛利品項；
 // 定價以「簽到月收約 283 顆」為尺，一套約當一個月的簽到量，買得下但要攢。
 const THEME_PRICES: Record<string, number> = { bamboo: 260, cinnabar: 260, porcelain: 320 };
@@ -313,6 +314,10 @@ async function handle(req: Request): Promise<Response> {
   let body: any;
   try { body = await req.json(); } catch { return new Response("bad request", { status: 400, headers: CORS }); }
 
+  // 價目（lingshi_prices，快取 60 秒）。放在這裡是因為下面每一條路都可能扣費或
+  // 顯示價格，而讀不到時它會自己沿用預設、不拋——不會因為價目而擋掉請求。
+  await refreshPrices(db);
+
   // 先軟解析身分：下面三支是免認證的公開端點，但「這是誰」會影響它們回什麼
   // （封鎖名單要濾掉）。軟＝解不出來就當訪客，不擋——一個過期的 token 不該讓人
   // 連廣場都看不了。硬性的認證雙軌仍在下面，公開端點放行之後才跑。
@@ -405,10 +410,10 @@ async function handle(req: Request): Promise<Response> {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST_CHAT, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
-        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST_EXTRA_CAST,
-        followupCost: COST_FOLLOWUP,
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
+        followupCost: COST.followup, prices: priceTable(),
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
@@ -473,10 +478,10 @@ async function handle(req: Request): Promise<Response> {
       if (broken) {
         // 尚未決定 → 回報斷簽，前端彈窗問「補簽續連 / 重新開始」（不寫入）
         if (body.mend === undefined)
-          return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST_MEND, lingshi: bal0, canAfford: bal0 >= COST_MEND }, { headers: CORS });
+          return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST.signin_mend, lingshi: bal0, canAfford: bal0 >= COST.signin_mend }, { headers: CORS });
         if (body.mend === true) {
-          if (bal0 < COST_MEND) return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST_MEND, lingshi: bal0, canAfford: false }, { headers: CORS });
-          await db.rpc("apply_lingshi", { p_user: uid, p_action: "signin_mend", p_amount: -COST_MEND });
+          if (bal0 < COST.signin_mend) return Response.json({ kind: "broken", streak, missed: gap - 1, cost: COST.signin_mend, lingshi: bal0, canAfford: false }, { headers: CORS });
+          await db.rpc("apply_lingshi", { p_user: uid, p_action: "signin_mend", p_amount: -COST.signin_mend });
           newStreak = streak + 1; mended = true;     // 補簽 → 續連
         } else {
           newStreak = 1;                             // 不補 → 重新開始

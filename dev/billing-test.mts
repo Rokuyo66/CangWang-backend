@@ -12,8 +12,11 @@
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
 
 import { fakeDb } from "./fake-db.mts";
-const { billCast, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, FREE_CASTS_PER_DAY, PLAN_CASTS, COST_EXTRA_CAST } =
+const { billCast, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, FREE_CASTS_PER_DAY, PLAN_CASTS } =
   await import("../supabase/functions/_shared/services.ts");
+// 價目搬到 _shared/prices.ts 之後，這裡讀的是現行值而非寫死的數字——
+// 調價不該讓這支測試失敗，它測的是「有沒有照價扣」，不是「價是多少」。
+const { COST } = await import("../supabase/functions/_shared/prices.ts");
 
 let pass = 0, fail = 0;
 function t(name: string, fn: () => void | Promise<void>) {
@@ -46,31 +49,31 @@ await t("免費額度內：不扣靈石，freeLeft 逐卦遞減", async () => {
   eq(db._store.profiles[0].lingshi, 100, "免費額度內，餘額不該動");
 });
 
-await t("額度用盡：扣 COST_EXTRA_CAST，freeLeft 歸零", async () => {
+await t("額度用盡：照價扣靈石，freeLeft 歸零", async () => {
   const db = dbWith(100);
   for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
   const r = await billCast(db, U, U, "free");
   ok(r.ok, "有靈石就該讓他加卦");
-  eq(r.paid, COST_EXTRA_CAST, "加卦應扣的靈石");
+  eq(r.paid, COST.extra_cast, "加卦應扣的靈石");
   eq(r.freeLeft, 0, "額度已盡");
-  eq(db._store.profiles[0].lingshi, 100 - COST_EXTRA_CAST, "餘額應少掉一卦的錢");
+  eq(db._store.profiles[0].lingshi, 100 - COST.extra_cast, "餘額應少掉一卦的錢");
 });
 
 await t("額度盡、靈石也不夠：擋下來，且餘額原封不動", async () => {
-  const db = dbWith(COST_EXTRA_CAST - 1);
+  const db = dbWith(COST.extra_cast - 1);
   for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
   const r = await billCast(db, U, U, "free");
   ok(!r.ok, "扣不動就該擋");
   eq(r.reason, "lingshi", "擋的理由");
   eq(r.paid, 0, "擋下來不該扣到錢");
-  eq(db._store.profiles[0].lingshi, COST_EXTRA_CAST - 1, "擋下來餘額必須原封不動");
+  eq(db._store.profiles[0].lingshi, COST.extra_cast - 1, "擋下來餘額必須原封不動");
 });
 
 await t("擋下來時回得出「需幾顆／你有幾顆」——付費牆才講得出數字", async () => {
   const db = dbWith(3);
   for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
   const r = await billCast(db, U, U, "free");
-  eq(r.need, COST_EXTRA_CAST, "需要幾顆");
+  eq(r.need, COST.extra_cast, "需要幾顆");
   eq(r.lingshi, 3, "他手上有幾顆");
 });
 
@@ -127,7 +130,7 @@ await t("加卦扣款事後接得回它買到的那支卦", async () => {
   const db = dbWith(100);
   for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
   const r = await billCast(db, U, U, "free");
-  eq(r.paid, COST_EXTRA_CAST, "這一卦該是付費的");
+  eq(r.paid, COST.extra_cast, "這一卦該是付費的");
   await linkLedgerRef(db, U, "extra_cast", "cast-1");
   const led = db._store.ledger.filter((x: any) => x.action === "extra_cast");
   eq(led.length, 1, "只該有一筆加卦流水");

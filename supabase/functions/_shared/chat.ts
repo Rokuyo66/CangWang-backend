@@ -8,6 +8,7 @@ import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
+import { COST } from "./prices.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
@@ -19,7 +20,7 @@ const FREE_TIMEOUT_MS = Number(Deno.env.get("FREE_TIMEOUT_MS") ?? "6000");
 const FREE_TIER = Deno.env.get("FREE_CHAT_TIER") ?? "on";
 
 export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天扣 1 點
-export const COST_CHAT = Number(Deno.env.get("LINGSHI_PER_CHAT") ?? "1");  // 免費額度用完後，每則聊天扣靈石
+// 每則聊天的靈石（免費額度用完後）已併入 _shared/prices.ts 的價目表
 export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（只增不減）
 export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（大師兄分層：300/500/800）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
@@ -838,7 +839,7 @@ export async function chat(db: SupabaseClient, p: {
   let used = (q && q.last_reset === today) ? q.used_today : 0;
   const chatQuota = chatQuotaOf(p.plan ?? "free");
   const withinFree = used < chatQuota;
-  const canPay = lingshi >= COST_CHAT;
+  const canPay = lingshi >= COST.chat;
 
   // 危機攔截：必須在限流之前——否則一句「我不想活了」可能被「吵。一分鐘轟這麼多句」
   // 打發掉，那是這個產品能犯的最糟的一個錯。
@@ -920,8 +921,8 @@ export async function chat(db: SupabaseClient, p: {
       used += 1;
       await db.from("free_quota").upsert({ key: qkey, used_today: used, last_reset: today });
     } else {
-      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST_CHAT });
-      lingshi -= COST_CHAT; cost = COST_CHAT;
+      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST.chat });
+      lingshi -= COST.chat; cost = COST.chat;
     }
   }
   if (!reply) {

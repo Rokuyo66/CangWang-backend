@@ -5,6 +5,7 @@ import { YAO_NAMES, huaJinTui } from "./core.ts";
 import type { Chart } from "./core.ts";
 import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
+import { COST } from "./prices.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -379,10 +380,10 @@ export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DA
 // 各方案每日免費追問次數（未列者比照 free）
 export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 8, cangwang: 20 };
 export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 8 };
-export const COST_FOLLOWUP = 8;
-export const COST_EXTRA_CAST = 10;
-export const COST_DEEPEN = 15;     // 展開完整卦理（首次生成扣，重看免費；Sonnet 長輸出，中高價位）
-export const COST_COMMENT = 5;     // 換人評卦（另一角色評同卦）
+// 靈石價目已搬到 _shared/prices.ts（資料庫 lingshi_prices，改價＝update 一列）。
+// 原本這裡是四個寫死的 const，於是調一次價要改三支程式、部署三支 function——
+// 摩擦一大，價就不會調，而上線後最該做的事就是照真實成本調價。見 0059。
+export { COST, refreshPrices, priceTable } from "./prices.ts";
 export const GRANT_REGISTER = 50;
 
 /* ---------- 帳號刪除 ----------
@@ -459,12 +460,12 @@ export async function billCast(db: SupabaseClient, userId: string, quotaKey: str
     await db.from("free_quota").upsert({ key: quotaKey, used_today: used + 1, last_reset: today });
     return { ok: true, paid: 0, freeLeft: freeCasts - used - 1 };
   }
-  const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast", p_amount: -COST_EXTRA_CAST });
+  const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast", p_amount: -COST.extra_cast });
   if (error) {
     const { data: prof } = await db.from("profiles").select("lingshi").eq("id", userId).maybeSingle();
-    return { ok: false, paid: 0, freeLeft: 0, reason: "lingshi", need: COST_EXTRA_CAST, lingshi: prof?.lingshi ?? 0 };
+    return { ok: false, paid: 0, freeLeft: 0, reason: "lingshi", need: COST.extra_cast, lingshi: prof?.lingshi ?? 0 };
   }
-  return { ok: true, paid: COST_EXTRA_CAST, freeLeft: 0 };
+  return { ok: true, paid: COST.extra_cast, freeLeft: 0 };
 }
 
 /** 把剛扣的那筆流水接回它買到的東西。
@@ -509,10 +510,10 @@ export async function billFollowup(db: SupabaseClient, userId: string, castId: s
     await bump();
     return { ok: true, paid: 0 };
   }
-  const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "followup", p_amount: -COST_FOLLOWUP, p_ref: castId });
+  const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "followup", p_amount: -COST.followup, p_ref: castId });
   if (error) return { ok: false, paid: 0, reason: "lingshi" };
   await bump();
-  return { ok: true, paid: COST_FOLLOWUP };
+  return { ok: true, paid: COST.followup };
 }
 
 /* ---------- 初次引導（0031 的 profiles.guide_seen_at） ---------- */
