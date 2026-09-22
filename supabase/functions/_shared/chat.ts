@@ -78,7 +78,10 @@ const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更
 export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
 // 閒聊依方案分級。改成本表之前，免費層每日 15 句約佔免費成本的四成四，
 // 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
-export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 20, zhiji: 50, cangwang: 100 };
+// 2026-09-22：觀微 20→12、知幾 50→30。閒聊單價低（NT$0.07／則）但額度大，
+// 所以它是兩個中階裡最不痛的那一刀——砍追問或起卦會直接砍掉升級的理由，
+// 砍閒聊只是把「聊不完的」變成「夠聊」。藏往不動，它是利潤來源不是成本問題。
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 12, zhiji: 30, cangwang: 100 };
 export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
 // 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
 // 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。

@@ -20,6 +20,8 @@
 
 import { readFileSync } from "node:fs";
 const { COST, SIGN_REWARDS, priceTable } = await import("../supabase/functions/_shared/prices.ts");
+const { PLAN_CASTS, PLAN_FOLLOWUPS } = await import("../supabase/functions/_shared/services.ts");
+const { PLAN_CHATS } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const t = (name: string, fn: () => void) =>
@@ -100,6 +102,46 @@ await t("每月發石量在預算內", () => {
   const twd = perMonth * worst;
   console.log(`     ${perMonth.toFixed(0)} 顆／月 × ${worst.toFixed(3)}／顆 ≈ NT$${twd.toFixed(1)}／人／月`);
   if (twd > 25) throw new Error(`每人每月 NT$${twd.toFixed(1)}——免費帳號那一側沒有收入抵這筆`);
+});
+
+console.log("\n— 各階的成本天花板 vs 售價");
+// 【這一條是這支測試存在的主要理由】
+//
+// 每日額度住在三支檔案的三張表裡（PLAN_CASTS、PLAN_FOLLOWUPS、PLAN_CHATS），
+// 售價住在資料庫。加一格額度是一行程式、看起來完全無害，而它可能剛好讓那一階的
+// 成本天花板越過售價——然後那一階就變成「越重度的用戶虧越多」。
+//
+// 那種虧損不會叫：它看起來像留存很好。所以在這裡問一次。
+await t("每一階的月成本天花板都不超過售價", () => {
+  const sql = readFileSync("supabase/migrations/0058_plans_and_orders.sql", "utf8");
+  const rows = [...sql.matchAll(/\('(guanwei|zhiji|cangwang)',\s*'[^']*',\s*(\d+),\s*(\d+),/g)]
+    .map((m) => ({ id: m[1], twd: Number(m[2]), grant: Number(m[3]) }));
+  if (rows.length !== 3) throw new Error(`在 0058 裡只解出 ${rows.length} 階——那段 insert 被改寫了？`);
+
+  const signPerMonth = SIGN_REWARDS.reduce((a, [ls]) => a + ls, 0) / 7 * 30;
+  // 每顆靈石的成本取「最貴的出口」，不取平均：石頭是使用者在挑怎麼花的。
+  const perStone = Math.max(...Object.entries(TWD_PER_CALL)
+    .map(([k, twd]) => twd / COST[k as keyof typeof COST]));
+  // 朗讀（0059）：只有最高階有免費次數，一次 NT$4.16
+  const freeReadings: Record<string, number> = { guanwei: 0, zhiji: 0, cangwang: 8 };
+
+  const bad: string[] = [];
+  for (const r of rows) {
+    const ai = 30 * (PLAN_CASTS[r.id] * TWD_PER_CALL.extra_cast
+                   + PLAN_FOLLOWUPS[r.id] * TWD_PER_CALL.followup
+                   + PLAN_CHATS[r.id] * TWD_PER_CALL.chat);
+    const ceiling = ai + (r.grant + signPerMonth) * perStone + freeReadings[r.id] * 4.16;
+    const margin = r.twd - ceiling;
+    console.log(`     ${r.id.padEnd(9)} ${PLAN_CASTS[r.id]}/${PLAN_FOLLOWUPS[r.id]}/${PLAN_CHATS[r.id]}` +
+      `  天花板 ${ceiling.toFixed(0).padStart(4)}  售價 ${String(r.twd).padStart(4)}` +
+      `  毛利 ${margin.toFixed(0).padStart(5)} (${(margin / r.twd * 100).toFixed(0)}%)`);
+    if (margin < 0) bad.push(`${r.id}：天花板 ${ceiling.toFixed(0)} > 售價 ${r.twd}，用滿一個月虧 ${(-margin).toFixed(0)}`);
+  }
+  if (bad.length) {
+    throw new Error(bad.join("\n       ") +
+      "\n       改額度（PLAN_CASTS／PLAN_FOLLOWUPS／PLAN_CHATS）或改售價（0058 的 insert）。" +
+      "\n       這種虧損不會叫——它看起來像留存很好。");
+  }
 });
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 通過，${fail} 失敗\n`);

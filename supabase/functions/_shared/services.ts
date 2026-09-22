@@ -378,7 +378,11 @@ export const FREE_CASTS_PER_DAY = Number(Deno.env.get("FREE_CASTS_PER_DAY") ?? "
 // 走 env 是為了讓你不必重新部署就能調——上線初期這個數字要邊看數據邊抓。
 export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "2");
 // 各方案每日免費追問次數（未列者比照 free）
-export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 8, cangwang: 20 };
+// ⚠ 這幾個數字直接決定各階的成本天花板，改之前先算一次（見 0058 檔頭的表）。
+// 2026-09-22：知幾由 8 降為 5。它原本是照月費 419 訂的，售價改 299 之後
+// 額度沒跟著動，天花板（361）就高過售價——而「越重度的用戶虧越多」這種虧損
+// 會穩定成長，看起來卻像留存很好。
+export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 20 };
 export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 8 };
 // 靈石價目已搬到 _shared/prices.ts（資料庫 lingshi_prices，改價＝update 一列）。
 // 原本這裡是四個寫死的 const，於是調一次價要改三支程式、部署三支 function——
