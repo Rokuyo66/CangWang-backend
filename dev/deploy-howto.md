@@ -202,15 +202,34 @@ baseline 會把新的那幾支一起標成已套用卻沒真的跑，新欄位�
 ## 第 3 步 · 更新程式
 
 ```powershell
-supabase functions deploy interpret --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
+supabase functions deploy interpret     --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
+supabase functions deploy webhook-tg    --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
+supabase functions deploy due-reminder  --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
 
 跑個十幾秒，最後出現 `Deployed Functions on project ...` 就是成功。
 
-**後面那串 `--no-verify-jwt` 不能省。** `interpret` 自己驗身分，而且有兩條路：
-網頁帶登入憑證進來，Telegram bot 帶另一種自訂標頭進來。少了這個旗標，
-Supabase 的門口會先幫你擋一次，Telegram 那條路會被擋在門外——
-而且錯誤不會出現在函式的日誌裡，很難查。
+**`--no-verify-jwt` 三支都不能省。**
+
+這三支都自己驗身分，而且進來的人都不帶 Supabase 的登入憑證：
+`interpret` 有兩條路（網頁帶 JWT、Telegram bot 帶自訂標頭 `x-internal-key`）、
+`webhook-tg` 認的是 Telegram 的 `x-telegram-bot-api-secret-token`、
+`due-reminder` 認的是排程送來的 `x-internal-secret`。
+
+少了這個旗標，Supabase 的門口會先擋一次（401），函式根本不會被叫起來——
+**而那個錯誤不會出現在函式的日誌裡**，看起來就像「部署成功但整支沒反應」。
+
+⚠ 這個設定是**跟著每一次部署走的**，不是一次設定就永久有效。哪一次漏打，
+那一支當場就被關在門外。2026-09 實際踩過一次：webhook-tg 少打這串，
+bot 就整支不回話，而日誌乾乾淨淨什麼都沒有。
+
+要確認某一支現在是哪個狀態，看 Telegram 那邊記的錯誤（bot 專用）：
+
+```powershell
+Invoke-RestMethod "https://api.telegram.org/bot<你的BOT_TOKEN>/getWebhookInfo"
+```
+
+`last_error_message` 是 `401 Unauthorized` → 就是少打了這串旗標。
 
 ### 確認它活著
 
