@@ -120,9 +120,30 @@ function corsFor(req: Request): Record<string, string> {
   const origin = req.headers.get("origin");
   if (!origin) return {};
   // Vary 一定要帶：少了它，CDN 會把某一個網域拿到的回應快取給所有人
-  return ALLOWED_ORIGINS.includes(origin)
+  return originAllowed(origin)
     ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" }
     : { "Access-Control-Allow-Origin": "", "Vary": "Origin" };
+}
+
+/** 逐字比對，另收一種前綴萬用字元：`*.你的專案.pages.dev`。
+ *
+ *  為什麼需要它：Cloudflare Pages 每一次預覽部署都是一個新的子網域
+ *  （https://<hash>.cangwang-web.pages.dev）。只列正式網域的話，預覽版一律
+ *  打不到後端——而預覽版正是上線前唯一會認真測的那一版。
+ *
+ *  ⚠ 萬用字元要包含專案名。寫成 `*.pages.dev` 等於放行 Cloudflare 上所有人的
+ *    站台，那比不設還糟——不設至少你知道自己沒設。 */
+function originAllowed(origin: string): boolean {
+  for (const a of ALLOWED_ORIGINS) {
+    if (a === origin) return true;
+    if (a.startsWith("*.")) {
+      const suffix = a.slice(1);                       // "*.x.pages.dev" → ".x.pages.dev"
+      // 至少要有兩段才算數，擋掉 `*.dev`、`*.com` 這種寫法
+      if (suffix.split(".").filter(Boolean).length < 3) continue;
+      if (origin.startsWith("https://") && origin.endsWith(suffix)) return true;
+    }
+  }
+  return false;
 }
 
 // 卦案服務層的 Result → HTTP。錯誤一律 200＋kind:"err"，與站內既有做法一致
