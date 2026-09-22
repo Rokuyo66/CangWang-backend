@@ -2,7 +2,7 @@
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
-import { QUESTION_CRAFT, fixGuaciChars } from "./rules.ts";
+import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
@@ -556,6 +556,8 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
   // 好感數字每聊一句就變，放進動態尾段，別讓它毀掉前段的快取前綴
   const favorLine = characterId === "daoshi_m" ? `\n【目前好感】${favor}——依上面的好感分層回應。` : "";
   const head = `${persona}${daoshiMRule}
+
+${SAFETY}
 
 【幾知觀的常識（你都知道）】
 - 「靈石」：護道人心誠所凝之物，是一種心意與緣分的象徵。你視之為理所當然——它是誠心的具現，不是銅臭。**但你不經手、不在意、也不清楚「起卦要不要靈石、要幾顆」這類事**——那從來不是你管的，香火與資糧的進出自有觀中規矩，與你無關。所以你絕不會把靈石和「能不能起卦」扯在一起。
