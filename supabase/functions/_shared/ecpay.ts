@@ -162,3 +162,31 @@ export async function buildPeriodCheckout(o: PeriodOrder): Promise<{ action: str
   fields.CheckMacValue = await checkMacValue(params);
   return { action: ECPAY_CHECKOUT_URL, fields };
 }
+
+/** 回呼要怎麼處置。抽成純函式是為了測得到——這幾個分支每一個都對應到
+ *  一種「錢進來了牒沒發」或「牒發了錢沒進來」，而它們在線上都不會叫。
+ *
+ *  ⚠ 這支**不驗簽章**。呼叫端必須先過 verifyCallback，再問這裡要做什麼。
+ *    兩件事分開，是因為「這包是不是綠界送的」與「這包說了什麼」是兩個問題，
+ *    混在一起寫的話，日後有人為了某個特例加一條 early return，很容易
+ *    不小心繞過驗章那一步。 */
+export type CallbackVerdict =
+  | { act: "grant"; execTime: number }   // 發牒／延期
+  | { act: "ignore"; why: string }       // 收下但不做事（回 1|OK，別再送）
+  | { act: "fail"; why: string };        // 扣款失敗，標記訂單
+
+export function classifyCallback(p: Record<string, string>): CallbackVerdict {
+  // 綠界後台的「模擬付款」也會送一包真的回呼，RtnCode 同樣是 1。
+  // 照著發牒的話，任何有後台權限的人都能無限發牒給自己。
+  if (String(p.SimulatePaid ?? "0") === "1") return { act: "ignore", why: "SimulatePaid" };
+
+  if (String(p.RtnCode ?? "") !== "1") {
+    return { act: "fail", why: `${p.RtnCode ?? "?"} ${p.RtnMsg ?? ""}`.trim() };
+  }
+
+  // 這是第幾期。首期的回呼不一定帶 TotalSuccessTimes，沒有就當第 1 期。
+  // ⚠ 這個數字是冪等的一半（另一半是綠界的交易編號）。它若算錯，
+  //   同一期會被當成不同期記兩筆——靈石發兩次、牒延兩個月。
+  const n = Number(p.TotalSuccessTimes ?? "");
+  return { act: "grant", execTime: Number.isFinite(n) && n > 0 ? Math.floor(n) : 1 };
+}

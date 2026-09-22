@@ -243,8 +243,54 @@ curl.exe -s -X POST "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/inter
 
 ## 玉牒（訂閱）怎麼開關
 
-金流還沒接，所以 `profiles.plan` 全站沒有任何一行程式會寫——線上每個帳號永遠是
-無牒。要測「持牒與不持牒差在哪」，用這支：
+金流已經接上綠界了（0058、0059），但**沒設金鑰之前一律當成沒開**：方案頁的
+按鈕會是灰的「即將開放」，不會有人按下去才發現爆炸。
+
+### 要真的收得到錢，設這三個
+
+到 https://vendor.ecpay.com.tw 申請商店，後台拿到這三個值：
+
+```powershell
+npx supabase secrets set ECPAY_MERCHANT_ID=你的商店代號 --project-ref 你的ref
+npx supabase secrets set ECPAY_HASH_KEY=你的HashKey   --project-ref 你的ref
+npx supabase secrets set ECPAY_HASH_IV=你的HashIV     --project-ref 你的ref
+```
+
+還有兩個選用的：
+
+```powershell
+# 正式環境（不設的話走測試環境 payment-stage，刷了也不會真的扣錢）
+npx supabase secrets set ECPAY_BASE=https://payment.ecpay.com.tw --project-ref 你的ref
+# 使用者在綠界按「返回商店」導回哪裡（不設就用 ALLOWED_ORIGINS 的第一個）
+npx supabase secrets set ECPAY_CLIENT_BACK=https://cangwang-web.pages.dev --project-ref 你的ref
+```
+
+> ⚠️ **先在測試環境刷一次再設 `ECPAY_BASE`。** 不設就是測試環境，用綠界給的
+> 測試卡號刷，錢不會動，但整條路（簽章 → 結帳頁 → 回呼 → 發牒）都會真的跑一遍。
+> 那一次成功之前，不要設正式環境。
+
+### 回呼要打得進來
+
+綠界會對 `https://你的ref.supabase.co/functions/v1/interpret?ecpay=return`
+送一包表單。它沒有我們的 JWT，所以 **interpret 必須以 `--no-verify-jwt` 部署**
+（第 3 步本來就是這樣，這裡只是提醒：漏了的話綠界收到的是閘道層的 401，
+而 function 的日誌一行都不會有——看起來就像「什麼都沒發生」）。
+
+### 定價在哪裡改
+
+```sql
+-- 方案月費、每期贈石、最高階的免費朗讀次數
+update plans set twd = 299 where id = 'guanwei';
+-- 靈石價目（追問、深論、朗讀…）
+update lingshi_prices set cost = 40 where action = 'tts_reading';
+```
+
+改完**不必重新部署**，程式端最慢一分鐘生效（快取 60 秒）。
+前端的方案頁與鈕上的價錢也是跟著這兩張表走的。
+
+### 手動撥牒（測試用）
+
+要測「持牒與不持牒差在哪」，不必真的刷卡，用這支：
 
 ```powershell
 .\dev\yudie.ps1 -Email you@example.com                # 只看：目前狀態＋各方案額度對照表

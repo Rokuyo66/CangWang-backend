@@ -31,7 +31,8 @@
   },
 };
 
-const { checkMacValue, macSource, dotNetUrlEncode, verifyCallback, ecpayNow, merchantTradeNo, buildPeriodCheckout } =
+const { checkMacValue, macSource, dotNetUrlEncode, verifyCallback, ecpayNow, merchantTradeNo,
+        buildPeriodCheckout, classifyCallback } =
   await import("../supabase/functions/_shared/ecpay.ts");
 
 let pass = 0, fail = 0;
@@ -183,6 +184,38 @@ await t("組出來的參數自己驗得過", async () => {
     returnUrl: "https://x/r", periodReturnUrl: "https://x/p",
   });
   if (!(await verifyCallback(fields))) throw new Error("自己組的參數驗不過");
+});
+
+console.log("\n— 回呼要怎麼處置（每一條分支都對應到一種收不到錢或白發牒）");
+await t("付款成功 → 發牒，期數取 TotalSuccessTimes", () => {
+  const v = classifyCallback({ RtnCode: "1", TotalSuccessTimes: "3" }) as any;
+  eq(v.act, "grant", "該發牒");
+  eq(v.execTime, 3, "這是第三期");
+});
+await t("首期沒帶期數時當第一期，不是當第零期", () => {
+  // 當成 0 的話，order_payments 的 unique(trade_no, exec_time) 就對不上了——
+  // 綠界重送時會被當成另一期，於是靈石發兩次、牒延兩個月。
+  for (const p of [{ RtnCode: "1" }, { RtnCode: "1", TotalSuccessTimes: "" },
+                   { RtnCode: "1", TotalSuccessTimes: "0" }, { RtnCode: "1", TotalSuccessTimes: "abc" }]) {
+    const v = classifyCallback(p as any) as any;
+    eq(v.act, "grant", JSON.stringify(p));
+    eq(v.execTime, 1, `${JSON.stringify(p)} 的期數`);
+  }
+});
+await t("⚠ 後台的「模擬付款」不發牒", () => {
+  // 綠界後台按一下模擬付款，也會送一包 RtnCode=1 的真回呼過來（簽章正確）。
+  // 照著發的話，任何有後台權限的人都能無限發牒給自己。
+  const v = classifyCallback({ RtnCode: "1", SimulatePaid: "1", TotalSuccessTimes: "1" }) as any;
+  eq(v.act, "ignore", "模擬付款不該發牒");
+});
+await t("扣款失敗不發牒，而且說得出失敗原因", () => {
+  const v = classifyCallback({ RtnCode: "10100058", RtnMsg: "卡片過期" }) as any;
+  eq(v.act, "fail", "失敗");
+  if (!String(v.why).includes("卡片過期")) throw new Error(`原因該帶著走：${v.why}`);
+});
+await t("沒有 RtnCode 一律不發牒，不當作「沒帶就算了」", () => {
+  eq((classifyCallback({}) as any).act, "fail", "空包不該發牒");
+  eq((classifyCallback({ RtnCode: "" }) as any).act, "fail", "空字串不該發牒");
 });
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 通過，${fail} 失敗`);
