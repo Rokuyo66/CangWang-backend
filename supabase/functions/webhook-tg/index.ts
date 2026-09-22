@@ -1032,8 +1032,18 @@ function chatIdOf(update: any): number | null {
 
 Deno.serve(async (req) => {
   // webhook secret 驗證（setWebhook 時指定 secret_token）
+  //
+  // 原本是 `if (secret && ...)`——env 沒設就整支不驗。那不是「先不鎖」，是把門拆了：
+  // Telegram 的 update 就是一包 JSON POST，誰都送得出來，於是任何人都能冒充任意
+  // chat_id 下指令、起卦、花別人的靈石。而且這種狀態沒有任何徵兆，功能一切正常。
+  //
+  // 改成 fail-closed：secret 沒設就一律 403，與 interpret 的 x-internal-key
+  // （那條的 `!== Deno.env.get(...)` 在 env 缺席時剛好是拒絕）同一種姿態。
+  // 代價是「忘了設 env」會變成 bot 整支不回話——那正是我們要的：
+  // 看得見的壞，好過看不見的開。
   const secret = Deno.env.get("TG_WEBHOOK_SECRET");
-  if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  if (!secret || req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+    if (!secret) console.error("TG_WEBHOOK_SECRET 未設定：webhook 一律拒絕，請先設定再重試");
     return new Response("forbidden", { status: 403 });
   }
   // deno-lint-ignore no-explicit-any

@@ -77,9 +77,24 @@ const AH_FREE = 6;
 const AH_PER = 7;
 const ahUnlockedCount = (signinTotal: number) =>
   Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
-// CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
+// CORS：瀏覽器跨網域呼叫必需。
+//
+// 這裡的 * 不是這支函式的主要防線——身分走 Authorization 標頭的 Bearer JWT，
+// 不走 cookie，所以惡意網站即使打得到這個端點，也拿不到別人的 token。
+// 收緊它擋的是「別人把你的 API 當自己的後端用」，不是帳號被盜。
+//
+// ALLOWED_ORIGIN 設了就照設的值回（並加 Vary: Origin，免得 CDN 把某一個網域的
+// 回應快取給所有人）；沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，
+// 就會沒有人記得它還開著。
+//
+// ⚠ 只放一個值。網頁版與 APK 的 Origin 未必相同（WebView 常見的是
+//   https://localhost，也可能根本不送 Origin），要收之前先確認兩邊實際送什麼，
+//   收錯了是整個 App 打不到後端。這是 env，改完不必重新部署函式。
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN")?.trim() || "*";
+if (ALLOWED_ORIGIN === "*") console.warn("ALLOWED_ORIGIN 未設定：CORS 仍是萬用字元");
+const CORS: Record<string, string> = {
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+  ...(ALLOWED_ORIGIN === "*" ? {} : { "Vary": "Origin" }),
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-internal-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
