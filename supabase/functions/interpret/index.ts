@@ -11,7 +11,9 @@ import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
-import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
+import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
+import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import {
@@ -77,12 +79,72 @@ const AH_FREE = 6;
 const AH_PER = 7;
 const ahUnlockedCount = (signinTotal: number) =>
   Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
-// CORS：瀏覽器跨網域呼叫必需。上線時把 * 改成你的網域。
-const CORS = {
+// CORS：瀏覽器跨網域呼叫必需。
+//
+// 這裡的 * 不是這支函式的主要防線——身分走 Authorization 標頭的 Bearer JWT，
+// 不走 cookie，所以惡意網站即使打得到這個端點，也拿不到別人的 token。
+// 收緊它擋的是「別人把你的 API 當自己的後端用」，不是帳號被盜。
+//
+// ALLOWED_ORIGIN 設了就照設的值回（並加 Vary: Origin，免得 CDN 把某一個網域的
+// 回應快取給所有人）；沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，
+// 就會沒有人記得它還開著。
+//
+// ⚠ 只放一個值。網頁版與 APK 的 Origin 未必相同（WebView 常見的是
+//   https://localhost，也可能根本不送 Origin），要收之前先確認兩邊實際送什麼，
+//   收錯了是整個 App 打不到後端。這是 env，改完不必重新部署函式。
+// 允許的來源，逗號分隔。本站有兩個：網頁版的網域，與 APK 的 WebView
+// （Capacitor 在 Android 上預設以 https://localhost 供裝，那就是它送出的 Origin）。
+// 單一值擋不住這件事——收成一個網域，APK 就打不到後端；為了 APK 放回 *，等於沒收。
+//
+//   ALLOWED_ORIGINS=https://你的網域,https://localhost
+//
+// 沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，就不會有人記得它還開著。
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? Deno.env.get("ALLOWED_ORIGIN") ?? "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+if (!ALLOWED_ORIGINS.length) console.warn("ALLOWED_ORIGINS 未設定：CORS 仍是萬用字元");
+
+// 各處回應仍舊帶這一份（132 個呼叫點不必動）。真正送出去的 Allow-Origin
+// 由最外層依當次請求覆寫——見檔尾 Deno.serve 的包裝。
+const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-internal-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+/** 這一次請求該回什麼 Allow-Origin。名單沒設就回 *；設了但來源不在名單上，
+ *  就完全不給這個標頭——瀏覽器那一側會自己擋下來，而這是對的：
+ *  回一個對不上的值，只會讓錯誤訊息更難懂。
+ *  沒有 Origin 標頭的（TG bot、排程、curl）不受影響，CORS 本來就只管瀏覽器。 */
+function corsFor(req: Request): Record<string, string> {
+  if (!ALLOWED_ORIGINS.length) return {};
+  const origin = req.headers.get("origin");
+  if (!origin) return {};
+  // Vary 一定要帶：少了它，CDN 會把某一個網域拿到的回應快取給所有人
+  return originAllowed(origin)
+    ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" }
+    : { "Access-Control-Allow-Origin": "", "Vary": "Origin" };
+}
+
+/** 逐字比對，另收一種前綴萬用字元：`*.你的專案.pages.dev`。
+ *
+ *  為什麼需要它：Cloudflare Pages 每一次預覽部署都是一個新的子網域
+ *  （https://<hash>.cangwang-web.pages.dev）。只列正式網域的話，預覽版一律
+ *  打不到後端——而預覽版正是上線前唯一會認真測的那一版。
+ *
+ *  ⚠ 萬用字元要包含專案名。寫成 `*.pages.dev` 等於放行 Cloudflare 上所有人的
+ *    站台，那比不設還糟——不設至少你知道自己沒設。 */
+function originAllowed(origin: string): boolean {
+  for (const a of ALLOWED_ORIGINS) {
+    if (a === origin) return true;
+    if (a.startsWith("*.")) {
+      const suffix = a.slice(1);                       // "*.x.pages.dev" → ".x.pages.dev"
+      // 至少要有兩段才算數，擋掉 `*.dev`、`*.com` 這種寫法
+      if (suffix.split(".").filter(Boolean).length < 3) continue;
+      if (origin.startsWith("https://") && origin.endsWith(suffix)) return true;
+    }
+  }
+  return false;
+}
 
 // 卦案服務層的 Result → HTTP。錯誤一律 200＋kind:"err"，與站內既有做法一致
 // （前端那支 callInterpret 只有非 2xx 才丟例外，訊息要能顯示就不能走 4xx）。
@@ -177,12 +239,27 @@ async function postEntries(rows: PostRow[]) {
     avatar: profs.get(p.user_id)?.selected_avatar ?? null,
   }));
 }
+// 我封鎖了誰。訪客回空陣列——沒登入就沒有封鎖名單，不必查。
+// 每次開廣場都會叫一次，所以 0057 給了 blocks_user_idx。
+async function blockedIds(viewerId: string | null): Promise<string[]> {
+  if (!viewerId) return [];
+  const { data, error } = await db.from("blocks").select("blocked_id").eq("user_id", viewerId);
+  // 查失敗就當作沒封鎖任何人。封鎖是體驗，不是權限——讀不到它不該讓整個廣場開不起來。
+  if (error) { console.error("blockedIds failed", viewerId, error.message); return []; }
+  return (data ?? []).map((b: { blocked_id: string }) => b.blocked_id);
+}
+
 // 列表：分類篩選（type=cast/thread/chat_story，其餘視為全部）＋置頂優先＋數字分頁（回 total 供前端算頁數）
-async function postListResponse(sort: unknown, offset: unknown, type: unknown): Promise<Response> {
+async function postListResponse(sort: unknown, offset: unknown, type: unknown, viewerId: string | null = null): Promise<Response> {
   const off = Math.max(0, Number(offset) || 0);
   const hot = sort === "hot";
   const typeFilter = POST_TYPES.includes(String(type)) ? String(type) : null;
   let q = db.from("posts").select(POST_LIST_COLS, { count: "exact" });
+  // 下架的一律不出現在列表（0057 的 posts_visible_idx 就是為這條建的）
+  q = q.is("hidden_at", null);
+  // 封鎖：我封鎖的人，他的貼文我看不到。單向——他那邊沒有任何變化。
+  const blocked = await blockedIds(viewerId);
+  if (blocked.length) q = q.not("user_id", "in", `(${blocked.join(",")})`);
   if (typeFilter) q = q.eq("type", typeFilter);
   // 置頂永遠優先（不分最新/熱門）；其後才套排序準則
   q = q.order("pinned_at", { ascending: false, nullsFirst: false });
@@ -198,15 +275,23 @@ async function postListResponse(sort: unknown, offset: unknown, type: unknown): 
 }
 
 // 貼文內頁（免認證唯讀）：全文＋快照＋回文串
-async function postDetailResponse(postId: unknown): Promise<Response> {
+async function postDetailResponse(postId: unknown, viewerId: string | null = null): Promise<Response> {
   const { data: p, error } = await db.from("posts")
-    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, created_at")
+    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, hidden_at, created_at")
     .eq("id", String(postId ?? "")).maybeSingle();
   if (error) return Response.json({ kind: "err", msg: "貼文暫時無法載入" }, { headers: CORS });
   if (!p) return Response.json({ kind: "not_found" }, { headers: CORS });
-  // 回文依點讚熱度排序，同熱度先到先排
-  const { data: cs } = await db.from("post_comments")
+  // 下架的直接當作不存在：回 removed 而不是 not_found，前端才講得出「這篇已下架」，
+  // 而不是「找不到」——被下架的人點自己的舊連結進來，該知道發生了什麼事。
+  if (p.hidden_at) return Response.json({ kind: "removed", msg: "這篇已下架。" }, { headers: CORS });
+  const blocked = await blockedIds(viewerId);
+  if (blocked.includes(p.user_id)) return Response.json({ kind: "blocked", msg: "你已封鎖這位護道人。" }, { headers: CORS });
+  // 回文依點讚熱度排序，同熱度先到先排；下架與被封鎖者的不出現
+  let cq = db.from("post_comments")
     .select("id, user_id, body, like_count, edited_at, created_at").eq("post_id", p.id)
+    .is("hidden_at", null);
+  if (blocked.length) cq = cq.not("user_id", "in", `(${blocked.join(",")})`);
+  const { data: cs } = await cq
     .order("like_count", { ascending: false }).order("created_at", { ascending: true }).limit(200);
   const comments = cs ?? [];
   const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
@@ -220,7 +305,7 @@ async function postDetailResponse(postId: unknown): Promise<Response> {
   }, { headers: CORS });
 }
 
-Deno.serve(async (req) => {
+async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
 
@@ -228,14 +313,21 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return new Response("bad request", { status: 400, headers: CORS }); }
 
+  // 先軟解析身分：下面三支是免認證的公開端點，但「這是誰」會影響它們回什麼
+  // （封鎖名單要濾掉）。軟＝解不出來就當訪客，不擋——一個過期的 token 不該讓人
+  // 連廣場都看不了。硬性的認證雙軌仍在下面，公開端點放行之後才跑。
+  const auth = req.headers.get("authorization");
+  let jwtUserId: string | null = null;
+  if (auth?.startsWith("Bearer ")) jwtUserId = await userFromJwt(auth.slice(7));
+
   // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
   if (body.mode === "wall") return await wallResponse();
 
   // 觀前廣場列表：免認證唯讀（發文/按讚/刪文仍需登入）。new=最新 hot=熱門，offset 分頁每頁 20
-  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset, body.type);
+  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset, body.type, jwtUserId);
 
   // 貼文內頁：免認證唯讀（全文＋盤面/閒聊快照＋回文串）
-  if (body.mode === "post_detail") return await postDetailResponse(body.post_id);
+  if (body.mode === "post_detail") return await postDetailResponse(body.post_id, jwtUserId);
 
   // 版本閘門：只擋需登入的功能。到這一行為止的 wall／post_list／post_detail 都已放行，
   // 所以舊版 App 仍可排盤、複製卦象（純本機）與觀看廣場，只是不能登入、不能發言。
@@ -247,11 +339,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 認證雙軌
-  let jwtUserId: string | null = null;
-  const auth = req.headers.get("authorization");
+  // 認證雙軌（硬性）。jwtUserId 在上面已經解過了，這裡只負責「解不出來就擋」。
   if (auth?.startsWith("Bearer ")) {
-    jwtUserId = await userFromJwt(auth.slice(7));
     if (!jwtUserId) return new Response("unauthorized", { status: 401, headers: CORS });
   } else if (req.headers.get("x-internal-key") !== Deno.env.get("INTERNAL_API_KEY")) {
     return new Response("forbidden", { status: 403, headers: CORS });
@@ -1029,8 +1118,159 @@ Deno.serve(async (req) => {
 
     // 問句預檢（問事頁送出前）：只提議、不攔阻；任何失敗都回 ok:true 靜默放行
     if (body.mode === "refine") {
-      const r = await refineQuestion(db, { userId: uid, question: String(body.question ?? "") });
+      // 危機攔截也要蓋到擬題：這一支跑在起卦之前，命中的話會先把那句話改寫成
+      // 一句「合格的問句」再送回前端——等於在他說出口的下一秒，把它整理成
+      // 可以拿去起卦的樣子。起卦端攔得住，但他已經看過那句被改寫的話了。
+      const refQ = String(body.question ?? "");
+      const refCrisis = detectCrisis(refQ);
+      if (refCrisis) {
+        logCrisis("refine", uid, refCrisis);
+        return Response.json({ kind: "err", crisis: true, msg: crisisMessage(String(body.character_id ?? "daoshi_m")) }, { headers: CORS });
+      }
+      const r = await refineQuestion(db, { userId: uid, question: refQ });
       return Response.json({ kind: "ok", ...r }, { headers: CORS });
+    }
+
+    // ── 廣場：檢舉與封鎖 ──────────────────────────────────────
+    const REPORT_NOTE_MAX = 200;
+
+    // 檢舉一則貼文或回文。同一人對同一則只算一次（0057 的 unique），
+    // 重複送不當錯誤——使用者按第二次通常是因為第一次沒看到回饋，不是要吵。
+    if (body.mode === "report_create") {
+      const targetType = String(body.target_type ?? "");
+      const targetId = String(body.target_id ?? "");
+      const reason = String(body.reason ?? "");
+      if (!["post", "comment"].includes(targetType)) return Response.json({ kind: "err", msg: "型別不明" }, { headers: CORS });
+      if (!REASON_LABELS[reason]) return Response.json({ kind: "err", msg: "請選擇檢舉原因" }, { headers: CORS });
+      const note = String(body.note ?? "").trim().slice(0, REPORT_NOTE_MAX);
+
+      // 先確認這一則真的存在，順便取內容給推播用。
+      // 不先查的話，檢舉一個不存在的 id 會寫進資料庫，而觀主收到一則點不開的通知。
+      const tbl = targetType === "post" ? "posts" : "post_comments";
+      const cols = targetType === "post" ? "id, user_id, title, body, hidden_at" : "id, user_id, body, post_id, hidden_at";
+      // 欄位是依型別動態組的，supabase-js 推不出形狀，這裡明講一次
+      const { data: tgtRaw } = await db.from(tbl).select(cols).eq("id", targetId).maybeSingle();
+      const tgt = tgtRaw as { user_id: string; title?: string; body?: string; hidden_at: string | null } | null;
+      if (!tgt) return Response.json({ kind: "err", msg: "找不到這則內容。" }, { headers: CORS });
+      if (tgt.hidden_at) return Response.json({ kind: "ok", already: true, msg: "這則已經下架了。" }, { headers: CORS });
+      if (tgt.user_id === uid) return Response.json({ kind: "err", msg: "不能檢舉自己的內容。" }, { headers: CORS });
+
+      const { error } = await db.from("reports").insert({
+        reporter_id: uid, target_type: targetType, target_id: targetId, reason, note: note || null,
+      });
+      // 23505 ＝ unique 撞號 ＝ 他已經檢舉過了。回 ok，不回錯：
+      // 對他而言「我檢舉了」這件事是成立的，重複與否是我們的帳，不是他該煩的事。
+      if (error && error.code !== "23505") {
+        console.error("report insert failed", error.message);
+        return Response.json({ kind: "err", msg: "檢舉未能送出，請稍後再試。" }, { headers: CORS });
+      }
+      const dup = error?.code === "23505";
+
+      if (!dup) {
+        // 這一則總共幾個人檢舉（unique 保證一人一次，所以 count 就是人數）
+        const { count } = await db.from("reports")
+          .select("id", { count: "exact", head: true })
+          .eq("target_type", targetType).eq("target_id", targetId).eq("status", "open");
+        const { data: author } = await db.from("profiles").select("display_name").eq("id", tgt.user_id).maybeSingle();
+        const { data: me } = await db.from("profiles").select("display_name").eq("id", uid).maybeSingle();
+        const excerpt = String((targetType === "post" ? tgt.title : tgt.body) ?? "").slice(0, 60);
+        // 自傷類另外標記：它跟檢舉廣告不是同一件事，那則貼文後面有一個真的人。
+        // 不標的話它會混在一堆廣告檢舉裡被滑過去。
+        const urgent = reason === "selfharm";
+        await notifyAdmin(
+          (urgent ? "🆘 <b>自傷／輕生內容檢舉</b>（優先看這則）\n\n" : "🚩 <b>廣場檢舉</b>\n\n") +
+          `分類：<b>${tgEsc(REASON_LABELS[reason])}</b>\n` +
+          `對象：${targetType === "post" ? "貼文" : "回文"}　作者：${tgEsc(author?.display_name || "護道人")}\n` +
+          `內容：${tgEsc(excerpt)}${excerpt.length >= 60 ? "…" : ""}\n` +
+          (note ? `檢舉人留言：${tgEsc(note)}\n` : "") +
+          `檢舉人：${tgEsc(me?.display_name || "護道人")}　累計 <b>${count ?? 1}</b> 人檢舉`,
+          [
+            { text: "🗑 下架", data: modCallback("hide", targetType as "post" | "comment", targetId) },
+            { text: "✋ 駁回", data: modCallback("dismiss", targetType as "post" | "comment", targetId) },
+          ],
+        );
+      }
+      return Response.json({ kind: "ok", duplicated: dup, msg: dup ? "你已經檢舉過這一則了。" : "已送出，觀主會看。" }, { headers: CORS });
+    }
+
+    // 封鎖：單向，被封鎖的人沒有任何提示。封鎖之後對方的貼文與回文都不再出現。
+    if (body.mode === "block_add" || body.mode === "block_remove") {
+      const targetId = String(body.target_id ?? "");
+      if (!targetId) return Response.json({ kind: "err", msg: "對象不明" }, { headers: CORS });
+      if (targetId === uid) return Response.json({ kind: "err", msg: "不能封鎖自己。" }, { headers: CORS });
+      if (body.mode === "block_add") {
+        const { error } = await db.from("blocks").insert({ user_id: uid, blocked_id: targetId });
+        // 23505 重複封鎖、23503 對象不存在——兩者對使用者而言結果一樣：他已經看不到那個人了
+        if (error && !["23505", "23503"].includes(error.code ?? "")) {
+          console.error("block insert failed", error.message);
+          return Response.json({ kind: "err", msg: "封鎖未能完成，請稍後再試。" }, { headers: CORS });
+        }
+      } else {
+        await db.from("blocks").delete().eq("user_id", uid).eq("blocked_id", targetId);
+      }
+      const { count } = await db.from("blocks").select("blocked_id", { count: "exact", head: true }).eq("user_id", uid);
+      return Response.json({ kind: "ok", blocked: body.mode === "block_add", total: count ?? 0 }, { headers: CORS });
+    }
+
+    // 我封鎖了哪些人（設定頁要能解除，不然封鎖就是一條單行道）
+    if (body.mode === "block_list") {
+      const { data: bs } = await db.from("blocks").select("blocked_id, created_at").eq("user_id", uid)
+        .order("created_at", { ascending: false }).limit(200);
+      const ids = (bs ?? []).map((b: { blocked_id: string }) => b.blocked_id);
+      const { data: ps } = ids.length
+        ? await db.from("profiles").select("id, display_name, selected_avatar").in("id", ids) : { data: [] };
+      const profs = new Map((ps ?? []).map((x: { id: string; display_name: string | null; selected_avatar: string | null }) => [x.id, x]));
+      return Response.json({
+        kind: "ok",
+        blocks: (bs ?? []).map((b: { blocked_id: string; created_at: string }) => ({
+          user_id: b.blocked_id,
+          name: profs.get(b.blocked_id)?.display_name || "護道人",
+          avatar: profs.get(b.blocked_id)?.selected_avatar ?? null,
+          created_at: b.created_at,
+        })),
+      }, { headers: CORS });
+    }
+
+    // ── 帳號刪除 ──────────────────────────────────────────────
+    //
+    // 兩件事在這一層擋死，不交給前端：
+    //
+    // 一、只走 JWT。x-internal-key 那條路的 user_id 是呼叫端說了算（見上方認證雙軌），
+    //     拿它來刪帳號等於「有這把金鑰的人可以刪掉任何人」。TG 用戶要刪帳號走
+    //     bot 的 /deleteme——那條路的身分是 Telegram 的 webhook secret 認的，
+    //     tg_id 不由呼叫端指定。
+    // 二、確認字樣要逐字相符（DELETE_PHRASE 在 services.ts，與 TG 的 /deleteme 同一份）。
+    //     這不是防駭，是防手滑：刪除不可回復，而前端的「確定嗎？」按鈕再問幾次都只是
+    //     多按幾下。要他把那幾個字打出來，成本才對得上後果。字樣定在後端，前端改不動。
+
+    // 先給他看清楚要刪掉什麼。確認畫面上寫「將刪除 37 卦、4 篇貼文」，
+    // 跟只寫「所有資料將被刪除」，是兩種不同的決定品質。
+    if (body.mode === "delete_account_preview") {
+      if (!jwtUserId) return Response.json({ kind: "err", msg: "請先登入。" }, { headers: CORS });
+      const count = async (t: string) =>
+        (await db.from(t).select("*", { count: "exact", head: true }).eq("user_id", uid)).count ?? 0;
+      const [casts, posts, comments, threads, clips, memories] = await Promise.all(
+        ["casts", "posts", "post_comments", "threads", "voice_clips", "character_memories"].map(count));
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name").eq("id", uid).maybeSingle();
+      return Response.json({
+        kind: "ok", phrase: DELETE_PHRASE,
+        counts: { casts, posts, comments, threads, clips, memories },
+        lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null,
+      }, { headers: CORS });
+    }
+
+    if (body.mode === "delete_account") {
+      if (!jwtUserId) return Response.json({ kind: "err", msg: "帳號刪除只能由本人在登入狀態下進行。" }, { headers: CORS });
+      if (String(body.confirm ?? "").trim() !== DELETE_PHRASE)
+        return Response.json({ kind: "err", msg: `請輸入「${DELETE_PHRASE}」以確認。` }, { headers: CORS });
+
+      const r = await deleteAccount(db, uid);
+      if (!r.ok) return Response.json({ kind: "err", msg: r.msg }, { headers: CORS });
+      return Response.json({
+        kind: "ok", deleted: true,
+        // true 代表登入憑證還在（極少數情形）：前端照樣登出，下次登入會是一個全新的空帳號
+        auth_pending: r.authPending,
+      }, { headers: CORS });
     }
 
     // 觀前廣場：發文（自由心得 thread/chat_story 直存；分享卦 cast 讀快照驗本人）
@@ -1292,6 +1532,13 @@ Deno.serve(async (req) => {
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。
       threadId: typeof body.thread_id === "string" ? body.thread_id : undefined,
     });
+    // 危機攔截：pipeline 回 crisis 時，這裡改用 err 管道送出。
+    // 理由是相容——結果本來就是整包 Response.json 透傳，網頁前端不認得沒見過的 kind，
+    // 有可能整個畫不出來；而 err 是 capped／rate_limited 已經在線上用的那條，確定畫得出。
+    // crisis:true 另外掛著，前端日後要單獨改樣式（不套錯誤紅字）不必再動後端。
+    // ⚠ 前端加上 crisis 分支之後，這裡就該改回原樣的 kind:"crisis"。
+    if ((result as { kind: string }).kind === "crisis")
+      return Response.json({ kind: "err", crisis: true, msg: (result as { message: string }).message }, { headers: CORS });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
       return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });
@@ -1300,4 +1547,19 @@ Deno.serve(async (req) => {
     console.error(e);
     return new Response("internal error", { status: 500, headers: CORS });
   }
+}
+
+/* 對外的入口。handle() 裡每一處回應都帶著那份預設的 CORS（萬用字元），
+   這裡依當次請求把 Allow-Origin 換掉——這樣收緊來源只動一個地方，
+   不必去改一百三十幾個 `{ headers: CORS }`。改那麼多處，漏一個就是一個
+   偶發的、只在某一條路徑上出現的 CORS 錯誤，而那種問題最難查。 */
+Deno.serve(async (req: Request) => {
+  const res = await handle(req);
+  const over = corsFor(req);
+  if (!Object.keys(over).length) return res;      // 名單沒設，或這次沒有 Origin
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(over)) {
+    if (v) headers.set(k, v); else headers.delete(k);
+  }
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 });

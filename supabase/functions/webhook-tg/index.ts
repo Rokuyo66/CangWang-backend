@@ -7,12 +7,14 @@ import { syncGuaFromCasts } from "../_shared/collection.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf } from "../_shared/services.ts";
+import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf, deleteAccount, DELETE_PHRASE } from "../_shared/services.ts";
 import { labelOf } from "../_shared/ledger.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
+import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { parseModCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -132,7 +134,8 @@ const HELP_TEXT =
   "📜 /history 翻閱卦歷、重溫舊卦與追問\n" +
   "📖 /collection 卦象圖鑑，看你已收集幾卦\n" +
   "🧠 /memory 查看聊天記憶　/forget 清除記憶\n" +
-  "🚪 /gua 明確進入問卦　/start 重新入觀\n\n" +
+  "🚪 /gua 明確進入問卦　/start 重新入觀\n" +
+  "🗑 /deleteme 刪除帳號與全部資料（不可復原）\n\n" +
   "<i>每日免費三卦，每卦含兩次追問。</i>\n" +
   "<i>📜 /about 服務性質與免責須知</i>";
 const charKeyboard = {
@@ -331,6 +334,40 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     return;
   }
 
+  // 待處理檢舉。推播是主要管道，這一支是補網——TG 推播失敗（網路、bot 被封）
+  // 不會讓檢舉消失，但也不會有人來提醒你，所以要有地方主動查。
+  if (text === "/reports" || text === "/檢舉") {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const { data: rs } = await db.from("reports")
+      .select("target_type, target_id, reason, note, created_at")
+      .eq("status", "open").order("created_at", { ascending: false }).limit(10);
+    if (!rs || !rs.length) { await send(chatId, "沒有待處理的檢舉。"); return; }
+    // 同一則被多人檢舉時只出現一次——十列清單裡塞五則同一篇，等於看不到其他四件事
+    const seen = new Set<string>();
+    for (const r of rs as { target_type: string; target_id: string; reason: string; note: string | null; created_at: string }[]) {
+      const key = `${r.target_type}:${r.target_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const tbl = r.target_type === "post" ? "posts" : "post_comments";
+      const { data: t } = await db.from(tbl)
+        .select(r.target_type === "post" ? "title, user_id" : "body, user_id")
+        .eq("id", r.target_id).maybeSingle();
+      const { count } = await db.from("reports").select("id", { count: "exact", head: true })
+        .eq("target_type", r.target_type).eq("target_id", r.target_id).eq("status", "open");
+      const excerpt = String((r.target_type === "post" ? t?.title : t?.body) ?? "（已不存在）").slice(0, 50);
+      await send(chatId,
+        `${r.reason === "selfharm" ? "🆘" : "🚩"} <b>${tgEsc(REASON_LABELS[r.reason] ?? r.reason)}</b>` +
+        `　${r.target_type === "post" ? "貼文" : "回文"}　${count ?? 1} 人檢舉\n` +
+        `${tgEsc(excerpt)}${excerpt.length >= 50 ? "…" : ""}` +
+        (r.note ? `\n<i>${tgEsc(r.note.slice(0, 80))}</i>` : ""),
+        { reply_markup: { inline_keyboard: [[
+          { text: "🗑 下架", callback_data: `mh:${r.target_type === "post" ? "p" : "c"}:${r.target_id}` },
+          { text: "✋ 駁回", callback_data: `md:${r.target_type === "post" ? "p" : "c"}:${r.target_id}` },
+        ]] } });
+    }
+    return;
+  }
   if (text === "/collection" || text === "/卦籤" || text === "/圖鑑") {
     // 卦鑑（永久表，見 0051）。順手對一次 casts 把漏的補回——
     // 舊版直接數 casts，起卦破千之後會被 db-max-rows 切掉，收集度看起來會縮水。
@@ -378,6 +415,25 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
         { text: "算了", callback_data: "forget_no" },
       ]] },
     });
+    return;
+  }
+  // 帳號刪除。不用 inline 按鈕、要他把字打出來——按鈕按錯只是手滑，
+  // 打字打錯就打不出來。與網頁端共用同一個 DELETE_PHRASE。
+  if (text === "/deleteme" || text === "/刪除帳號") {
+    const [{ count: cCasts }, { count: cPosts }, { data: pf }] = await Promise.all([
+      db.from("casts").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      db.from("posts").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      db.from("profiles").select("lingshi").eq("id", userId).maybeSingle(),
+    ]);
+    await saveSession({ ...ses, state: "awaiting_delete" });
+    await send(chatId,
+      "<b>⚠️ 刪除帳號</b>\n\n" +
+      `將永久刪除：<b>${cCasts ?? 0}</b> 卦、<b>${cPosts ?? 0}</b> 篇廣場貼文、` +
+      `全部聊天記憶與語音收藏，以及剩餘的 <b>${pf?.lingshi ?? 0}</b> 顆靈石。\n` +
+      "廣場上的回文、心跡、卦籤收集也會一併消失。\n\n" +
+      "<b>此舉無法復原，也無法還原。</b>\n\n" +
+      `確定的話，把這幾個字打出來送出：<code>${esc(DELETE_PHRASE)}</code>\n` +
+      "（打別的字，或送 /start，就當作取消。）");
     return;
   }
   if (text === "/history" || text.startsWith("/history ")) {
@@ -465,6 +521,25 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   }
 
   // 手動追問模式
+  // 待刪確認。擺在所有狀態之前：這個狀態下他打的字只有兩種意思——確認，或取消。
+  // 擺在後面的話，一句剛好像追問的話會被別的分支先吃掉，而他以為自己在取消。
+  if (ses.state === "awaiting_delete" && text) {
+    await saveSession({ ...ses, state: "idle" });
+    if (text.trim() !== DELETE_PHRASE) {
+      await send(chatId, "字不對，已取消，什麼都沒有刪。");
+      return;
+    }
+    const r = await deleteAccount(db, userId);
+    if (!r.ok) { await send(chatId, esc(r.msg)); return; }
+    // 這裡不能再寫 session：tg_sessions 那一列已經在 delete_account 裡刪掉了，
+    // 再 upsert 會把一列空殼寫回去，等於幫已刪的帳號留了個殼。
+    await send(chatId,
+      "已刪除。\n\n" +
+      `${r.casts} 卦、${r.posts} 篇貼文，連同聊天記憶、靈石與收藏，都不在了。\n\n` +
+      "往後若再 /start，會是一個全新的帳號，與先前無涉。\n\n" +
+      "願你走得順。");
+    return;
+  }
   if (ses.state === "followup_input" && ses.last_cast_id && text) {
     await saveSession({ ...ses, state: "idle" });
     await doFollowup(chatId, userId, ses.last_cast_id, text);
@@ -485,6 +560,15 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
 
   // 明確主動問卦入口：用戶剛說「我要問卦」之類，或 awaiting_cast 狀態下又打字（換問題）
   if (ses.state === "awaiting_cast" && text) {
+    // 危機攔截先於擬題：擬題會把那句話整理成一句「可以拿去起卦」的問句再送回來，
+    // 而他已經看過那個改寫了。起卦端雖然也攔得住，但那已經晚一步。
+    const preCrisis = detectCrisis(text);
+    if (preCrisis) {
+      logCrisis("tg_refine", userId, preCrisis);
+      await saveSession({ ...ses, state: "idle" });
+      await send(chatId, esc(crisisMessage(ses.character_id as string ?? "daoshi_m")));
+      return;
+    }
     // 問句預檢：問得不好，卦也解不好。只提議、不攔阻——玩家永遠可以「就照原本的問法」。
     const rf = await refineQuestion(db, { userId, question: text });
     if (!rf.ok && rf.rewrites.length) {
@@ -548,6 +632,31 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
   const ses = await getSession(tgId);
   const data = cb.data ?? "";
   await tg("answerCallbackQuery", { callback_query_id: cb.id });
+
+  // 檢舉處理：推播訊息底下那兩顆鈕。擺在最前面——它是觀主專用，
+  // 不該跟一般使用者的回呼混在同一串 if 裡被順序影響。
+  const mod = parseModCallback(data);
+  if (mod) {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const { data: r, error } = await db.rpc("moderate_target", {
+      p_type: mod.type, p_id: mod.id, p_hide: mod.action === "hide", p_admin: userId,
+    });
+    if (error) {
+      console.error("moderate_target failed", error.message);
+      await send(chatId, "處理失敗：" + tgEsc(error.message.slice(0, 120)));
+      return;
+    }
+    // changed = 0 代表狀態本來就是要改成的樣子（多半是同一則推播按了兩次）。
+    // 這不是錯誤，但要講清楚，否則會以為沒生效而一直按。
+    const changed = (r as { changed?: number } | null)?.changed ?? 0;
+    const what = mod.type === "post" ? "貼文" : "回文";
+    await send(chatId,
+      mod.action === "hide"
+        ? (changed ? `🗑 已下架這則${what}，相關檢舉一併結案。` : `這則${what}先前就已下架，檢舉已結案。`)
+        : (changed ? `✋ 已駁回，這則${what}維持顯示。` : `這則${what}本來就在顯示中，檢舉已結案。`));
+    return;
+  }
 
   if (data.startsWith("char:")) {
     const charId = data.slice(5);
@@ -973,6 +1082,11 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     await saveSession({ ...ses, state: "idle" });
     return;
   }
+  if (r.kind === "crisis") {
+    // 不存 session、不掛任何按鈕——此刻任何「再問一卦」的入口都是錯的引導。
+    await send(chatId, esc(r.message));
+    return;
+  }
   if (r.kind === "intercept") {
     await saveSession({ ...ses, state: "idle", last_cast_id: r.prevCastId });
     await send(chatId, esc(r.message), {
@@ -1009,6 +1123,7 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
   await send(chatId, "推演中……");
   await typing(chatId);
   const r = await followupInterpret(db, { userId, castId, question });
+  if (r.kind === "crisis") { await send(chatId, esc(r.message)); return; }
   if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再問。"); return; }
   if (r.kind === "paywall") {
     await send(chatId, "此卦內含追問已用盡，靈石亦不足。\n（明日簽到可得靈石。）");
@@ -1032,8 +1147,18 @@ function chatIdOf(update: any): number | null {
 
 Deno.serve(async (req) => {
   // webhook secret 驗證（setWebhook 時指定 secret_token）
+  //
+  // 原本是 `if (secret && ...)`——env 沒設就整支不驗。那不是「先不鎖」，是把門拆了：
+  // Telegram 的 update 就是一包 JSON POST，誰都送得出來，於是任何人都能冒充任意
+  // chat_id 下指令、起卦、花別人的靈石。而且這種狀態沒有任何徵兆，功能一切正常。
+  //
+  // 改成 fail-closed：secret 沒設就一律 403，與 interpret 的 x-internal-key
+  // （那條的 `!== Deno.env.get(...)` 在 env 缺席時剛好是拒絕）同一種姿態。
+  // 代價是「忘了設 env」會變成 bot 整支不回話——那正是我們要的：
+  // 看得見的壞，好過看不見的開。
   const secret = Deno.env.get("TG_WEBHOOK_SECRET");
-  if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  if (!secret || req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+    if (!secret) console.error("TG_WEBHOOK_SECRET 未設定：webhook 一律拒絕，請先設定再重試");
     return new Response("forbidden", { status: 403 });
   }
   // deno-lint-ignore no-explicit-any

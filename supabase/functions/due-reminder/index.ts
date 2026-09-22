@@ -34,10 +34,17 @@ async function send(chatId: string, text: string, markup?: unknown) {
 }
 
 Deno.serve(async (req) => {
-  // 簡單保護：要帶 internal secret（排程呼叫時帶）
+  // 內部鑑權：要帶 internal secret（排程呼叫時帶）。
+  //
+  // 原本是 `if (secret && auth !== secret)`——env 沒設就全放行，等於任何人都能
+  // 反覆觸發整批應期推播（一次最多 200 卦，見下方 limit）。broadcast/index.ts:154
+  // 一直是 fail-closed 的，這裡是漏網的那一支。改成一致。
   const secret = Deno.env.get("BROADCAST_INTERNAL_SECRET");
   const auth = req.headers.get("x-internal-secret");
-  if (secret && auth !== secret) return new Response("forbidden", { status: 403 });
+  if (!secret || auth !== secret) {
+    if (!secret) console.error("BROADCAST_INTERNAL_SECRET 未設定：due-reminder 一律拒絕");
+    return new Response("forbidden", { status: 403 });
+  }
 
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 
