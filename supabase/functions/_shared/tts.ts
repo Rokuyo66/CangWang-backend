@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { TTS_MODEL, VOICE_NARRATOR, voiceOf } from "./voices.ts";
+import { COST } from "./prices.ts";
 
 const API_URL = Deno.env.get("MINIMAX_TTS_URL") ?? "https://api.minimax.io/v1/t2a_v2";
 const API_KEY = Deno.env.get("MINIMAX_API_KEY") ?? "";
@@ -23,43 +24,47 @@ const MODEL = Deno.env.get("MINIMAX_TTS_MODEL") ?? TTS_MODEL;
 const BUCKET = Deno.env.get("TTS_BUCKET") ?? "tts";
 // 每月合成字數上限，依玉牒分階。命中快取不算——重聽不該吃額度。
 //
-// 為什麼是「月」不是「日」：朗讀不是每天均勻消耗的東西。人是問到一卦特別
-// 有感的那天，把批文連同三則追問一起聽完，然後好幾天不碰。日上限會在那一天
-// 擋住他，而那天正是這功能最有價值的一天。月額度讓他自己決定要花在哪幾天。
+// 為什麼不是「每月字數額度」：那是這裡原本的做法，四階各給 5000／12000／
+// 30000／60000 字。它有三個問題，而第三個是致命的：
 //
-// 為什麼要分階：TTS 是照字數計費的（speech-2.8-hd 約 US$0.10／千字），
-// 而在此之前這裡是一個全站共用的數字——無牒與藏往每天能聽的量一樣多。
-// 語音收藏格數分了四階，產生語音的字數卻沒分，等於擋住了「能留幾段」
-// 卻沒擋住真正在花錢的那一端。
-export const PLAN_TTS_CHARS: Record<string, number> =
-  { free: 5000, guanwei: 12000, zhiji: 30000, cangwang: 60000 };
+//   一、無牒那 5000 字（NT$16／月）完全沒有收入抵——朗讀是照字數向 MiniMax
+//       付錢的，那筆支出不會因為使用者沒付錢就消失。
+//   二、藏往那 60000 字是 NT$192／月，是整個方案裡唯一「不論訂價多少都照燒」
+//       的一項。
+//   三、字數在畫面上不是資訊。「本月還剩 3200 字」沒有人知道是多少東西；
+//       而看不懂的額度，等於沒有額度——使用者不會因此省著用，只會在某一天
+//       突然撞到牆。
+//
+// 改成：最高階每月給固定次數的免費朗讀，其餘一律單次扣靈石。
+// 「還剩 5 次」與「這一次要 66 顆」都是人看得懂的句子。
+//
+// 一次朗讀（一篇批文約 1300 字）成本 NT$4.16——比展開一次卦理（NT$2.13）
+// 還貴一倍。66 顆是照靈石的錨點（0.063／顆）換算出來的成本價，不是溢價。
+// 定得比它低就是每念一次虧一次，而念得越多的人虧越多。
 
-/** 一篇批文大約幾個字。**估的**，用來把額度講成「還能念幾段」——
- *  沒有人知道 1580 個字是多少東西，但每個人都知道 3 段是多少。
+/** 一篇批文大約幾個字。**估的**，用來把成本講回字數，也用來在
+ *  dev/tts-quota-test.mts 裡檢查靈石定價有沒有偏離成本。
  *  MODE_LIMITS.cast 是 1000 tokens，中文一字約 1～1.5 token，
  *  再加上「所問：…」那一行，量級落在一千出頭。
  *  要校準就量：select round(avg(length(coalesce(question,'')||coalesce(reading,''))))
  *              from casts where coalesce(category,'') <> '日運' and reading is not null; */
 export const CHARS_PER_READING = 1300;
 
-// 全站緊急旋鈕：帳單失控時不必改程式重新部署，設 0.5 就是全體對半砍。
-const SCALE = Number(Deno.env.get("TTS_MONTHLY_SCALE") ?? "1");
+/** 每次朗讀送去合成的字數上限。不是額度，是防呆：
+ *  一篇異常長的批文（生成出錯、或日後某個模式放寬了長度）不該一次燒掉
+ *  十次朗讀的錢，而使用者付的仍是一次的價。超過就截，並在回傳裡說明。 */
+export const MAX_CHARS_PER_READING = Number(Deno.env.get("TTS_MAX_CHARS") ?? "4000");
 
-export const ttsQuotaOf = (plan: string) =>
-  Math.max(0, Math.round((PLAN_TTS_CHARS[plan] ?? PLAN_TTS_CHARS.free) * (Number.isFinite(SCALE) ? SCALE : 1)));
-
-// 日上限只是煞車，不是額度：跑掉的迴圈不該在一個下午燒完整個月。
-// 取月額度的四分之一，正常人碰不到——碰得到的那種用法本來就該停下來看一眼。
-export const dailyCapOf = (monthly: number) => Math.max(3000, Math.ceil(monthly / 4));
-
-/** 台北日期。tts_usage.day 以前寫的是 UTC 日期，等於每日額度在台北時間
- *  早上八點重置——對使用者而言那是「昨天的量還沒還我」。刻意在這裡自己算，
+/** 台北日期。tts_usage.day 以前寫的是 UTC 日期，等於每日的帳在台北時間
+ *  早上八點才翻頁——對使用者而言那是「昨天的量還沒還我」。刻意在這裡自己算，
  *  不 import services.ts（它載入時就讀 Deno.env，會讓這一層離線測不動）。 */
 export const taipeiToday = (d = new Date()) =>
   new Date(d.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
-// 單次請求的字數上限。超過就切成多段、各自合成，前端照順序播。
-// 不在伺服器把 mp3 接起來：裸接 frame 只是「多半能播」，遇到參數不同的段落
-// 會播出雜音或提早結束，而那種壞法在測試機上未必重現得出來。
+
+/** 每日朗讀次數上限。不是額度是煞車——付得起靈石的人不該被擋，
+ *  但一個跑掉的迴圈不該在一個下午把人的靈石與我們的帳單一起燒光。 */
+export const DAILY_READING_CAP = Number(Deno.env.get("TTS_DAILY_READINGS") ?? "20");
+
 const CHUNK = Number(Deno.env.get("TTS_CHUNK_CHARS") ?? "600");
 
 export type TtsResult =
@@ -256,54 +261,102 @@ export function monthRange(today = taipeiToday()): { from: string; to: string } 
 }
 
 export interface TtsQuota {
-  used: number; max: number; left: number; day_used: number; day_max: number;
-  /** 還能念幾段（估）。無條件捨去——說還有 2 段結果念得出 3 段是驚喜，反過來是失信。 */
-  left_readings: number;
+  /** 本月還剩幾次免費朗讀（只有最高階有，其餘階恆為 0） */
+  free_left: number;
+  /** 本月的免費次數總額 */
+  free_max: number;
+  /** 免費次數用完後，一次要幾顆靈石 */
+  cost: number;
+  /** 靈石餘額。畫面上要能在按下去之前就說得出「你買不買得起」 */
+  lingshi: number;
+  /** 今日已念幾次／上限（煞車，不是額度） */
+  day_readings: number;
+  day_cap: number;
+  /** 本月送去合成的字數。純記帳——帳單是照字數出的，對得起來才查得出問題 */
+  chars_used: number;
 }
 
-/** 讀額度，不動它。給 profile 用——畫面上要說得出「本月還能請人念幾段」。 */
+/** 某一階每月的免費朗讀次數。讀 plans 那一列；讀不到就當 0。
+ *
+ *  ⚠ 「讀不到就當 0」是刻意的。朗讀的失敗模式有兩種：多扣了靈石（使用者會
+ *    立刻回報，查 ledger 就補得回來），或是免費放行（沒有人會回報，帳單默默長大）。
+ *    所以這裡往嚴的那一邊倒。 */
+export async function ttsFreeOf(db: SupabaseClient, plan: string): Promise<number> {
+  if (!plan || plan === "free") return 0;
+  const { data } = await db.from("plans").select("tts_free_readings").eq("id", plan).maybeSingle();
+  const n = Number((data as { tts_free_readings?: number } | null)?.tts_free_readings ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** 讀額度，不動它。給 profile 與每次朗讀的回傳用。 */
 export async function ttsQuota(db: SupabaseClient, uid: string, plan: string): Promise<TtsQuota> {
-  const max = ttsQuotaOf(plan);
   const day = taipeiToday();
   const { from, to } = monthRange(day);
-  const { data } = await db.from("tts_usage").select("day, chars")
-    .eq("user_id", uid).gte("day", from).lt("day", to);
-  const rows = (data ?? []) as { day: string; chars: number | null }[];
-  const used = rows.reduce((n, r) => n + Number(r.chars ?? 0), 0);
-  const dayUsed = Number(rows.find((r) => r.day === day)?.chars ?? 0);
-  const left = Math.max(0, max - used);
+  const [{ data: rows }, { data: prof }, freeMax] = await Promise.all([
+    db.from("tts_usage").select("day, chars, readings, free_readings")
+      .eq("user_id", uid).gte("day", from).lt("day", to),
+    db.from("profiles").select("lingshi").eq("id", uid).maybeSingle(),
+    ttsFreeOf(db, plan),
+  ]);
+  const list = (rows ?? []) as { day: string; chars: number | null; readings: number | null; free_readings: number | null }[];
+  const freeUsed = list.reduce((n, r) => n + Number(r.free_readings ?? 0), 0);
+  const today = list.find((r) => r.day === day);
   return {
-    used, max, left, day_used: dayUsed, day_max: dailyCapOf(max),
-    left_readings: Math.floor(left / CHARS_PER_READING),
+    free_left: Math.max(0, freeMax - freeUsed),
+    free_max: freeMax,
+    cost: COST.tts_reading,
+    lingshi: Number((prof as { lingshi?: number } | null)?.lingshi ?? 0),
+    day_readings: Number(today?.readings ?? 0),
+    day_cap: DAILY_READING_CAP,
+    chars_used: list.reduce((n, r) => n + Number(r.chars ?? 0), 0),
   };
 }
 
-/** 扣額度。ok:false＝不夠，呼叫端不要合成。
+/** 收一次朗讀的錢。ok:false＝收不到，呼叫端不要合成。
+ *
+ *  順序是刻意的：先看免費次數，再扣靈石。反過來的話，最高階的使用者會在
+ *  自己都不知道的情況下花掉靈石，而他訂的方案裡明明寫著「每月八次免費」。
+ *
  *  匯出是為了測得到——這是整條線上唯一擋住帳單的那道門。 */
-export async function spendQuota(
+export async function spendReading(
   db: SupabaseClient, uid: string, plan: string, chars: number,
-): Promise<{ ok: true } | { ok: false; msg: string }> {
+): Promise<{ ok: true; paid: number; free: boolean } | { ok: false; msg: string }> {
   const day = taipeiToday();
   const q = await ttsQuota(db, uid, plan);
-  // 訊息帶數字：只說「用完了」的話，回報進來時查不出是差一點還是差很多，
-  // 而那兩件事要做的處置完全不同（等下個月／額度訂得太小）。
-  const need = `這一段要 ${chars} 字，本月還剩 ${q.left} 字`;
-  if (q.used + chars > q.max) {
-    return {
-      ok: false,
-      msg: q.max === PLAN_TTS_CHARS.free
-        ? `這個月的朗讀額度不夠了（${need}）。已經收藏的還是能聽——持玉牒入觀，額度會多很多。`
-        : `這個月的朗讀額度不夠了（${need}），下個月一號重新計算。已經收藏的還是能聽。`,
-    };
+
+  if (q.day_readings >= q.day_cap) {
+    return { ok: false, msg: `今天念得夠多了（已 ${q.day_readings} 次），明天再來。已經收藏的還是能聽。` };
   }
-  if (q.day_used + chars > q.day_max) {
-    return { ok: false, msg: `今天念得夠多了，明天再來——這個月的額度還在（剩 ${q.left} 字）。` };
+
+  const useFree = q.free_left > 0;
+  if (!useFree) {
+    // 扣靈石。apply_lingshi 餘額不足時會出錯，這裡據此擋下——
+    // 不自己先比一次餘額再扣：兩次讀取之間餘額會變，而那個縫隙正是
+    // 「同時按兩下朗讀、扣成負數」的來源。以資料庫那一次原子扣減為準。
+    const { error } = await db.rpc("apply_lingshi",
+      { p_user: uid, p_action: "tts", p_amount: -COST.tts_reading });
+    if (error) {
+      return {
+        ok: false,
+        msg: q.free_max > 0
+          ? `本月的免費朗讀已用完，這一次要 ${COST.tts_reading} 顆靈石，你有 ${q.lingshi} 顆。已經收藏的還是能聽。`
+          : `朗讀一次要 ${COST.tts_reading} 顆靈石，你有 ${q.lingshi} 顆。已經收藏的還是能聽——持玉牒入觀，最高階每月另有免費次數。`,
+      };
+    }
   }
-  await db.from("tts_usage").upsert(
-    { user_id: uid, day, chars: q.day_used + chars },
-    { onConflict: "user_id,day" },
-  );
-  return { ok: true };
+
+  // 記帳。字數仍然要記：帳單是照字數出的，對不起來時這是唯一的線索。
+  const today = await db.from("tts_usage").select("chars, readings, free_readings")
+    .eq("user_id", uid).eq("day", day).maybeSingle();
+  const cur = (today.data ?? {}) as { chars?: number; readings?: number; free_readings?: number };
+  await db.from("tts_usage").upsert({
+    user_id: uid, day,
+    chars: Number(cur.chars ?? 0) + chars,
+    readings: Number(cur.readings ?? 0) + 1,
+    free_readings: Number(cur.free_readings ?? 0) + (useFree ? 1 : 0),
+  }, { onConflict: "user_id,day" });
+
+  return { ok: true, paid: useFree ? 0 : COST.tts_reading, free: useFree };
 }
 
 /* ── 對外：念某一卦的某一段 ─────────────────────────────────────── */
@@ -421,10 +474,17 @@ async function speakSource(
     plan_.push({ ...p, path, miss });
   }
 
-  // 要合成的字一次扣完。need 為 0＝整篇都在快取裡，連問都不必問。
+  // 整篇算一次錢，不是一段算一次。一篇批文會被切成好幾段（換嗓子、切長度），
+  // 一段一段收的話，同一次朗讀會被收好幾次——而使用者按的就是一顆鈕。
+  // need 為 0＝整篇都在快取裡，不花我們的錢，也就不收使用者的錢。
+  let billed: { paid: number; free: boolean } | null = null;
   if (need > 0) {
-    const paid = await spendQuota(db, uid, plan, need);
+    if (need > MAX_CHARS_PER_READING) {
+      return { ok: false, msg: `這一段太長了（${need} 字），念不了。請改念其中一則追問。` };
+    }
+    const paid = await spendReading(db, uid, plan, need);
     if (!paid.ok) return { ok: false, msg: paid.msg };
+    billed = { paid: paid.paid, free: paid.free };
   }
 
   const parts: { url: string; path: string; text: string; chars: number; narrator: boolean }[] = [];
@@ -453,6 +513,9 @@ async function speakSource(
     payload: {
       voice_id: charVoice, narrator_voice_id: VOICE_NARRATOR, model: MODEL,
       parts, chars: total, cached: synthesized === 0,
+      // 這一次收了多少：畫面上要說得出「扣了 66 顆」或「用掉一次免費」，
+      // 而不是讓人自己去看餘額少了多少。
+      paid: billed?.paid ?? 0, used_free: billed?.free ?? false,
       // 每次朗讀都把額度現況帶回去：畫面上要說得出「本月還能請人念幾段」，
       // 而不是等到用完那一次才第一次讓人知道有這回事。
       quota: await ttsQuota(db, uid, plan),

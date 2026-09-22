@@ -18,7 +18,8 @@
 // 取用，那些地方全都要改成 async，而它們只是在組一行字。所以改成：每個請求開頭
 // 呼叫一次 refreshPrices(db)（非同步、有快取、不拋），之後所有地方同步讀 COST。
 
-export type PriceAction = "extra_cast" | "followup" | "comment" | "deepen" | "chat" | "signin_mend";
+export type PriceAction =
+  | "extra_cast" | "followup" | "comment" | "deepen" | "chat" | "signin_mend" | "tts_reading";
 
 /** 與 0059 的 insert 同值。改這裡也要改那裡，否則 dev/pricing-test.mts 會叫。 */
 const DEFAULTS: Record<PriceAction, number> = {
@@ -28,6 +29,10 @@ const DEFAULTS: Record<PriceAction, number> = {
   deepen: 34,       // NT$2.13 ÷ 0.063 —— 原 15，每顆 0.142，是免費石的套利出口
   chat: Number(Deno.env.get("LINGSHI_PER_CHAT") ?? "1"),
   signin_mend: 10,  // 非 AI 成本，純設計值
+  // 朗讀不是 Anthropic 的帳，是 MiniMax 的：NT$4.16／次（hd 模型、約 1300 字）。
+  // 換算到同一個錨點就是 66 顆——它比展開一次卦理（NT$2.13）還貴一倍。
+  // 這不是溢價，是成本價；定得比它低，念得越多的人虧越多。
+  tts_reading: 66,
 };
 
 /** 現行價目。同步讀。值由 refreshPrices() 更新，沒更新過就是 DEFAULTS。 */

@@ -35,9 +35,12 @@ console.log("\n靈石價目\n");
 console.log("— 資料庫與程式的預設值");
 await t("0059 的每一列都與 prices.ts 的預設相符", () => {
   const sql = readFileSync("supabase/migrations/0059_lingshi_prices.sql", "utf8");
-  const body = /insert into lingshi_prices[\s\S]*?on conflict/.exec(sql);
-  if (!body) throw new Error("在 0059 裡找不到 insert——它被改寫了？");
-  const rows = [...body[0].matchAll(/\('([a-z_]+)',\s*(\d+),/g)].map((m) => [m[1], Number(m[2])] as const);
+  // 0059 裡不只一個 insert（價目本體一段、朗讀另一段），全部都要收進來——
+  // 只看第一段的話，後來加的價目會躲過這條檢查，而那正是最需要被盯住的。
+  const bodies = [...sql.matchAll(/insert into lingshi_prices[\s\S]*?on conflict/g)];
+  if (!bodies.length) throw new Error("在 0059 裡找不到 insert——它被改寫了？");
+  const rows = bodies.flatMap((b) =>
+    [...b[0].matchAll(/\('([a-z_]+)',\s*(\d+),/g)].map((m) => [m[1], Number(m[2])] as const));
   if (!rows.length) throw new Error("insert 解不出任何一列");
   const inSql = Object.fromEntries(rows);
   const inTs = priceTable();

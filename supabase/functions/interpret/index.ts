@@ -29,7 +29,7 @@ import {
   voiceKeep, voiceList, voiceDelete, clipQuotaOf,
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
-import { castTexts, speakCast, speakChat, ttsQuota } from "../_shared/tts.ts";
+import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -78,6 +78,14 @@ const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 前端 part2.html 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
 const AH_FREE = 6;
 const AH_PER = 7;
+/** 本月還剩幾次免費朗讀。只有最高階有，其餘階恆為 0——
+ *  所以先問方案，0 的話連 tts_usage 都不必查。 */
+async function ttsFreeLeftOf(uid: string, plan: string): Promise<number> {
+  const max = await ttsFreeOf(db, plan);
+  if (max <= 0) return 0;
+  return (await ttsQuota(db, uid, plan)).free_left;
+}
+
 const ahUnlockedCount = (signinTotal: number) =>
   Math.min(AH_KEYS.length, AH_FREE + Math.floor(signinTotal / AH_PER));
 // CORS：瀏覽器跨網域呼叫必需。
@@ -414,6 +422,9 @@ async function handle(req: Request): Promise<Response> {
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
         followupCost: COST.followup, prices: priceTable(),
+        // 朗讀鈕上要標「免費剩 N 次」或「💎66」，而那要在按下去之前就知道。
+        // 只帶免費次數，不帶完整用量：這一包已經夠大了，其餘等真的按下去再回。
+        ttsFreeLeft: await ttsFreeLeftOf(uid, plan),
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,

@@ -61,3 +61,60 @@ alter table lingshi_prices enable row level security;
 -- 沿用 0001 的鐵則：RLS 開、零 policy ＝ 只有 service_role（Edge Function）讀得到。
 -- 價目要給前端看的話走 interpret 的 bootstrap 回傳，不開 anon 直讀——
 -- 直讀等於多一個不需要的攻擊面，而它換來的只是少一次已經在發生的請求。
+
+
+-- ═══════════════════════════════════════════════════════════════════
+-- 朗讀改成單次計費
+--
+-- 【原本的做法與它的問題】
+--
+-- 0043 給了每人每月一筆「字數額度」，分四階：無牒 5000、觀微 12000、
+-- 知幾 30000、藏往 60000 字。以 speech-2.8-hd 約 US$0.10／千字、匯率 32 計，
+-- 那是每月 NT$16／38／96／192 的純支出，而且：
+--
+--   一、無牒那 5000 字（NT$16／月）完全沒有收入抵。
+--   二、藏往那 192 是整個方案成本裡最大的單一項——比它的 AI 成本
+--       （NT$672）小，但它是唯一一項「不論訂價多少都照燒」的。
+--   三、字數額度沒有人看得懂。「本月還剩 3200 字」對使用者不是資訊。
+--
+-- 【改成】最高階（藏往）每月給固定次數的免費朗讀，其餘一律單次收靈石。
+--
+-- 一次朗讀（一篇批文，約 1300 字）成本 NT$4.16。以靈石的錨點 0.063／顆換算
+-- ＝ 66 顆。這個數字看起來很高，但它就是成本：朗讀一次比展開一次卦理
+-- （NT$2.13）還貴一倍。定得比 66 低就是每念一次虧一次，而念得越多的人虧越多。
+--
+-- ⚠ 若改用 speech-2.8-turbo（MINIMAX_TTS_MODEL 環境變數，不必改程式），
+--   成本約降四成 → NT$2.50／次 ＝ 40 顆。屆時把這裡 update 成 40 即可。
+insert into lingshi_prices (action, cost, label, note) values
+  ('tts_reading', 66, '朗讀一段',
+   'NT$4.16／次（speech-2.8-hd，US$0.10／千字 × 約1300字 × 匯率32）÷ 0.063／顆。'
+   '改用 turbo 模型約降四成 → 40 顆')
+on conflict (action) do update
+  set cost = excluded.cost, label = excluded.label, note = excluded.note, updated_at = now();
+
+-- 最高階的免費朗讀次數。其餘階為 0——這是刻意的：朗讀要做成純收益，
+-- 就不能有任何一階是「附送一點點」。附送一點點的那些階，成本照燒而使用者
+-- 無感（幾千字在畫面上不是數字），兩頭都不討好。
+alter table plans add column if not exists tts_free_readings int not null default 0;
+
+comment on column plans.tts_free_readings is
+  '每期致贈的免費朗讀次數。只有最高階有；其餘階一律單次扣靈石（lingshi_prices.tts_reading）。'
+  '一次成本 NT$4.16，所以這個數字乘以 4.16 就是該階每月的朗讀支出上限。';
+
+update plans set tts_free_readings = 8 where id = 'cangwang';   -- 8 × NT$4.16 ≈ NT$33／月
+update plans set tts_free_readings = 0 where id in ('guanwei', 'zhiji');
+
+-- 用量表補兩欄：次數要與字數分開記。
+-- 字數仍要記——它是對帳的依據（帳單是照字數出的）。次數是計費的依據。
+-- 兩個都留著，是因為「這個月念了幾次」與「這個月花了多少錢」在朗讀這件事上
+-- 不成比例：一則追問兩百字、一篇批文一千三，同樣算一次。
+alter table tts_usage add column if not exists readings      int not null default 0;
+alter table tts_usage add column if not exists free_readings int not null default 0;
+
+comment on column tts_usage.readings is
+  '當日朗讀次數（命中快取的不算——重聽不花錢也不計費）。';
+comment on column tts_usage.free_readings is
+  '其中用掉免費次數的幾次。月內加總＝該月已用的免費額度。';
+
+-- ⚠ 舊的 chars 欄位語意不變（送去雲端合成的字數），但它不再是額度的依據。
+--   PLAN_TTS_CHARS 那一套在 _shared/tts.ts 已經移除。
