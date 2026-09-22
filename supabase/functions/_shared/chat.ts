@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
+import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, topicOf } from "./xinji.ts";
@@ -838,6 +839,20 @@ export async function chat(db: SupabaseClient, p: {
   const chatQuota = chatQuotaOf(p.plan ?? "free");
   const withinFree = used < chatQuota;
   const canPay = lingshi >= COST_CHAT;
+
+  // 危機攔截：必須在限流之前——否則一句「我不想活了」可能被「吵。一分鐘轟這麼多句」
+  // 打發掉，那是這個產品能犯的最糟的一個錯。
+  // 不呼叫模型、不扣費、不計入免費句數、不寫進記憶（這句話不該被角色記著日後複述）。
+  // 額度與好感照實回：畫面會照著畫，此刻更不該讓他看到假的數字。
+  const crisis = detectCrisis(p.message);
+  if (crisis) {
+    logCrisis("chat", p.userId, crisis);
+    return {
+      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor,
+      cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
+      probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
+    };
+  }
 
   // 每分鐘限流：超限直接以角色口吻打發，不呼叫模型、不扣費、不寫記憶
   if (await rateLimited(db, p.userId)) {

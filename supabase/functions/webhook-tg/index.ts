@@ -13,6 +13,7 @@ import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
+import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -485,6 +486,15 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
 
   // 明確主動問卦入口：用戶剛說「我要問卦」之類，或 awaiting_cast 狀態下又打字（換問題）
   if (ses.state === "awaiting_cast" && text) {
+    // 危機攔截先於擬題：擬題會把那句話整理成一句「可以拿去起卦」的問句再送回來，
+    // 而他已經看過那個改寫了。起卦端雖然也攔得住，但那已經晚一步。
+    const preCrisis = detectCrisis(text);
+    if (preCrisis) {
+      logCrisis("tg_refine", userId, preCrisis);
+      await saveSession({ ...ses, state: "idle" });
+      await send(chatId, esc(crisisMessage(ses.character_id as string ?? "daoshi_m")));
+      return;
+    }
     // 問句預檢：問得不好，卦也解不好。只提議、不攔阻——玩家永遠可以「就照原本的問法」。
     const rf = await refineQuestion(db, { userId, question: text });
     if (!rf.ok && rf.rewrites.length) {
@@ -973,6 +983,11 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     await saveSession({ ...ses, state: "idle" });
     return;
   }
+  if (r.kind === "crisis") {
+    // 不存 session、不掛任何按鈕——此刻任何「再問一卦」的入口都是錯的引導。
+    await send(chatId, esc(r.message));
+    return;
+  }
   if (r.kind === "intercept") {
     await saveSession({ ...ses, state: "idle", last_cast_id: r.prevCastId });
     await send(chatId, esc(r.message), {
@@ -1009,6 +1024,7 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
   await send(chatId, "推演中……");
   await typing(chatId);
   const r = await followupInterpret(db, { userId, castId, question });
+  if (r.kind === "crisis") { await send(chatId, esc(r.message)); return; }
   if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再問。"); return; }
   if (r.kind === "paywall") {
     await send(chatId, "此卦內含追問已用盡，靈石亦不足。\n（明日簽到可得靈石。）");

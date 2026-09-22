@@ -4,6 +4,7 @@ import { buildChart, castCoins, castByNumbers, guaName, pickUsePos } from "./cor
 import { chartTextFull } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
+import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, COST_DEEPEN, COST_COMMENT, COST_EXTRA_CAST, endsComplete, logUsage, rateLimited } from "./services.ts";
 
@@ -88,6 +89,16 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   clientToken?: string;                // 起卦冪等憑據：同一次起卦動作只准成立一卦
   threadId?: string;                   // 心跡：這一卦屬於哪件在記的心事（見下方「二占」）
 }) {
+  // -2. 危機攔截：擺在最前面，連冪等 token 都不佔——佔了又不回填 cast_id，
+  //     同一個 token 的重試會永遠卡在 in_progress。不扣費、不起卦、不呼叫 AI。
+  //     擬題前的原話一起看：模型把「我不想活了」改寫成一句合格問句之後，字面上的
+  //     訊號往往就不見了，而那句原話才是他真正說出口的東西。
+  const crisis = detectCrisisAny(p.question, p.questionRaw);
+  if (crisis) {
+    logCrisis("cast", p.userId, crisis);
+    return { kind: "crisis" as const, message: crisisMessage(p.characterId) };
+  }
+
   // -1. 冪等：先搶 token。搶不到代表這一次起卦已經有人在做（連點兩下、
   //     斷線重試、或兩台裝置同時送），直接回頭等那一份，不重複扣費與呼叫 AI。
   if (p.clientToken) {
@@ -262,6 +273,13 @@ export async function followupInterpret(db: SupabaseClient, p: {
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
+  // 危機攔截先於計費：追問是最可能浮出這類訊號的地方——前一卦答得好不好是一回事，
+  // 他接著說了什麼是另一回事。命中就不扣靈石、不呼叫模型。
+  const fuCrisis = detectCrisisAny(p.question);
+  if (fuCrisis) {
+    logCrisis("followup", p.userId, fuCrisis);
+    return { kind: "crisis" as const, message: crisisMessage(cast.character_id) };
+  }
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
   const bill = await billFollowup(db, p.userId, p.castId, await planOf(db, p.userId));

@@ -11,6 +11,7 @@ import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
+import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
@@ -1044,7 +1045,16 @@ Deno.serve(async (req) => {
 
     // 問句預檢（問事頁送出前）：只提議、不攔阻；任何失敗都回 ok:true 靜默放行
     if (body.mode === "refine") {
-      const r = await refineQuestion(db, { userId: uid, question: String(body.question ?? "") });
+      // 危機攔截也要蓋到擬題：這一支跑在起卦之前，命中的話會先把那句話改寫成
+      // 一句「合格的問句」再送回前端——等於在他說出口的下一秒，把它整理成
+      // 可以拿去起卦的樣子。起卦端攔得住，但他已經看過那句被改寫的話了。
+      const refQ = String(body.question ?? "");
+      const refCrisis = detectCrisis(refQ);
+      if (refCrisis) {
+        logCrisis("refine", uid, refCrisis);
+        return Response.json({ kind: "err", crisis: true, msg: crisisMessage(String(body.character_id ?? "daoshi_m")) }, { headers: CORS });
+      }
+      const r = await refineQuestion(db, { userId: uid, question: refQ });
       return Response.json({ kind: "ok", ...r }, { headers: CORS });
     }
 
@@ -1307,6 +1317,13 @@ Deno.serve(async (req) => {
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。
       threadId: typeof body.thread_id === "string" ? body.thread_id : undefined,
     });
+    // 危機攔截：pipeline 回 crisis 時，這裡改用 err 管道送出。
+    // 理由是相容——結果本來就是整包 Response.json 透傳，網頁前端不認得沒見過的 kind，
+    // 有可能整個畫不出來；而 err 是 capped／rate_limited 已經在線上用的那條，確定畫得出。
+    // crisis:true 另外掛著，前端日後要單獨改樣式（不套錯誤紅字）不必再動後端。
+    // ⚠ 前端加上 crisis 分支之後，這裡就該改回原樣的 kind:"crisis"。
+    if ((result as { kind: string }).kind === "crisis")
+      return Response.json({ kind: "err", crisis: true, msg: (result as { message: string }).message }, { headers: CORS });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
       return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });
