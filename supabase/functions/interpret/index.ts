@@ -12,6 +12,7 @@ import {
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
@@ -193,12 +194,27 @@ async function postEntries(rows: PostRow[]) {
     avatar: profs.get(p.user_id)?.selected_avatar ?? null,
   }));
 }
+// 我封鎖了誰。訪客回空陣列——沒登入就沒有封鎖名單，不必查。
+// 每次開廣場都會叫一次，所以 0057 給了 blocks_user_idx。
+async function blockedIds(viewerId: string | null): Promise<string[]> {
+  if (!viewerId) return [];
+  const { data, error } = await db.from("blocks").select("blocked_id").eq("user_id", viewerId);
+  // 查失敗就當作沒封鎖任何人。封鎖是體驗，不是權限——讀不到它不該讓整個廣場開不起來。
+  if (error) { console.error("blockedIds failed", viewerId, error.message); return []; }
+  return (data ?? []).map((b: { blocked_id: string }) => b.blocked_id);
+}
+
 // 列表：分類篩選（type=cast/thread/chat_story，其餘視為全部）＋置頂優先＋數字分頁（回 total 供前端算頁數）
-async function postListResponse(sort: unknown, offset: unknown, type: unknown): Promise<Response> {
+async function postListResponse(sort: unknown, offset: unknown, type: unknown, viewerId: string | null = null): Promise<Response> {
   const off = Math.max(0, Number(offset) || 0);
   const hot = sort === "hot";
   const typeFilter = POST_TYPES.includes(String(type)) ? String(type) : null;
   let q = db.from("posts").select(POST_LIST_COLS, { count: "exact" });
+  // 下架的一律不出現在列表（0057 的 posts_visible_idx 就是為這條建的）
+  q = q.is("hidden_at", null);
+  // 封鎖：我封鎖的人，他的貼文我看不到。單向——他那邊沒有任何變化。
+  const blocked = await blockedIds(viewerId);
+  if (blocked.length) q = q.not("user_id", "in", `(${blocked.join(",")})`);
   if (typeFilter) q = q.eq("type", typeFilter);
   // 置頂永遠優先（不分最新/熱門）；其後才套排序準則
   q = q.order("pinned_at", { ascending: false, nullsFirst: false });
@@ -214,15 +230,23 @@ async function postListResponse(sort: unknown, offset: unknown, type: unknown): 
 }
 
 // 貼文內頁（免認證唯讀）：全文＋快照＋回文串
-async function postDetailResponse(postId: unknown): Promise<Response> {
+async function postDetailResponse(postId: unknown, viewerId: string | null = null): Promise<Response> {
   const { data: p, error } = await db.from("posts")
-    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, created_at")
+    .select("id, user_id, type, title, body, cast_snapshot, chat_snapshot, character_id, like_count, comment_count, pinned_at, hidden_at, created_at")
     .eq("id", String(postId ?? "")).maybeSingle();
   if (error) return Response.json({ kind: "err", msg: "貼文暫時無法載入" }, { headers: CORS });
   if (!p) return Response.json({ kind: "not_found" }, { headers: CORS });
-  // 回文依點讚熱度排序，同熱度先到先排
-  const { data: cs } = await db.from("post_comments")
+  // 下架的直接當作不存在：回 removed 而不是 not_found，前端才講得出「這篇已下架」，
+  // 而不是「找不到」——被下架的人點自己的舊連結進來，該知道發生了什麼事。
+  if (p.hidden_at) return Response.json({ kind: "removed", msg: "這篇已下架。" }, { headers: CORS });
+  const blocked = await blockedIds(viewerId);
+  if (blocked.includes(p.user_id)) return Response.json({ kind: "blocked", msg: "你已封鎖這位護道人。" }, { headers: CORS });
+  // 回文依點讚熱度排序，同熱度先到先排；下架與被封鎖者的不出現
+  let cq = db.from("post_comments")
     .select("id, user_id, body, like_count, edited_at, created_at").eq("post_id", p.id)
+    .is("hidden_at", null);
+  if (blocked.length) cq = cq.not("user_id", "in", `(${blocked.join(",")})`);
+  const { data: cs } = await cq
     .order("like_count", { ascending: false }).order("created_at", { ascending: true }).limit(200);
   const comments = cs ?? [];
   const userIds = [...new Set([p.user_id, ...comments.map((c: { user_id: string }) => c.user_id)])];
@@ -244,14 +268,21 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return new Response("bad request", { status: 400, headers: CORS }); }
 
+  // 先軟解析身分：下面三支是免認證的公開端點，但「這是誰」會影響它們回什麼
+  // （封鎖名單要濾掉）。軟＝解不出來就當訪客，不擋——一個過期的 token 不該讓人
+  // 連廣場都看不了。硬性的認證雙軌仍在下面，公開端點放行之後才跑。
+  const auth = req.headers.get("authorization");
+  let jwtUserId: string | null = null;
+  if (auth?.startsWith("Bearer ")) jwtUserId = await userFromJwt(auth.slice(7));
+
   // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
   if (body.mode === "wall") return await wallResponse();
 
   // 觀前廣場列表：免認證唯讀（發文/按讚/刪文仍需登入）。new=最新 hot=熱門，offset 分頁每頁 20
-  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset, body.type);
+  if (body.mode === "post_list") return await postListResponse(body.sort, body.offset, body.type, jwtUserId);
 
   // 貼文內頁：免認證唯讀（全文＋盤面/閒聊快照＋回文串）
-  if (body.mode === "post_detail") return await postDetailResponse(body.post_id);
+  if (body.mode === "post_detail") return await postDetailResponse(body.post_id, jwtUserId);
 
   // 版本閘門：只擋需登入的功能。到這一行為止的 wall／post_list／post_detail 都已放行，
   // 所以舊版 App 仍可排盤、複製卦象（純本機）與觀看廣場，只是不能登入、不能發言。
@@ -263,11 +294,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 認證雙軌
-  let jwtUserId: string | null = null;
-  const auth = req.headers.get("authorization");
+  // 認證雙軌（硬性）。jwtUserId 在上面已經解過了，這裡只負責「解不出來就擋」。
   if (auth?.startsWith("Bearer ")) {
-    jwtUserId = await userFromJwt(auth.slice(7));
     if (!jwtUserId) return new Response("unauthorized", { status: 401, headers: CORS });
   } else if (req.headers.get("x-internal-key") !== Deno.env.get("INTERNAL_API_KEY")) {
     return new Response("forbidden", { status: 403, headers: CORS });
@@ -1056,6 +1084,106 @@ Deno.serve(async (req) => {
       }
       const r = await refineQuestion(db, { userId: uid, question: refQ });
       return Response.json({ kind: "ok", ...r }, { headers: CORS });
+    }
+
+    // ── 廣場：檢舉與封鎖 ──────────────────────────────────────
+    const REPORT_NOTE_MAX = 200;
+
+    // 檢舉一則貼文或回文。同一人對同一則只算一次（0057 的 unique），
+    // 重複送不當錯誤——使用者按第二次通常是因為第一次沒看到回饋，不是要吵。
+    if (body.mode === "report_create") {
+      const targetType = String(body.target_type ?? "");
+      const targetId = String(body.target_id ?? "");
+      const reason = String(body.reason ?? "");
+      if (!["post", "comment"].includes(targetType)) return Response.json({ kind: "err", msg: "型別不明" }, { headers: CORS });
+      if (!REASON_LABELS[reason]) return Response.json({ kind: "err", msg: "請選擇檢舉原因" }, { headers: CORS });
+      const note = String(body.note ?? "").trim().slice(0, REPORT_NOTE_MAX);
+
+      // 先確認這一則真的存在，順便取內容給推播用。
+      // 不先查的話，檢舉一個不存在的 id 會寫進資料庫，而觀主收到一則點不開的通知。
+      const tbl = targetType === "post" ? "posts" : "post_comments";
+      const cols = targetType === "post" ? "id, user_id, title, body, hidden_at" : "id, user_id, body, post_id, hidden_at";
+      // 欄位是依型別動態組的，supabase-js 推不出形狀，這裡明講一次
+      const { data: tgtRaw } = await db.from(tbl).select(cols).eq("id", targetId).maybeSingle();
+      const tgt = tgtRaw as { user_id: string; title?: string; body?: string; hidden_at: string | null } | null;
+      if (!tgt) return Response.json({ kind: "err", msg: "找不到這則內容。" }, { headers: CORS });
+      if (tgt.hidden_at) return Response.json({ kind: "ok", already: true, msg: "這則已經下架了。" }, { headers: CORS });
+      if (tgt.user_id === uid) return Response.json({ kind: "err", msg: "不能檢舉自己的內容。" }, { headers: CORS });
+
+      const { error } = await db.from("reports").insert({
+        reporter_id: uid, target_type: targetType, target_id: targetId, reason, note: note || null,
+      });
+      // 23505 ＝ unique 撞號 ＝ 他已經檢舉過了。回 ok，不回錯：
+      // 對他而言「我檢舉了」這件事是成立的，重複與否是我們的帳，不是他該煩的事。
+      if (error && error.code !== "23505") {
+        console.error("report insert failed", error.message);
+        return Response.json({ kind: "err", msg: "檢舉未能送出，請稍後再試。" }, { headers: CORS });
+      }
+      const dup = error?.code === "23505";
+
+      if (!dup) {
+        // 這一則總共幾個人檢舉（unique 保證一人一次，所以 count 就是人數）
+        const { count } = await db.from("reports")
+          .select("id", { count: "exact", head: true })
+          .eq("target_type", targetType).eq("target_id", targetId).eq("status", "open");
+        const { data: author } = await db.from("profiles").select("display_name").eq("id", tgt.user_id).maybeSingle();
+        const { data: me } = await db.from("profiles").select("display_name").eq("id", uid).maybeSingle();
+        const excerpt = String((targetType === "post" ? tgt.title : tgt.body) ?? "").slice(0, 60);
+        // 自傷類另外標記：它跟檢舉廣告不是同一件事，那則貼文後面有一個真的人。
+        // 不標的話它會混在一堆廣告檢舉裡被滑過去。
+        const urgent = reason === "selfharm";
+        await notifyAdmin(
+          (urgent ? "🆘 <b>自傷／輕生內容檢舉</b>（優先看這則）\n\n" : "🚩 <b>廣場檢舉</b>\n\n") +
+          `分類：<b>${tgEsc(REASON_LABELS[reason])}</b>\n` +
+          `對象：${targetType === "post" ? "貼文" : "回文"}　作者：${tgEsc(author?.display_name || "護道人")}\n` +
+          `內容：${tgEsc(excerpt)}${excerpt.length >= 60 ? "…" : ""}\n` +
+          (note ? `檢舉人留言：${tgEsc(note)}\n` : "") +
+          `檢舉人：${tgEsc(me?.display_name || "護道人")}　累計 <b>${count ?? 1}</b> 人檢舉`,
+          [
+            { text: "🗑 下架", data: modCallback("hide", targetType as "post" | "comment", targetId) },
+            { text: "✋ 駁回", data: modCallback("dismiss", targetType as "post" | "comment", targetId) },
+          ],
+        );
+      }
+      return Response.json({ kind: "ok", duplicated: dup, msg: dup ? "你已經檢舉過這一則了。" : "已送出，觀主會看。" }, { headers: CORS });
+    }
+
+    // 封鎖：單向，被封鎖的人沒有任何提示。封鎖之後對方的貼文與回文都不再出現。
+    if (body.mode === "block_add" || body.mode === "block_remove") {
+      const targetId = String(body.target_id ?? "");
+      if (!targetId) return Response.json({ kind: "err", msg: "對象不明" }, { headers: CORS });
+      if (targetId === uid) return Response.json({ kind: "err", msg: "不能封鎖自己。" }, { headers: CORS });
+      if (body.mode === "block_add") {
+        const { error } = await db.from("blocks").insert({ user_id: uid, blocked_id: targetId });
+        // 23505 重複封鎖、23503 對象不存在——兩者對使用者而言結果一樣：他已經看不到那個人了
+        if (error && !["23505", "23503"].includes(error.code ?? "")) {
+          console.error("block insert failed", error.message);
+          return Response.json({ kind: "err", msg: "封鎖未能完成，請稍後再試。" }, { headers: CORS });
+        }
+      } else {
+        await db.from("blocks").delete().eq("user_id", uid).eq("blocked_id", targetId);
+      }
+      const { count } = await db.from("blocks").select("blocked_id", { count: "exact", head: true }).eq("user_id", uid);
+      return Response.json({ kind: "ok", blocked: body.mode === "block_add", total: count ?? 0 }, { headers: CORS });
+    }
+
+    // 我封鎖了哪些人（設定頁要能解除，不然封鎖就是一條單行道）
+    if (body.mode === "block_list") {
+      const { data: bs } = await db.from("blocks").select("blocked_id, created_at").eq("user_id", uid)
+        .order("created_at", { ascending: false }).limit(200);
+      const ids = (bs ?? []).map((b: { blocked_id: string }) => b.blocked_id);
+      const { data: ps } = ids.length
+        ? await db.from("profiles").select("id, display_name, selected_avatar").in("id", ids) : { data: [] };
+      const profs = new Map((ps ?? []).map((x: { id: string; display_name: string | null; selected_avatar: string | null }) => [x.id, x]));
+      return Response.json({
+        kind: "ok",
+        blocks: (bs ?? []).map((b: { blocked_id: string; created_at: string }) => ({
+          user_id: b.blocked_id,
+          name: profs.get(b.blocked_id)?.display_name || "護道人",
+          avatar: profs.get(b.blocked_id)?.selected_avatar ?? null,
+          created_at: b.created_at,
+        })),
+      }, { headers: CORS });
     }
 
     // ── 帳號刪除 ──────────────────────────────────────────────

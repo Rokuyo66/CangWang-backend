@@ -14,6 +14,7 @@ import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { parseModCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -333,6 +334,40 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     return;
   }
 
+  // 待處理檢舉。推播是主要管道，這一支是補網——TG 推播失敗（網路、bot 被封）
+  // 不會讓檢舉消失，但也不會有人來提醒你，所以要有地方主動查。
+  if (text === "/reports" || text === "/檢舉") {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const { data: rs } = await db.from("reports")
+      .select("target_type, target_id, reason, note, created_at")
+      .eq("status", "open").order("created_at", { ascending: false }).limit(10);
+    if (!rs || !rs.length) { await send(chatId, "沒有待處理的檢舉。"); return; }
+    // 同一則被多人檢舉時只出現一次——十列清單裡塞五則同一篇，等於看不到其他四件事
+    const seen = new Set<string>();
+    for (const r of rs as { target_type: string; target_id: string; reason: string; note: string | null; created_at: string }[]) {
+      const key = `${r.target_type}:${r.target_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const tbl = r.target_type === "post" ? "posts" : "post_comments";
+      const { data: t } = await db.from(tbl)
+        .select(r.target_type === "post" ? "title, user_id" : "body, user_id")
+        .eq("id", r.target_id).maybeSingle();
+      const { count } = await db.from("reports").select("id", { count: "exact", head: true })
+        .eq("target_type", r.target_type).eq("target_id", r.target_id).eq("status", "open");
+      const excerpt = String((r.target_type === "post" ? t?.title : t?.body) ?? "（已不存在）").slice(0, 50);
+      await send(chatId,
+        `${r.reason === "selfharm" ? "🆘" : "🚩"} <b>${tgEsc(REASON_LABELS[r.reason] ?? r.reason)}</b>` +
+        `　${r.target_type === "post" ? "貼文" : "回文"}　${count ?? 1} 人檢舉\n` +
+        `${tgEsc(excerpt)}${excerpt.length >= 50 ? "…" : ""}` +
+        (r.note ? `\n<i>${tgEsc(r.note.slice(0, 80))}</i>` : ""),
+        { reply_markup: { inline_keyboard: [[
+          { text: "🗑 下架", callback_data: `mh:${r.target_type === "post" ? "p" : "c"}:${r.target_id}` },
+          { text: "✋ 駁回", callback_data: `md:${r.target_type === "post" ? "p" : "c"}:${r.target_id}` },
+        ]] } });
+    }
+    return;
+  }
   if (text === "/collection" || text === "/卦籤" || text === "/圖鑑") {
     // 卦鑑（永久表，見 0051）。順手對一次 casts 把漏的補回——
     // 舊版直接數 casts，起卦破千之後會被 db-max-rows 切掉，收集度看起來會縮水。
@@ -597,6 +632,31 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
   const ses = await getSession(tgId);
   const data = cb.data ?? "";
   await tg("answerCallbackQuery", { callback_query_id: cb.id });
+
+  // 檢舉處理：推播訊息底下那兩顆鈕。擺在最前面——它是觀主專用，
+  // 不該跟一般使用者的回呼混在同一串 if 裡被順序影響。
+  const mod = parseModCallback(data);
+  if (mod) {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const { data: r, error } = await db.rpc("moderate_target", {
+      p_type: mod.type, p_id: mod.id, p_hide: mod.action === "hide", p_admin: userId,
+    });
+    if (error) {
+      console.error("moderate_target failed", error.message);
+      await send(chatId, "處理失敗：" + tgEsc(error.message.slice(0, 120)));
+      return;
+    }
+    // changed = 0 代表狀態本來就是要改成的樣子（多半是同一則推播按了兩次）。
+    // 這不是錯誤，但要講清楚，否則會以為沒生效而一直按。
+    const changed = (r as { changed?: number } | null)?.changed ?? 0;
+    const what = mod.type === "post" ? "貼文" : "回文";
+    await send(chatId,
+      mod.action === "hide"
+        ? (changed ? `🗑 已下架這則${what}，相關檢舉一併結案。` : `這則${what}先前就已下架，檢舉已結案。`)
+        : (changed ? `✋ 已駁回，這則${what}維持顯示。` : `這則${what}本來就在顯示中，檢舉已結案。`));
+    return;
+  }
 
   if (data.startsWith("char:")) {
     const charId = data.slice(5);
