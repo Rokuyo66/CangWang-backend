@@ -7,7 +7,7 @@ import { syncGuaFromCasts } from "../_shared/collection.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf } from "../_shared/services.ts";
+import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, COST_FOLLOWUP, COST_EXTRA_CAST, COST_DEEPEN, COST_COMMENT, castFreeLeft, followupFreeLeft, planOf, deleteAccount, DELETE_PHRASE } from "../_shared/services.ts";
 import { labelOf } from "../_shared/ledger.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
@@ -133,7 +133,8 @@ const HELP_TEXT =
   "📜 /history 翻閱卦歷、重溫舊卦與追問\n" +
   "📖 /collection 卦象圖鑑，看你已收集幾卦\n" +
   "🧠 /memory 查看聊天記憶　/forget 清除記憶\n" +
-  "🚪 /gua 明確進入問卦　/start 重新入觀\n\n" +
+  "🚪 /gua 明確進入問卦　/start 重新入觀\n" +
+  "🗑 /deleteme 刪除帳號與全部資料（不可復原）\n\n" +
   "<i>每日免費三卦，每卦含兩次追問。</i>\n" +
   "<i>📜 /about 服務性質與免責須知</i>";
 const charKeyboard = {
@@ -381,6 +382,25 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     });
     return;
   }
+  // 帳號刪除。不用 inline 按鈕、要他把字打出來——按鈕按錯只是手滑，
+  // 打字打錯就打不出來。與網頁端共用同一個 DELETE_PHRASE。
+  if (text === "/deleteme" || text === "/刪除帳號") {
+    const [{ count: cCasts }, { count: cPosts }, { data: pf }] = await Promise.all([
+      db.from("casts").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      db.from("posts").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      db.from("profiles").select("lingshi").eq("id", userId).maybeSingle(),
+    ]);
+    await saveSession({ ...ses, state: "awaiting_delete" });
+    await send(chatId,
+      "<b>⚠️ 刪除帳號</b>\n\n" +
+      `將永久刪除：<b>${cCasts ?? 0}</b> 卦、<b>${cPosts ?? 0}</b> 篇廣場貼文、` +
+      `全部聊天記憶與語音收藏，以及剩餘的 <b>${pf?.lingshi ?? 0}</b> 顆靈石。\n` +
+      "廣場上的回文、心跡、卦籤收集也會一併消失。\n\n" +
+      "<b>此舉無法復原，也無法還原。</b>\n\n" +
+      `確定的話，把這幾個字打出來送出：<code>${esc(DELETE_PHRASE)}</code>\n` +
+      "（打別的字，或送 /start，就當作取消。）");
+    return;
+  }
   if (text === "/history" || text.startsWith("/history ")) {
     const dateArg = text.startsWith("/history ") ? text.slice(9).trim() : "";
     let q = db.from("casts").select("id, question, gua_ben, created_at").eq("user_id", userId);
@@ -466,6 +486,25 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
   }
 
   // 手動追問模式
+  // 待刪確認。擺在所有狀態之前：這個狀態下他打的字只有兩種意思——確認，或取消。
+  // 擺在後面的話，一句剛好像追問的話會被別的分支先吃掉，而他以為自己在取消。
+  if (ses.state === "awaiting_delete" && text) {
+    await saveSession({ ...ses, state: "idle" });
+    if (text.trim() !== DELETE_PHRASE) {
+      await send(chatId, "字不對，已取消，什麼都沒有刪。");
+      return;
+    }
+    const r = await deleteAccount(db, userId);
+    if (!r.ok) { await send(chatId, esc(r.msg)); return; }
+    // 這裡不能再寫 session：tg_sessions 那一列已經在 delete_account 裡刪掉了，
+    // 再 upsert 會把一列空殼寫回去，等於幫已刪的帳號留了個殼。
+    await send(chatId,
+      "已刪除。\n\n" +
+      `${r.casts} 卦、${r.posts} 篇貼文，連同聊天記憶、靈石與收藏，都不在了。\n\n` +
+      "往後若再 /start，會是一個全新的帳號，與先前無涉。\n\n" +
+      "願你走得順。");
+    return;
+  }
   if (ses.state === "followup_input" && ses.last_cast_id && text) {
     await saveSession({ ...ses, state: "idle" });
     await doFollowup(chatId, userId, ses.last_cast_id, text);

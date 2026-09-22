@@ -385,6 +385,42 @@ export const COST_DEEPEN = 15;     // 展開完整卦理（首次生成扣，重
 export const COST_COMMENT = 5;     // 換人評卦（另一角色評同卦）
 export const GRANT_REGISTER = 50;
 
+/* ---------- 帳號刪除 ----------
+   兩條路（網頁的 delete_account 端點、TG 的 /deleteme）共用這一份，理由是字樣與
+   善後步驟都不能有兩套：確認字樣若兩邊不同，說明文件就會對其中一邊說謊；
+   auth.users 的善後若只寫在一邊，另一邊會安靜地把 email 留在資料庫裡。 */
+
+/** 確認字樣。定在後端、逐字相符才動手——這不是防駭，是防手滑：
+ *  刪除不可回復，而「確定嗎？」按鈕再多按幾次也只是多按幾下。 */
+export const DELETE_PHRASE = "刪除我的帳號";
+
+/** 刪一個帳號。資料先刪（單一交易，見 0056 的 delete_account），auth.users 後刪。
+ *
+ *  順序不可反：auth 先刪而資料刪失敗的話，他登不進來、資料卻整份留著，
+ *  那是最糟的一種半成品。照這個順序失敗的話，他還能重新登入（拿到一個全新的
+ *  空帳號），留下的只有 auth.users 那一列——authPending 就是在講這件事，
+ *  呼叫端該讓它看得見，不要吞掉。 */
+export async function deleteAccount(db: SupabaseClient, userId: string): Promise<
+  { ok: true; authPending: boolean; casts: number; posts: number } | { ok: false; msg: string }
+> {
+  const { data, error } = await db.rpc("delete_account", { p_user: userId });
+  if (error) {
+    console.error("delete_account rpc failed", userId, error.message);
+    return { ok: false, msg: "帳號刪除未能完成，資料未做任何更動。請稍後再試。" };
+  }
+  const res = (data ?? {}) as { auth_ids?: string[]; casts?: number; posts?: number };
+  // auth.users 那一列 SQL 動不了（跨 schema、由 GoTrue 管），只能走 Admin API。
+  // 它留著等於那個 email 還在，所以刪不掉要留紀錄，不能當作成功。
+  let authFailed = 0;
+  for (const aid of res.auth_ids ?? []) {
+    const { error: e } = await db.auth.admin.deleteUser(aid);
+    if (e) { authFailed++; console.error("auth user delete failed", aid, e.message); }
+  }
+  // 不記 user_id：留著能看出系統有沒有壞，又不會把剛刪掉的人再寫回日誌。
+  console.log(`[delete_account] done casts=${res.casts ?? 0} posts=${res.posts ?? 0} auth_failed=${authFailed}`);
+  return { ok: true, authPending: authFailed > 0, casts: res.casts ?? 0, posts: res.posts ?? 0 };
+}
+
 /** 讀方案：到期即視同 free。全站的「這人是不是付費用戶」都走這一支，免得各處各判一次 */
 export async function planOf(db: SupabaseClient, userId: string): Promise<string> {
   const { data } = await db.from("profiles").select("plan, plan_until").eq("id", userId).maybeSingle();

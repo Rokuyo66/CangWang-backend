@@ -12,7 +12,7 @@ import {
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
-import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
+import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS, COST_FOLLOWUP, COST_EXTRA_CAST } from "../_shared/services.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { listEvents, openEvent } from "../_shared/events.ts";
 import {
@@ -1056,6 +1056,48 @@ Deno.serve(async (req) => {
       }
       const r = await refineQuestion(db, { userId: uid, question: refQ });
       return Response.json({ kind: "ok", ...r }, { headers: CORS });
+    }
+
+    // ── 帳號刪除 ──────────────────────────────────────────────
+    //
+    // 兩件事在這一層擋死，不交給前端：
+    //
+    // 一、只走 JWT。x-internal-key 那條路的 user_id 是呼叫端說了算（見上方認證雙軌），
+    //     拿它來刪帳號等於「有這把金鑰的人可以刪掉任何人」。TG 用戶要刪帳號走
+    //     bot 的 /deleteme——那條路的身分是 Telegram 的 webhook secret 認的，
+    //     tg_id 不由呼叫端指定。
+    // 二、確認字樣要逐字相符（DELETE_PHRASE 在 services.ts，與 TG 的 /deleteme 同一份）。
+    //     這不是防駭，是防手滑：刪除不可回復，而前端的「確定嗎？」按鈕再問幾次都只是
+    //     多按幾下。要他把那幾個字打出來，成本才對得上後果。字樣定在後端，前端改不動。
+
+    // 先給他看清楚要刪掉什麼。確認畫面上寫「將刪除 37 卦、4 篇貼文」，
+    // 跟只寫「所有資料將被刪除」，是兩種不同的決定品質。
+    if (body.mode === "delete_account_preview") {
+      if (!jwtUserId) return Response.json({ kind: "err", msg: "請先登入。" }, { headers: CORS });
+      const count = async (t: string) =>
+        (await db.from(t).select("*", { count: "exact", head: true }).eq("user_id", uid)).count ?? 0;
+      const [casts, posts, comments, threads, clips, memories] = await Promise.all(
+        ["casts", "posts", "post_comments", "threads", "voice_clips", "character_memories"].map(count));
+      const { data: prof } = await db.from("profiles").select("lingshi, display_name").eq("id", uid).maybeSingle();
+      return Response.json({
+        kind: "ok", phrase: DELETE_PHRASE,
+        counts: { casts, posts, comments, threads, clips, memories },
+        lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null,
+      }, { headers: CORS });
+    }
+
+    if (body.mode === "delete_account") {
+      if (!jwtUserId) return Response.json({ kind: "err", msg: "帳號刪除只能由本人在登入狀態下進行。" }, { headers: CORS });
+      if (String(body.confirm ?? "").trim() !== DELETE_PHRASE)
+        return Response.json({ kind: "err", msg: `請輸入「${DELETE_PHRASE}」以確認。` }, { headers: CORS });
+
+      const r = await deleteAccount(db, uid);
+      if (!r.ok) return Response.json({ kind: "err", msg: r.msg }, { headers: CORS });
+      return Response.json({
+        kind: "ok", deleted: true,
+        // true 代表登入憑證還在（極少數情形）：前端照樣登出，下次登入會是一個全新的空帳號
+        auth_pending: r.authPending,
+      }, { headers: CORS });
     }
 
     // 觀前廣場：發文（自由心得 thread/chat_story 直存；分享卦 cast 讀快照驗本人）
