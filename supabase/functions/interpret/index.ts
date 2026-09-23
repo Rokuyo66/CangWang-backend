@@ -718,6 +718,23 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ kind: "ok", unread: Number(n ?? 0) }, { headers: CORS });
     }
 
+    // 收下信裡夾的靈石（0063）。判重在 SQL 那一側（claimed_at 改得到才發），
+    // 這裡只轉交；回傳新餘額讓前端直接換掉，不自己加。
+    if (body.mode === "mail_claim") {
+      if (!body.mail_id) return Response.json({ kind: "err", msg: "沒說哪一封" }, { headers: CORS });
+      const { data, error } = await db.rpc("mail_claim", { p_user: uid, p_mail: String(body.mail_id) });
+      if (error) {
+        console.error("mail_claim failed", uid, error.message);
+        return Response.json({ kind: "err", msg: "收不下來，稍後再試" }, { headers: CORS });
+      }
+      const r = (data ?? {}) as { ok?: boolean; reason?: string; amount?: number; lingshi?: number };
+      if (!r.ok) {
+        const msg = r.reason === "claimed" ? "這封信裡的已經收過了" : r.reason === "nothing" ? "這封信沒有夾東西" : "找不到這封信";
+        return Response.json({ kind: "err", msg, reason: r.reason }, { headers: CORS });
+      }
+      return Response.json({ kind: "ok", amount: r.amount, lingshi: r.lingshi }, { headers: CORS });
+    }
+
     // 每日簽到（七日循環）＋斷簽補簽（gap>1 且 streak>0 → 問補不補）
     if (body.mode === "signin") {
       const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);

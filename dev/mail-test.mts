@@ -30,6 +30,9 @@ const MAIL = readFileSync("supabase/migrations/0060_mail.sql", "utf8");
 const SEND = readFileSync("supabase/migrations/0061_mail_senders.sql", "utf8");
 const IDX  = readFileSync("supabase/functions/interpret/index.ts", "utf8");
 const DUE  = readFileSync("supabase/functions/due-reminder/index.ts", "utf8");
+const GIFT = readFileSync("supabase/migrations/0063_mail_gift.sql", "utf8");
+const MOON = readFileSync("supabase/migrations/0064_mail_midautumn_2026.sql", "utf8");
+const TG   = readFileSync("supabase/functions/webhook-tg/index.ts", "utf8");
 
 console.log("\n站內信\n");
 
@@ -121,6 +124,35 @@ await t("信箱三支都在，且未讀數由 profile 一起帶回", () => {
 await t("清單筆數有上限（前端說幾筆就給幾筆會被人要一百萬筆）", () => {
   has(IDX, /Math\.min\(50,\s*Math\.max\(1,\s*Number\(body\.limit/, "mail_list 的 limit 沒有夾住");
   has(MAIL, /least\(p_limit, 100\)/, "SQL 那一側也該夾一次——兩道都上，不依賴呼叫端");
+});
+
+console.log("\n— 信裡夾靈石（0063）");
+await t("收下是「改得到才發」，不是先查再發", () => {
+  // 先 select 再 update 的話，兩支同時進來會各發一次。
+  has(GIFT, /where user_id = p_user and mail_id = p_mail and claimed_at is null/, "update 沒有帶 claimed_at is null 的條件");
+  has(GIFT, /get diagnostics v_n = row_count;\s*if v_n = 0 then/, "沒有用 row_count 判斷是不是這一支改到的");
+  const upd = GIFT.indexOf("claimed_at is null;"), pay = GIFT.indexOf("apply_lingshi(p_user, 'mail_gift'");
+  if (upd < 0 || pay < 0 || pay < upd) throw new Error("發靈石排在標記之前——判重就沒有意義了");
+});
+await t("收得到的信＝看得到的信（同 mail_mark 的可見性）", () => {
+  has(GIFT, /\(m\.user_id = p_user\) or \(m\.user_id is null and m\.created_at >= p\.created_at\)/, "mail_claim 少了可見性判斷——拿別人的信 id 也收得到");
+});
+await t("清單帶出附了多少、收了沒，且仍濾掉刪除的信", () => {
+  has(GIFT, /'lingshi', v\.lingshi/, "mail_list 沒帶 lingshi");
+  has(GIFT, /'claimed', s\.claimed_at is not null/, "mail_list 沒帶 claimed");
+  has(GIFT, /where s\.deleted_at is null/, "改寫 mail_list 時把刪除過濾弄丟了");
+});
+await t("舊的七參數 mail_send 先拿掉（不然具名呼叫會「不明確」）", () => {
+  has(GIFT, /drop function if exists mail_send\(uuid, text, text, text, text, text, uuid\);/, "沒有 drop 舊版");
+  has(GIFT, /grant execute on function mail_send\(uuid, text, text, text, text, text, uuid, int\) to service_role/, "新版沒有授權給 service_role");
+});
+await t("端點：mail_claim 在，/mail 認得第三段靈石", () => {
+  has(IDX, /body\.mode === "mail_claim"/, "少了 mail_claim 端點");
+  has(TG, /p_lingshi: gift/, "/mail 沒把靈石數交給 mail_send");
+});
+await t("中秋信：師妹寄、附 30、重跑不會寄第二封", () => {
+  has(MOON, /'character', 'daoshi_f', null, null, 30/, "寄件人或靈石數不對");
+  has(MOON, /if exists \([\s\S]*?subject = v_subject/, "沒有判重——重跑就寄第二封");
 });
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 過 / ${fail} 敗\n`);
