@@ -391,7 +391,7 @@ export async function deepenCast(db: SupabaseClient, p: {
     let deep = ai.reading;
     let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
     if (incomplete) {
-      // 一次接續補完：assistant 預填半成品，模型從斷點續寫剩餘段落（不重解卦）
+      // 一次接續補完：半成品交回模型，從斷點續寫剩餘段落（不重解卦；做法見 services.ts continuePartial）
       const cont = await callInterpret(ch!.persona_prompt, ctext, {
         deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong,
       });

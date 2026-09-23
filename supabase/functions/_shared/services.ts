@@ -106,7 +106,16 @@ const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
 // 主打 Claude 時備援 KIMI（設了 KIMI_API_KEY 才啟用；INTERPRET_FALLBACK_MODEL 可換型號、設 "off" 停用）；
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
 const FALLBACK_KIMI = Deno.env.get("INTERPRET_FALLBACK_MODEL") ?? "kimi-k2.6";
-const FALLBACK_CLAUDE = "claude-sonnet-4-6";
+const FALLBACK_CLAUDE = Deno.env.get("INTERPRET_FALLBACK_CLAUDE") ?? "claude-sonnet-4-6";
+// 4.7 以後的世代（Opus 4.7/4.8/5、Sonnet 5、Fable）換了 tokenizer，同一段文字約多出三成 token。
+// MODE_LIMITS 是照舊 tokenizer 調出來的長度，不放大就會多出一批斷半句的回覆。
+// 係數是官方給的英文概估，中文實際比例以 ai_usage 實測為準，可用 TOKENIZER_SCALE 調。
+const isNewTokenizer = (m: string) => /^claude-(opus-4-[78]|opus-5|sonnet-5|fable|mythos)/.test(m);
+const TOKENIZER_SCALE = Number(Deno.env.get("TOKENIZER_SCALE") ?? "1.3");
+// Sonnet 5／Opus 5 不帶 thinking 參數時預設開啟思考，思考 token 計入 max_tokens，
+// 會把只有幾百到幾千的正文額度吃掉。解卦不需要外顯推理 → 明確關閉。
+// Opus 5.5 以後關不掉（帶 disabled 回 400），不在此列；那一代要改用 effort 控制，換之前須另行處理。
+const thinkingOnByDefault = (m: string) => /^claude-(sonnet|opus)-5(?!-\d)/.test(m);
 // 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
 // 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
@@ -138,7 +147,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   yong?: { qin: string; viaShi?: boolean; viaYing?: boolean; pos?: number | null };
   fortune?: { tierLabel: string; qian: Qian; jieqiLine: string }; // 日運卦：等第與籤由程式算定後傳入
   monthly?: { ym: string };   // 月誌卷首語：chartText 位置改放該月紀錄摘要（見 xinji.statsDigest）
-  continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，以 assistant 預填讓模型從斷點續寫
+  continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，讓模型從斷點續寫（Claude 走多輪、KIMI 走 partial 預填）
 }) {
   const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
   const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
@@ -200,12 +209,14 @@ export async function callInterpret(persona: string, chartText: string, opts: {
       }]
     : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
 
-  // 接續補完：把半成品當 assistant 預填，模型會從斷點直接續寫（不重解、不另起新論）
-  if (opts.continuePartial) {
-    messages.push({ role: "assistant", content: opts.continuePartial.replace(/\s+$/, "") });
-  }
+  // 接續補完：半成品作為模型自己上一輪的輸出放進對話，模型從斷點直接續寫（不重解、不另起新論）。
+  // Claude 自 4.6 起不接受 assistant 預填（最後一則是 assistant 會回 400），所以 Claude 走多輪：
+  // 半成品之後再接一則 user 指示續寫。KIMI 的 partial mode 仍是預填，在 callModel 裡另行組裝。
+  const partial = opts.continuePartial?.replace(/\s+$/, "");
+  const CONTINUE_ASK = "你上一則回覆寫到這裡中斷了。請從中斷處直接接著寫完：不重複已寫內容、不加開場白或說明，" +
+    "第一個字就緊接在上一則最後一個字之後（若斷在句中，就從那半句接下去）。";
 
-  const maxTokens = MODE_LIMITS[mode] ?? 1000;
+  const baseMaxTokens = MODE_LIMITS[mode] ?? 1000;
 
   // 呼叫指定模型一次（依模型名分流供應商），回統一形狀
   const callModel = async (m: string): Promise<{ text: string; stopReason: string | null; rawIn?: number; rawOut?: number; cacheWrite?: number; cacheRead?: number }> => {
@@ -213,11 +224,8 @@ export async function callInterpret(persona: string, chartText: string, opts: {
       // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
       const kimiMessages = [
         { role: "system", content: `${ruleText}\n\n【角色聲線】\n${persona}` },
-        ...messages.map((msg2, i) =>
-          msg2.role === "assistant" && i === messages.length - 1 && opts.continuePartial
-            ? { role: "assistant", content: msg2.content, partial: true }
-            : { role: msg2.role, content: msg2.content }
-        ),
+        ...messages.map((msg2) => ({ role: msg2.role, content: msg2.content })),
+        ...(partial ? [{ role: "assistant", content: partial, partial: true }] : []),
       ];
       // k2.x 預設「思考開啟」：推理鏈吃光 completion 額度會回空正文（實測 content=""），
       // 解卦不需要外顯推理 → 一律關閉；點名要思考的型號（*thinking/k3）才保留並加額度。
@@ -231,7 +239,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
           headers: { "content-type": "application/json", "authorization": `Bearer ${Deno.env.get("KIMI_API_KEY")}` },
           body: JSON.stringify({
             model: m,
-            max_tokens: maxTokens + (wantsReasoning ? KIMI_THINKING_EXTRA : 0),
+            max_tokens: baseMaxTokens + (wantsReasoning ? KIMI_THINKING_EXTRA : 0),
             messages: kimiMessages,
             stream: false,
             ...(wantsReasoning ? {} : { thinking: { type: "disabled" } }),
@@ -256,6 +264,10 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         rawOut: data.usage?.completion_tokens,
       };
     }
+    const maxTokens = isNewTokenizer(m) ? Math.ceil(baseMaxTokens * TOKENIZER_SCALE) : baseMaxTokens;
+    const claudeMessages = partial
+      ? [...messages, { role: "assistant", content: partial }, { role: "user", content: CONTINUE_ASK }]
+      : messages;
     const post = (sys: unknown) => fetch(API, {
       method: "POST",
       headers: {
@@ -263,7 +275,10 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({ model: m, max_tokens: maxTokens, system: sys, messages }),
+      body: JSON.stringify({
+        model: m, max_tokens: maxTokens, system: sys, messages: claudeMessages,
+        ...(thinkingOnByDefault(m) ? { thinking: { type: "disabled" } } : {}),
+      }),
     });
     let res = await post(system);
     // ttl 若不被接受就退回預設 5 分鐘重打一次。解卦是主要功能，
@@ -280,7 +295,9 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
     const data = await res.json();
     return {
-      text: (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n"),
+      // 關閉思考的 Sonnet 5／Opus 5 偶爾會把 <thinking> 標籤寫進正文（官方已知行為），先剔除再進 parseTagged
+      text: (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n")
+        .replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, ""),
       stopReason: (data.stop_reason ?? null) as string | null,
       // input_tokens 只含「未命中快取」的部分，快取的寫入與讀取各自另計。
       // 三個都收才是真實輸入量——少收就會低估成本。
@@ -312,7 +329,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
 
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
   const estimated = rawIn == null || rawOut == null;
-  const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + ruleText.length + persona.length;
+  const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + ruleText.length + persona.length + (partial?.length ?? 0);
   const usage = {
     in: rawIn ?? Math.ceil(promptChars * 1.2),
     out: rawOut ?? Math.ceil(text.length * 1.2),
