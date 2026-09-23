@@ -133,9 +133,28 @@ Supabase → Table Editor → `character_events` → 點一列（或 Insert row�
 | reward_avatar | 頭像 key（r01～r13；新的要前端 REWARD_AV 先有） | 不發 |
 | reward_title | 他的新身分（自動生成可切換的身分，聲口到 character_titles.voice_hint 補） | 不發 |
 | reward_memory | 他會記住的一句話 | 不寫 |
+| reward_player_title | 玩家稱號（下拉選 player_titles，0066） | 不發 |
 | rewards | 其他擴張（JSON），目前只回給前端顯示、不會真的發 | — |
 | published | 打勾上架 | 不上架 |
 
+改完即生效，不必出 APK、不必 deploy。
+
+## 5.2 身分與稱號怎麼填（0066 之後）
+
+| | 角色身分（你眼中的他） | 玩家稱號（他眼中的你） |
+|---|---|---|
+| 表 | `character_titles` | `player_titles`（每角色另寫：`player_title_voices`） |
+| 改什麼 | 他自己的立場、語氣 | 他怎麼叫你（`call_as`）、語氣（`voice_hint`） |
+| 怎麼拿到 | 了結 `unlock_event` 那章；或事件填 `reward_title` 自動生成 | 事件填 `reward_player_title`；或在 `user_player_titles` 手動加一列 |
+| 空白 | `unlock_event` 空＝人人都有 | `call_as` 空＝照舊叫暱稱 |
+
+新增一個角色身分：`character_titles` → Insert row
+- `id`：`角色_英文`，如 `daoshi_f_zhangui`（之後別改）
+- `character_id`、`label`（顯示的字）、`seq`（排序）
+- `voice_hint`：一句，只寫立場／稱謂／在意的事
+- `unlock_event`：哪一章了結後解鎖；空白＝預設人人有
+
+⚠ 兩種 `voice_hint` 都**不寫親密程度**。好感分層是安全機制，換身分／稱號不能讓他變熱絡。
 改完即生效，不必出 APK、不必 deploy。
 
 ## 6. 內容與美術產量

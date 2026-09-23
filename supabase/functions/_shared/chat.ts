@@ -327,6 +327,22 @@ async function titleVoiceHint(db: SupabaseClient, userId: string, characterId: s
   return `【你此刻的身分】${t.label}${t.voice_hint ? `——${t.voice_hint}` : ""}`;
 }
 
+// 玩家稱號（0066）：他眼中的你。某角色另有寫法（player_title_voices）就用那一份，空格退回預設。
+// ⚠ 同 titleVoiceHint：只能接進 tail。
+async function playerTitleHint(db: SupabaseClient, userId: string, characterId: string): Promise<string> {
+  const { data: me } = await db.from("profiles").select("player_title").eq("id", userId).maybeSingle();
+  const id = me?.player_title;
+  if (!id) return "";                                   // 預設護道人：不多注一句
+  const [{ data: t }, { data: v }] = await Promise.all([
+    db.from("player_titles").select("label, call_as, voice_hint").eq("id", id).maybeSingle(),
+    db.from("player_title_voices").select("call_as, voice_hint").eq("title_id", id).eq("character_id", characterId).maybeSingle(),
+  ]);
+  if (!t) return "";
+  const call = v?.call_as || t.call_as, hint = v?.voice_hint || t.voice_hint;
+  if (!call && !hint) return `【對方在觀裡的身分】${t.label}`;
+  return `【對方在觀裡的身分】${t.label}${call ? `；你稱呼對方「${call}」` : ""}${hint ? `——${hint}` : ""}`;
+}
+
 // ── 引述橋接：把「他引的那句」接回卦紙原文 ──────────────────────────────
 // 起因：卦理正文（casts.reading／deep_reading）從不進聊天，使用者引卦紙上的原句來問，
 // 角色不但接不上，還被【不可捏造】那條鐵則逼著否認「我沒說過」——那句往往正是他自己寫的。
@@ -874,7 +890,8 @@ export async function chat(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
   const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free");
-  const titleLine = await titleVoiceHint(db, p.userId, p.characterId);
+  const titleLine = [await titleVoiceHint(db, p.userId, p.characterId), await playerTitleHint(db, p.userId, p.characterId)]
+    .filter(Boolean).join("\n");
   // 引述橋接：只有真的引到卦紙原文才會回傳內容，沒引到就是空字串（不多花一個 token）
   const quoteBlock = await quotedFromReadings(db, p.userId, p.characterId, p.message).catch((e) => {
     console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
