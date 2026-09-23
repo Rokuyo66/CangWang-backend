@@ -127,6 +127,7 @@ S1、S2 先做，後面四步才不會又把新頁寫成第九種開關法。
 | S4 | ✅ b55 · `src/pages/intro.js`。引路人暫存本機 |
 | S5 | ✅ b56 · `src/pages/hall.js`；手機頂列只留靈石，簽到／廣場／藏經搬進觀堂 |
 | S6 | ◐ b55 · 心跡與卦曆互相以頁籤切換；「時序」合併檢視要等合併 API |
+| 道緣 | ◐ b61 · 觀堂事件泡泡（`storyReady`）已做、STORY_OPEN 仍關；上線計畫見 [DAOYUAN-PLAN.md](DAOYUAN-PLAN.md) |
 
 ---
 
