@@ -22,6 +22,7 @@ export const LEDGER_LABELS: Record<string, string> = {
   post_hot: "熱門貼文", comment_hot: "熱門回文", buy_theme: "解鎖配色",
   tts: "朗讀", subscription: "玉牒致贈", sticker_pack: "貼圖",
   admin_grant: "後台發放",
+  event_reward: "道緣事件",   // 了結一章的靈石（0065 event_complete）
   mail_gift: "信中附贈",     // 站內信夾的靈石（0063 mail_claim）   // dev/lingshi.ps1 手動調的那些，別讓它顯示成原始代號
 };
 
