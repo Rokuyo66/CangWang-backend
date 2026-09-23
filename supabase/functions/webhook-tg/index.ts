@@ -383,10 +383,16 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     const raw = text.slice(5).trim();
     const sep = raw.indexOf("｜") >= 0 ? "｜" : "|";
     const i = raw.indexOf(sep);
+    // 第三段（可省）＝夾在信裡的靈石：/mail 標題｜內文｜30。
+    // 只認最後一段是純數字的情形——內文本身若含「｜」也不會被切錯。
+    const tailSep = raw.lastIndexOf(sep);
+    const tail = tailSep > i ? raw.slice(tailSep + sep.length).trim() : "";
+    const gift = /^\d{1,4}$/.test(tail) ? Math.min(1000, parseInt(tail, 10)) : 0;
     if (!raw || i <= 0) {
       await send(chatId,
         "<b>站內信廣播</b>\n\n" +
-        "<code>/mail 標題｜內文</code>\n\n" +
+        "<code>/mail 標題｜內文</code>\n" +
+        "<code>/mail 標題｜內文｜30</code>　← 第三段是夾在信裡的靈石（收信人自己按「收下」）\n\n" +
         "內文可以換行，直接在訊息裡按 Shift+Enter。\n" +
         "寄出後所有「現在已經註冊」的人都會收到，之後才註冊的不會——\n" +
         "新來的人不該一進來就看到一疊他沒有份的舊信。\n\n" +
@@ -394,17 +400,17 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       return;
     }
     const subject = raw.slice(0, i).trim();
-    const bodyText = raw.slice(i + sep.length).trim();
+    const bodyText = (gift > 0 ? raw.slice(i + sep.length, tailSep) : raw.slice(i + sep.length)).trim();
     if (!subject || !bodyText) { await send(chatId, "標題與內文都要有。"); return; }
 
     const { data: mailId, error } = await db.rpc("mail_send", {
-      p_user: null, p_subject: subject, p_body: bodyText, p_kind: "system",
+      p_user: null, p_subject: subject, p_body: bodyText, p_kind: "system", p_lingshi: gift,
     });
     if (error) { await send(chatId, `寄不出去：${tgEsc(error.message)}`); return; }
     // 收得到的人數＝現在的註冊數。先報一次，免得寄完不知道寄給了誰
     const { count } = await db.from("profiles").select("id", { count: "exact", head: true });
     await send(chatId,
-      `📬 <b>已寄出</b>　${count ?? 0} 人收得到\n\n` +
+      `📬 <b>已寄出</b>　${count ?? 0} 人收得到${gift > 0 ? `　附 ${gift} 靈石` : ""}\n\n` +
       `<b>${tgEsc(subject)}</b>\n${tgEsc(bodyText.slice(0, 300))}${bodyText.length > 300 ? "…" : ""}\n\n` +
       `<i>id ${tgEsc(String(mailId ?? "")).slice(0, 8)}</i>`);
     return;
