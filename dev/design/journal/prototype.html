@@ -1,0 +1,511 @@
+<title>幾知觀 手帳改版原型</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&family=Noto+Sans+TC:wght@400;500&display=swap">
+<style>
+/* 色票＝主站 part1.html :root（宣紙）＋ 卦案 pv- 的墨底對話幕。
+   原型刻意單一外觀：畫的是 App 本身，不跟檢視器的深淺色走。 */
+:root{
+  --paper:#F2EBDA; --paper-2:#FBF6EA; --paper-edge:#E0D4B8;
+  --ink:#221E1A; --ink-soft:#6E6253; --ink-faint:#A89A84;
+  --cinnabar:#B5402E; --gold:#9A7B3F; --hair:rgba(34,30,26,.14);
+  --scene:#0d0b08; --scene-ink:#ECE3D3; --scene-dim:rgba(236,227,211,.55); --scene-gold:#C9A86A;
+  --c-m:#50637F; --c-f:#8A5566; --c-l:#A7803F;
+  --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --sans:"Noto Sans TC",system-ui,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#E7DFCC;color:var(--ink);font-family:var(--serif);-webkit-font-smoothing:antialiased;padding-inline:16px;padding-block:28px 48px}
+button{font-family:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--cinnabar);outline-offset:2px}
+
+/* ── 外框：左手機、右註解 ── */
+.wrap{max-width:1080px;margin:0 auto}
+.head h1{font-size:26px;font-weight:700;letter-spacing:.12em;margin:0 0 6px;text-wrap:balance}
+.head p{margin:0 0 20px;font-size:14.5px;line-height:1.8;color:var(--ink-soft);max-width:62ch}
+.flow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.flow button{font-family:var(--sans);font-size:13px;letter-spacing:.06em;background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:999px;padding:7px 14px}
+.flow button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.flow button small{opacity:.6;margin-right:4px}
+.grid{display:grid;grid-template-columns:390px minmax(0,1fr);gap:36px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+.phone{width:390px;max-width:100%;height:780px;border-radius:34px;overflow:hidden;position:relative;background:var(--paper);box-shadow:0 0 0 9px #1c1814,0 24px 60px rgba(40,28,14,.35)}
+@media (max-width:430px){.phone{height:82vh;border-radius:22px;box-shadow:0 0 0 5px #1c1814}}
+
+.notes{font-size:14.5px;line-height:1.85}
+.notes h2{font-size:18px;letter-spacing:.1em;margin:0 0 4px}
+.notes .kicker{font-family:var(--sans);font-size:12px;letter-spacing:.14em;color:var(--cinnabar);margin-bottom:10px}
+.notes h3{font-size:14.5px;margin:22px 0 6px;letter-spacing:.06em}
+.notes ul{margin:0;padding-left:1.2em}
+.notes li{margin:4px 0}
+.notes .vs{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13.5px;background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:10px;padding:12px 14px;margin-top:8px}
+.notes .vs b{font-family:var(--sans);font-size:11.5px;letter-spacing:.1em;color:var(--ink-soft);font-weight:500;padding-top:2px}
+.notes code{font-family:ui-monospace,monospace;font-size:12.5px;background:var(--paper-2);padding:1px 5px;border-radius:4px}
+
+/* ══ App 內部 ══ */
+.app{position:absolute;inset:0;display:flex;flex-direction:column}
+.view{position:absolute;inset:0;display:none;flex-direction:column}
+.view.on{display:flex}
+.scroll{flex:1;overflow-y:auto;min-height:0}
+
+/* 底部導覽：五格，中間是問事印 */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--paper-2);border-top:1px solid var(--hair);display:flex;align-items:stretch;z-index:5}
+.tabbar button{flex:1;border:none;background:none;font-size:11.5px;letter-spacing:.14em;color:var(--ink-soft);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative}
+.tabbar svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.tabbar button.on{color:var(--cinnabar);font-weight:700}
+.tabbar .seal-tab .seal{width:48px;height:48px;margin-top:-22px;border-radius:12px;background:var(--cinnabar);color:var(--paper-2);font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(120,30,20,.3);transform:rotate(-4deg)}
+.tabbar .dot{position:absolute;top:9px;right:26%;width:7px;height:7px;border-radius:50%;background:var(--cinnabar)}
+.pad-tab{height:80px}
+.has-tab .deck{padding-bottom:82px}
+.has-tab .scene .por{bottom:150px}
+
+/* ── 觀堂（首頁） ── */
+.top{display:flex;align-items:center;justify-content:space-between;padding:18px 18px 6px;font-family:var(--sans);font-size:12px;color:var(--ink-soft)}
+.top .stone{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:999px;padding:4px 10px}
+.hall-t{padding:4px 18px 0;font-size:22px;letter-spacing:.18em;font-weight:700}
+.hall-s{padding:2px 18px 14px;font-size:13px;color:var(--ink-soft);letter-spacing:.06em}
+.due{margin:0 18px 16px;border:1.5px solid var(--cinnabar);border-radius:12px;padding:11px 14px;background:var(--paper-2);display:flex;gap:12px;align-items:center}
+.due .stamp{width:38px;height:38px;border:2px solid var(--cinnabar);color:var(--cinnabar);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;transform:rotate(-8deg);flex-shrink:0}
+.due p{margin:0;font-size:13.5px;line-height:1.6}
+.due small{font-family:var(--sans);color:var(--ink-soft);font-size:11.5px}
+.sec{padding:0 18px;font-family:var(--sans);font-size:11.5px;letter-spacing:.2em;color:var(--ink-faint);margin:6px 0 10px}
+.cast3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 18px}
+.who{border:none;background:var(--paper-2);border-radius:14px;padding:0 0 10px;text-align:center;overflow:hidden;box-shadow:0 1px 0 var(--paper-edge),0 0 0 1px var(--paper-edge) inset}
+.who .por{height:104px;position:relative;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}
+.who .por i{font-style:normal;position:absolute;top:8px;left:8px;font-family:var(--sans);font-size:10px;letter-spacing:.08em;color:#fff;background:rgba(0,0,0,.28);border-radius:999px;padding:2px 7px}
+.who b{display:block;font-size:14px;margin-top:8px;letter-spacing:.1em}
+.who span{display:block;font-family:var(--sans);font-size:10.5px;color:var(--ink-soft);margin-top:2px}
+.who .bar{height:3px;background:var(--hair);border-radius:3px;margin:8px 12px 0;overflow:hidden}
+.who .bar em{display:block;height:100%;background:var(--gold)}
+.last{margin:12px 18px 0;background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:12px 14px;display:flex;gap:10px}
+.last .av{flex-shrink:0}
+.last p{margin:0;font-size:13.5px;line-height:1.7}
+.last small{display:block;font-family:var(--sans);font-size:11px;color:var(--ink-faint);margin-bottom:2px}
+.sign{margin:16px 18px 0;display:flex;gap:10px}
+.sign button{flex:1;border:1px solid var(--paper-edge);background:var(--paper-2);border-radius:12px;padding:12px;font-size:13px;text-align:left;line-height:1.5}
+.sign button small{display:block;font-family:var(--sans);font-size:11px;color:var(--ink-soft)}
+
+/* 剪影：沒有立繪時的替身（正式版換 900×1200 去背立繪） */
+.sil{position:relative;width:100%;height:100%}
+.sil::before{content:"";position:absolute;left:50%;bottom:-6%;width:78%;height:62%;transform:translateX(-50%);border-radius:48% 48% 8% 8%;background:var(--cc)}
+.sil::after{content:"";position:absolute;left:50%;bottom:50%;width:36%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:var(--cc)}
+.sil.cat::before{width:70%;height:48%;border-radius:50% 50% 14% 14%}
+.sil.cat::after{width:44%;bottom:40%;border-radius:46% 46% 42% 42%;clip-path:polygon(0 30%,14% 0,34% 22%,66% 22%,86% 0,100% 30%,100% 100%,0 100%)}
+.sil .glyph{position:absolute;left:50%;bottom:16%;transform:translateX(-50%);color:rgba(255,255,255,.9);font-weight:700;z-index:1}
+.av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;background:var(--cc)}
+
+/* ── 對話幕（入場與談心共用同一個元件） ── */
+.scene{position:absolute;inset:0;background:var(--scene);color:var(--scene-ink);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+.scene .bg{position:absolute;inset:0;transition:background 1s ease}
+.scene .veil{position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,rgba(13,11,8,.55),rgba(13,11,8,0) 22%,rgba(13,11,8,0) 60%,rgba(13,11,8,.45))}
+.scene .por{position:absolute;top:96px;left:0;right:0;bottom:120px;display:flex;justify-content:center;opacity:0;transition:opacity .5s ease,transform .5s ease;transform:translateY(8px)}
+.scene .por.on{opacity:1;transform:none}
+.scene .por .sil{width:72%;max-width:300px}
+.scene .por .glyph{font-size:40px}
+.lineup{position:absolute;top:80px;left:0;right:0;bottom:340px;display:none;grid-template-columns:repeat(3,1fr);gap:6px;padding:0 14px}
+.lineup.on{display:grid}
+.lineup .slot{position:relative;opacity:.16;filter:grayscale(1);transition:opacity .5s,filter .5s,transform .5s}
+.lineup .slot.lit{opacity:1;filter:none}
+.lineup .slot.pick{transform:translateY(-6px)}
+.lineup .slot .glyph{font-size:24px}
+.lineup .slot small{position:absolute;left:0;right:0;bottom:-24px;text-align:center;font-family:var(--sans);font-size:11px;letter-spacing:.14em;color:var(--scene-dim)}
+
+.scene-top{position:absolute;top:18px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;z-index:3}
+.pill{font-family:var(--sans);font-size:12px;letter-spacing:.12em;color:var(--scene-dim);background:rgba(0,0,0,.35);border:1px solid rgba(236,227,211,.18);border-radius:999px;padding:7px 12px}
+.pill.gold{color:var(--scene-gold);border-color:rgba(201,168,106,.4)}
+.chars{display:flex;gap:8px}
+.chars button{border:2px solid transparent;border-radius:50%;padding:0;background:none;opacity:.5;transition:.2s}
+.chars button.on{opacity:1;border-color:var(--scene-gold)}
+.chars .av{width:36px;height:36px}
+
+.deck{position:relative;z-index:2;min-height:220px;max-height:76%;display:flex;flex-direction:column;gap:10px;padding:34px 20px 18px;background:linear-gradient(to bottom,rgba(13,11,8,0),rgba(13,11,8,.62) 14%,rgba(13,11,8,.92) 40%,rgba(13,11,8,.97))}
+.speaker{font-size:14px;font-weight:700;letter-spacing:.04em;display:flex;align-items:baseline;gap:8px}
+.speaker small{font-family:var(--sans);font-weight:400;font-size:11px;color:var(--scene-dim);letter-spacing:.1em}
+.speaker:empty{visibility:hidden}
+.line{font-size:15px;line-height:1.75;letter-spacing:.04em;white-space:pre-wrap;min-height:3.5em;overflow-y:auto;max-height:40vh}
+.line.narr{color:var(--scene-dim);font-style:normal;text-align:center;letter-spacing:.14em}
+.caret{display:inline-block;width:.5em;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.next{align-self:flex-end;font-family:var(--sans);font-size:11.5px;letter-spacing:.2em;color:var(--scene-dim);opacity:0}
+.next.on{opacity:1;animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(3px)}}
+.choices{display:grid;gap:8px}
+.choice{text-align:left;background:rgba(20,16,11,.85);border:1px solid rgba(236,227,211,.2);border-radius:4px;padding:11px 14px;color:var(--scene-ink)}
+.choice b{display:block;font-size:14.5px;font-weight:500;letter-spacing:.05em}
+.choice span{display:block;font-family:var(--sans);font-size:11.5px;color:var(--scene-dim);margin-top:2px}
+.choice.go{border-color:rgba(201,168,106,.6)}
+.choice.go b{color:var(--scene-gold)}
+.choice:hover{border-color:var(--scene-gold)}
+.namebox{display:flex;gap:8px}
+.namebox input,.say input{flex:1;min-width:0;font-family:var(--serif);font-size:15px;color:var(--scene-ink);background:rgba(236,227,211,.07);border:1px solid rgba(236,227,211,.25);border-radius:4px;padding:10px 12px}
+.namebox button,.say button{border:1px solid rgba(201,168,106,.6);background:rgba(201,168,106,.14);color:var(--scene-gold);border-radius:4px;padding:0 16px;font-size:14px;letter-spacing:.1em}
+.say{display:flex;gap:8px;margin-top:4px}
+.say input::placeholder{color:rgba(236,227,211,.35)}
+.meta{display:flex;justify-content:space-between;font-family:var(--sans);font-size:11px;color:var(--scene-dim);letter-spacing:.08em}
+.acts{display:flex;gap:14px}
+.acts button{background:none;border:none;padding:0;font-family:var(--sans);font-size:11.5px;letter-spacing:.1em;color:var(--scene-dim)}
+.acts button.kept{color:var(--scene-gold)}
+.draft{border:1px solid rgba(201,168,106,.55);border-radius:6px;padding:12px 14px;background:rgba(201,168,106,.08)}
+.draft small{font-family:var(--sans);font-size:11px;letter-spacing:.14em;color:var(--scene-gold)}
+.draft p{margin:4px 0 0;font-size:15px;line-height:1.6}
+
+/* 履歷（卷）：同一段對話攤成紙本 */
+.log{position:absolute;inset:0;z-index:4;background:var(--paper);color:var(--ink);display:none;flex-direction:column}
+.log.on{display:flex}
+.log header{display:flex;align-items:center;gap:10px;padding:16px 16px 10px;border-bottom:1px solid var(--hair)}
+.log header button{border:none;background:none;font-size:14px;color:var(--ink-soft);padding:0}
+.log header b{font-size:15px;letter-spacing:.1em}
+.log .lines{flex:1;overflow-y:auto;padding:14px 16px 90px;background:repeating-linear-gradient(to bottom,transparent 0 27px,var(--hair) 27px 28px)}
+.log .ln{font-size:14px;line-height:28px;margin:0 0 0;display:grid;grid-template-columns:3.2em 1fr;gap:6px}
+.log .ln b{font-size:12px;color:var(--ink-soft);font-weight:500}
+.log .ln.me b{color:var(--cinnabar)}
+.log .ln.kept p{background:linear-gradient(transparent 60%,rgba(154,123,63,.22) 60%)}
+.log .ln p{margin:0}
+
+/* ── 手帳 ── */
+.jh{padding:18px 18px 8px;display:flex;justify-content:space-between;align-items:flex-end}
+.jh b{font-size:22px;letter-spacing:.18em}
+.jh .seg{display:flex;font-family:var(--sans);font-size:12px;border:1px solid var(--paper-edge);border-radius:999px;overflow:hidden}
+.jh .seg span{padding:5px 11px}
+.jh .seg span.on{background:var(--ink);color:var(--paper)}
+.jfilter{display:flex;gap:6px;padding:4px 18px 12px;font-family:var(--sans);font-size:11.5px}
+.jfilter span{border:1px solid var(--paper-edge);border-radius:999px;padding:3px 10px;color:var(--ink-soft)}
+.jfilter span.on{border-color:var(--ink);color:var(--ink)}
+.tl{padding:0 18px 0 62px;position:relative}
+.tl::before{content:"";position:absolute;left:48px;top:0;bottom:0;border-left:1px dashed var(--paper-edge)}
+.day{position:relative;margin-bottom:18px}
+.day .d{position:absolute;left:-62px;top:0;width:40px;text-align:center;font-family:var(--sans);font-size:11px;color:var(--ink-soft);line-height:1.3}
+.day .d b{display:block;font-family:var(--serif);font-size:20px;color:var(--ink)}
+.ent{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:11px 13px;margin-bottom:8px;position:relative}
+.ent .k{font-family:var(--sans);font-size:10.5px;letter-spacing:.14em;color:var(--ink-soft);display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.ent .k .av{width:18px;height:18px;font-size:9px}
+.ent p{margin:0;font-size:13.5px;line-height:1.7}
+.ent q{quotes:none;display:block;font-size:13.5px;line-height:1.7;border-left:2px solid var(--gold);padding-left:9px;color:var(--ink)}
+.ent.gua{border-color:var(--ink)}
+.ent.gua .hx{float:right;display:grid;gap:3px;width:26px;margin:2px 0 0 10px}
+.ent.gua .hx i{display:block;height:3px;background:var(--ink)}
+.ent.gua .hx i.y{background:linear-gradient(90deg,var(--ink) 0 42%,transparent 42% 58%,var(--ink) 58%)}
+.ent .res{display:inline-block;margin-top:6px;font-family:var(--sans);font-size:11px;border:1.5px solid var(--cinnabar);color:var(--cinnabar);border-radius:4px;padding:1px 7px;transform:rotate(-3deg)}
+.ent .res.wait{border-color:var(--ink-faint);color:var(--ink-soft)}
+.tape{position:absolute;top:-7px;right:18px;width:46px;height:14px;background:rgba(201,168,106,.35);transform:rotate(4deg)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <h1>幾知觀 · 手帳改版原型</h1>
+    <p>核心：一本「一邊解惑、一邊與三位角色談心」的紀錄手帳。可點的原型，對話為預寫腳本，不接後端。剪影是立繪的替身——正式版換 900×1200 去背立繪。</p>
+  </div>
+  <div class="flow" id="flow">
+    <button data-go="intro" class="on"><small>①</small>入場</button>
+    <button data-go="home"><small>②</small>觀堂</button>
+    <button data-go="chat"><small>③</small>談心</button>
+    <button data-go="journal"><small>④</small>手帳</button>
+  </div>
+  <div class="grid">
+    <div class="phone"><div class="app" id="app">
+
+      <!-- ① 入場 / ③ 談心：共用同一個對話幕 -->
+      <div class="view" id="v-scene">
+        <div class="scene">
+          <div class="bg" id="bg"></div>
+          <div class="lineup" id="lineup"></div>
+          <div class="por" id="por"></div>
+          <div class="veil"></div>
+          <div class="scene-top" id="stop"></div>
+          <div class="deck" id="deck">
+            <div class="speaker" id="spk"></div>
+            <div class="line" id="line"></div>
+            <div id="slot"></div>
+            <div class="next" id="next">輕觸繼續 ▾</div>
+          </div>
+          <div class="log" id="log">
+            <header><button id="logBack">‹ 回到幕</button><b id="logTitle">卷</b></header>
+            <div class="lines" id="logLines"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 觀堂 -->
+      <div class="view" id="v-home">
+        <div class="scroll">
+          <div class="top"><span>秋分後三日 · 丙午年 己酉月</span><span class="stone">💎 124</span></div>
+          <div class="hall-t">觀 堂</div>
+          <div class="hall-s" id="homeHi">六六，今日觀裡還算清靜。</div>
+          <div class="due"><div class="stamp">應</div><div><p>「三月底前能否拿到 A 公司 offer」<br>應期已到——回來說一聲準不準？</p><small>九月九日問 · 大師兄批</small></div></div>
+          <div class="sec">今 日 在 觀 的 人</div>
+          <div class="cast3" id="cast3"></div>
+          <div class="last"><div class="av" style="--cc:var(--c-f)">妹</div><div><small>師妹 · 昨夜</small><p>「那件事你說還沒想好，我就不催你。想好了再來找我。」</p></div></div>
+          <div class="sign"><button>今日一籤<small>尚未抽</small></button><button>簽到<small>第 4 天 · +6 靈石</small></button></div>
+          <div class="pad-tab"></div>
+        </div>
+      </div>
+
+      <!-- ④ 手帳 -->
+      <div class="view" id="v-journal">
+        <div class="scroll">
+          <div class="jh"><b>手 帳</b><div class="seg"><span class="on">時序</span><span>月曆</span><span>心事</span></div></div>
+          <div class="jfilter"><span class="on">全部</span><span>卦</span><span>談心</span><span>應期</span><span>收下的話</span></div>
+          <div class="tl">
+            <div class="day"><div class="d"><b>23</b>九月</div>
+              <div class="ent"><div class="k"><span class="av" style="--cc:var(--c-m)">兄</span>收下的一句 · 大師兄</div><q>「你怕的不是被拒絕，是被拒絕之後還得自己收拾。」</q></div>
+              <div class="ent"><div class="k">談心 · 大師兄 · 12 句</div><p>從面試聊到上一份工作為什麼離開，最後理成一問。</p></div>
+            </div>
+            <div class="day"><div class="d"><b>09</b>九月</div>
+              <div class="ent gua"><span class="tape"></span><div class="hx"><i></i><i class="y"></i><i></i><i></i><i class="y"></i><i class="y"></i></div><div class="k">卦 · 天風姤 之 火風鼎</div><p>三月底前能否拿到 A 公司 offer</p><span class="res wait">應期已到 · 待回報</span></div>
+            </div>
+            <div class="day"><div class="d"><b>02</b>九月</div>
+              <div class="ent"><div class="k"><span class="av" style="--cc:var(--c-l)">喵</span>談心 · 觀貓 · 5 句</div><p>牠只回了三個字，然後在你的問句上睡著了。</p></div>
+              <div class="ent gua"><div class="hx"><i class="y"></i><i class="y"></i><i></i><i class="y"></i><i></i><i></i></div><div class="k">卦 · 水山蹇</div><p>搬家後的新鄰居好相處嗎</p><span class="res">準 · 已印證</span></div>
+            </div>
+          </div>
+          <div class="pad-tab"></div>
+        </div>
+      </div>
+
+      <nav class="tabbar" id="tabbar" hidden>
+        <button data-go="home"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>觀堂</button>
+        <button data-go="chat"><svg viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z"/></svg>談心</button>
+        <button class="seal-tab" data-go="ask"><span class="seal">問</span></button>
+        <button data-go="journal"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M9 9h6M9 13h6M9 17h3"/></svg>手帳<span class="dot"></span></button>
+        <button data-go="me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>道籍</button>
+      </nav>
+    </div></div>
+
+    <aside class="notes" id="notes"></aside>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const CH={
+  daoshi_m:{name:"大師兄",title:"代理掌門",seal:"兄",cc:"var(--c-m)",state:"在後院練劍",fav:62,tone:"說話直，不繞彎子"},
+  daoshi_f:{name:"師妹",title:"觀中管事",seal:"妹",cc:"var(--c-f)",state:"在前廳記帳",fav:38,tone:"話溫，聽得進人心"},
+  lingshou:{name:"觀貓",title:"觀寵",seal:"喵",cc:"var(--c-l)",state:"在香案上打盹",fav:15,tone:"不吭聲，看得最透",cat:true},
+};
+const sil=(k,cls="")=>`<div class="sil ${CH[k].cat?"cat":""} ${cls}" style="--cc:${CH[k].cc}"><span class="glyph">${CH[k].seal}</span></div>`;
+const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+
+let nick="六六", guide="daoshi_m", chatChar="daoshi_m";
+
+/* ══ 對話幕：一個元件，兩種用法（入場腳本／談心） ══ */
+let typing=null, onTapNext=null;
+function type(text,{narr=false}={}){
+  const el=$("line"); el.className="line"+(narr?" narr":""); clearInterval(typing?.t);
+  $("next").classList.remove("on");
+  return new Promise(res=>{
+    if(reduce){ el.textContent=text; typing=null; res(); return; }
+    let i=0; el.innerHTML='<span class="caret">▍</span>';
+    const t=setInterval(()=>{ i+=2; el.innerHTML=esc(text.slice(0,i))+'<span class="caret">▍</span>';
+      if(i>=text.length){ clearInterval(t); el.textContent=text; typing=null; res(); } },28);
+    typing={t,text,res};
+  });
+}
+function skipType(){ if(!typing) return false; clearInterval(typing.t); $("line").textContent=typing.text; const r=typing.res; typing=null; r(); return true; }
+function speak(k){
+  const c=k&&CH[k];
+  $("spk").innerHTML=c?`${c.name}<small>${c.title}</small>`:"";
+  const p=$("por");
+  if(c){ p.innerHTML=sil(k); p.classList.remove("on"); requestAnimationFrame(()=>p.classList.add("on")); }
+  else p.classList.remove("on");
+}
+$("deck").addEventListener("click",e=>{
+  if(e.target.closest("button,input")) return;
+  if(skipType()) return;
+  if(onTapNext){ const f=onTapNext; onTapNext=null; f(); }
+});
+function waitTap(){ $("next").classList.add("on"); return new Promise(r=>onTapNext=r); }
+function choices(list){
+  return new Promise(res=>{
+    $("slot").innerHTML=`<div class="choices">${list.map((c,i)=>`<button class="choice ${c.go?"go":""}" data-i="${i}"><b>${esc(c.b)}</b>${c.s?`<span>${esc(c.s)}</span>`:""}</button>`).join("")}</div>`;
+    $("slot").querySelectorAll(".choice").forEach(b=>b.onclick=()=>{ $("slot").innerHTML=""; res(list[+b.dataset.i]); });
+  });
+}
+const BG={
+  gate:"radial-gradient(120% 70% at 50% 110%,#3a2a18 0%,#15100a 55%,#0d0b08 100%)",
+  hall:"radial-gradient(90% 60% at 50% 30%,#3b2c1c 0%,#1a130c 60%,#0d0b08 100%)",
+  yard:"radial-gradient(100% 60% at 30% 20%,#233040 0%,#141820 55%,#0d0b08 100%)",
+  desk:"radial-gradient(100% 60% at 70% 25%,#3a2430 0%,#1a1216 55%,#0d0b08 100%)",
+  altar:"radial-gradient(100% 60% at 50% 30%,#40331c 0%,#1d170c 55%,#0d0b08 100%)",
+};
+const CHAR_BG={daoshi_m:"yard",daoshi_f:"desk",lingshou:"altar"};
+function bg(k){ $("bg").style.background=BG[k]; }
+
+/* ══ ① 入場 ══
+   現行：師兄一人 7 頁規矩彈窗，另兩位只在第 7 頁被提到一句。
+   改：先見人、後立規矩；規矩由「你選的那位」用他自己的口吻說，壓成三句。 */
+let introRun=0;
+async function runIntro(){
+  const run=++introRun, alive=()=>run===introRun;
+  $("stop").innerHTML=`<span class="pill">入 觀</span><button class="pill" id="skipIntro">略過</button>`;
+  $("skipIntro").onclick=()=>{ introRun++; go("home"); };
+  $("lineup").classList.remove("on"); speak(null); $("slot").innerHTML=""; bg("gate");
+  await type("山路盡頭，有一座觀。\n門沒關，裡頭亮著燈。",{narr:true}); if(!alive())return; await waitTap(); if(!alive())return;
+  bg("hall");
+  const lu=$("lineup"); lu.innerHTML=Object.keys(CH).map(k=>`<div class="slot" data-k="${k}">${sil(k)}<small>？？？</small></div>`).join(""); lu.classList.add("on");
+  await type("觀裡有三個人。\n——準確地說，兩個人，和一隻貓。",{narr:true}); if(!alive())return; await waitTap(); if(!alive())return;
+  const intro={
+    daoshi_m:"「……你來了。我是代理掌門，你跟著叫我師兄就好。有什麼事，直說。」",
+    daoshi_f:"「別站在門口吹風呀。我管觀裡的大小事——你的事，我也記著。」",
+    lingshou:"「……」\n（牠看了你一眼，把尾巴收好，又看了你一眼。）",
+  };
+  for(const k of Object.keys(CH)){
+    lu.querySelectorAll(".slot").forEach(s=>{ if(s.dataset.k===k){ s.classList.add("lit"); s.querySelector("small").textContent=CH[k].name; } });
+    $("spk").innerHTML=`${CH[k].name}<small>${CH[k].title}</small>`;
+    await type(intro[k]); if(!alive())return; await waitTap(); if(!alive())return;
+  }
+  $("spk").innerHTML="";
+  await type("三雙眼睛看著你。\n誰帶你進去？",{narr:true}); if(!alive())return;
+  const pick=await choices(Object.keys(CH).map(k=>({b:CH[k].name, s:CH[k].tone, k}))); if(!alive())return;
+  guide=pick.k; chatChar=guide;
+  lu.querySelectorAll(".slot").forEach(s=>s.classList.toggle("pick",s.dataset.k===guide));
+  await new Promise(r=>setTimeout(r,reduce?0:500)); if(!alive())return;
+  lu.classList.remove("on"); bg(CHAR_BG[guide]); speak(guide);
+  const askName={daoshi_m:"「怎麼稱呼你？」",daoshi_f:"「先告訴我怎麼叫你吧，我好記在簿子上。」",lingshou:"（牠用爪子把一張紙推到你面前。上面寫著：名字。）"}[guide];
+  await type(askName); if(!alive())return;
+  nick=await new Promise(res=>{
+    $("slot").innerHTML=`<div class="namebox"><input id="nickIn" maxlength="20" placeholder="你的稱呼" value="六六"><button id="nickOk">好</button></div>`;
+    $("nickOk").onclick=()=>{ const v=$("nickIn").value.trim()||"施主"; $("slot").innerHTML=""; res(v); };
+  }); if(!alive())return;
+  const why={daoshi_m:`「${nick}。今天為什麼來？」`,daoshi_f:`「${nick}，好名字。今天是有心事，還是路過？」`,lingshou:`（牠在紙上「${nick}」旁邊按了一個爪印，然後歪頭看你。）`}[guide];
+  await type(why); if(!alive())return;
+  const reason=await choices([{b:"有件事想問",s:"起一卦",go:true,r:"ask"},{b:"只是想找人說說話",s:"談心",r:"talk"},{b:"先四處看看",s:"進觀堂",r:"look"}]); if(!alive())return;
+  if(reason.r==="ask"){
+    const rules={
+      daoshi_m:["「那我只講三件事。」","「一，一次只問一件。兩個問號就是兩卦。」","「二，說清楚誰、什麼事、看到什麼時候。含糊的問，卦就答得含糊。」","「三，問之前靜下來想著它。想不清楚，就先來找我聊，聊清楚了再問。」"],
+      daoshi_f:["「那我先跟你說幾句規矩，不難的。」","「一次問一件事就好，兩件就分兩次。」","「把人、事、時間說清楚——比如『三月底前能不能拿到 A 公司的 offer』。」","「還沒想清楚也沒關係，先跟我說說，我陪你理。」"],
+      lingshou:["（牠跳上桌，用爪子按住你的筆。）","（一隻爪子：一次一件事。）","（牠把日曆推過來，拍了拍：要有日子。）","（最後牠趴下，看著你——想清楚再問。）"],
+    }[guide];
+    for(const r of rules){ await type(r); if(!alive())return; await waitTap(); if(!alive())return; }
+    await type({daoshi_m:"「規矩講完了。去問吧——問完回來，跟我說準不準。」",daoshi_f:"「就這樣。問完了記得回來跟我說哦，我會記進你的手帳裡。」",lingshou:"（牠把筆還給你，尾巴指向問事那張桌子。）"}[guide]); if(!alive())return;
+    await choices([{b:"去問事",s:"規矩隨時可在問事頁重看",go:true}]); if(!alive())return;
+    go("home");
+  } else if(reason.r==="talk"){
+    await type({daoshi_m:"「行。坐。」",daoshi_f:"「好呀，坐這兒。想說什麼都行。」",lingshou:"（牠挪了挪，讓出半個蒲團。）"}[guide]); if(!alive())return;
+    await waitTap(); if(!alive())return; go("chat");
+  } else { go("home"); }
+}
+
+/* ══ ③ 談心 ══
+   預設是「幕」：只站著最新的一來一回，像卦案那樣讀。
+   要翻前文按「卷」——同一段對話攤成紙本手帳，可劃線收下。 */
+const SCRIPT={
+  daoshi_m:["「說吧，什麼事。」","「A 公司。面了幾輪？你覺得卡在哪？」","「那你要問的其實是：三月底前拿不拿得到這個 offer。對吧。」"],
+  daoshi_f:["「今天過得怎麼樣？」","「嗯……聽起來你不是怕結果，是怕等。」","「要不要把它問成一卦？我幫你理成一句：『三月底前能否拿到 A 公司 offer』。」"],
+  lingshou:["（牠睜開一隻眼。）","（牠把爪子搭在你的手機上。螢幕上是 A 公司的信。）","（牠叼來一枚銅錢，放在你面前。）"],
+};
+const logs={daoshi_m:[],daoshi_f:[],lingshou:[]};
+const step={daoshi_m:0,daoshi_f:0,lingshou:0};
+let kept=new Set();
+function paintChatTop(){
+  $("stop").innerHTML=`<div class="chars">${Object.keys(CH).map(k=>`<button data-c="${k}" class="${k===chatChar?"on":""}" title="${CH[k].name}"><span class="av" style="--cc:${CH[k].cc}">${CH[k].seal}</span></button>`).join("")}</div><button class="pill gold" id="toLog">卷 ☰</button>`;
+  $("stop").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{ chatChar=b.dataset.c; openChat(); });
+  $("toLog").onclick=openLog;
+}
+async function openChat(){
+  introRun++; $("lineup").classList.remove("on"); $("log").classList.remove("on");
+  bg(CHAR_BG[chatChar]); speak(chatChar); paintChatTop();
+  const L=logs[chatChar];
+  if(!L.length){ const t=SCRIPT[chatChar][0]; L.push({who:chatChar,t}); step[chatChar]=1; }
+  const last=[...L].reverse().find(x=>x.who!=="me");
+  await type(last.t); paintSay();
+}
+function paintSay(){
+  const L=logs[chatChar], i=L.length-1, c=CH[chatChar];
+  const done=step[chatChar]>=SCRIPT[chatChar].length;
+  const k=`${chatChar}:${i}`;
+  $("slot").innerHTML=
+    `<div class="meta"><span>道緣 ${c.fav} · 今日還能說 6 句</span><span class="acts"><button id="sayIt">念給我聽</button><button id="keepIt" class="${kept.has(k)?"kept":""}">${kept.has(k)?"已收進手帳":"收下這句"}</button></span></div>`
+    + (done
+      ? `<div class="draft"><small>擬 題</small><p>三月底前能否拿到 A 公司 offer</p></div>
+         <div class="choices"><button class="choice go" id="doCast"><b>就問這一卦</b><span>${c.name}來批 · 免費 · 今日剩 1</span></button><button class="choice" id="notYet"><b>先不問，再聊聊</b></button></div>`
+      : `<div class="say"><input id="sayIn" placeholder="跟${c.name}說…" value="${chatChar==="lingshou"?"喵？":"最近在等 A 公司的結果"}"><button id="sayGo">說</button></div>`);
+  $("keepIt").onclick=()=>{ kept.add(k); paintSay(); };
+  $("sayIt").onclick=()=>{ $("sayIt").textContent="念誦中…"; setTimeout(()=>{ const b=$("sayIt"); if(b) b.textContent="念給我聽"; },1400); };
+  if(done){
+    $("doCast").onclick=()=>{ $("slot").innerHTML=""; speak(chatChar); type(`（起卦畫面：沿用現行的問事流程，問句已帶入。）\n\n批完之後，這一卦會自動進${nick}的手帳，掛在今天這段談心底下。`,{narr:true}).then(()=>{ $("slot").innerHTML=`<div class="choices"><button class="choice go" id="toJ"><b>看手帳</b></button></div>`; $("toJ").onclick=()=>go("journal"); }); };
+    $("notYet").onclick=()=>{ step[chatChar]=1; logs[chatChar].push({who:chatChar,t:"「好，不急。」"}); openChat(); };
+  } else {
+    const send=async()=>{ const v=$("sayIn").value.trim(); if(!v) return;
+      logs[chatChar].push({who:"me",t:v}); $("slot").innerHTML="";
+      $("spk").innerHTML=`${esc(nick)}<small>你</small>`; await type(v); await new Promise(r=>setTimeout(r,reduce?0:450));
+      const t=SCRIPT[chatChar][step[chatChar]++]; logs[chatChar].push({who:chatChar,t});
+      speak(chatChar); await type(t); paintSay(); };
+    $("sayGo").onclick=send; $("sayIn").onkeydown=e=>{ if(e.key==="Enter") send(); };
+  }
+}
+function openLog(){
+  const L=logs[chatChar];
+  $("logTitle").textContent=`與${CH[chatChar].name}的卷`;
+  $("logLines").innerHTML=L.map((x,i)=>`<div class="ln ${x.who==="me"?"me":""} ${kept.has(chatChar+":"+i)?"kept":""}"><b>${x.who==="me"?esc(nick):CH[x.who].name}</b><p>${esc(x.t)}</p></div>`).join("");
+  $("log").classList.add("on");
+}
+$("logBack").onclick=()=>$("log").classList.remove("on");
+
+/* ══ ② 觀堂 ══ */
+function paintHome(){
+  $("homeHi").textContent=`${nick}，今日觀裡還算清靜。`;
+  $("cast3").innerHTML=Object.keys(CH).map(k=>{const c=CH[k];return `<button class="who" data-c="${k}"><div class="por" style="background:linear-gradient(to bottom,rgba(0,0,0,.04),rgba(0,0,0,.12))">${sil(k)}<i>${c.state}</i></div><b>${c.name}</b><span>道緣 ${c.fav}${k===guide?" · 引路人":""}</span><div class="bar"><em style="width:${c.fav}%"></em></div></button>`}).join("");
+  $("cast3").querySelectorAll(".who").forEach(b=>b.onclick=()=>{ chatChar=b.dataset.c; go("chat"); });
+}
+
+/* ══ 路由：一份註冊表，同時決定「誰在台上」「導覽哪格亮」「返回退到哪」 ══ */
+const PAGES={
+  intro:  {view:"v-scene", tab:null,     enter:runIntro},
+  home:   {view:"v-home",  tab:"home",   enter:paintHome},
+  chat:   {view:"v-scene", tab:"chat",   enter:openChat},
+  journal:{view:"v-journal",tab:"journal"},
+};
+const NOTES={
+  intro:`<div class="kicker">① 入 場 引 導</div><h2>先見人，後立規矩</h2>
+    <div class="vs"><b>現行</b><span>大師兄一人講 7 頁規矩；師妹與觀貓只在第 7 頁被提到一句。</span><b>改後</b><span>三人依序登場 → 你選一位引路人 → 他用自己的口吻問你為何而來 → 依回答分流。</span></div>
+    <h3>為什麼這樣排</h3><ul>
+    <li>第一個「選擇」就是選角色——使用者還沒問事，已經跟某個人建立關係。</li>
+    <li>規矩從 7 頁壓成 3 句，而且只給選「有件事想問」的人；想聊天的人不必先上課。</li>
+    <li>引路人會記在帳號上（觀堂標「引路人」），日後可作為預設的批卦者與談心對象。</li>
+    <li>稱呼改在幕裡問，取代現在的暱稱彈窗。</li></ul>
+    <h3>要動後端的地方</h3><ul><li><code>profiles.guide_char</code>（引路人）。<code>guide_seen_at</code> 沿用。</li></ul>`,
+  home:`<div class="kicker">② 觀 堂（新首頁）</div><h2>打開 App 先看到人，再看到事</h2>
+    <div class="vs"><b>現行</b><span>首頁＝問事表單。角色藏在右下 FAB 與道籍分頁裡。</span><b>改後</b><span>首頁＝觀堂：待回報的應期 → 三人此刻在做什麼 → 最後一句話 → 籤與簽到。</span></div>
+    <h3>層級</h3><ul>
+    <li><b>第一層</b>：待辦的「應」（硃砂框，站內唯一要你處理的顏色）。</li>
+    <li><b>第二層</b>：三位角色卡，點了直接進談心。狀態字（練劍／記帳／打盹）可由後端按時辰給。</li>
+    <li><b>第三層</b>：籤、簽到——每日例行，退到最下面。</li>
+    <li>問事升為中央的印章鈕：永遠一步可達，但不再是唯一的門。</li></ul>
+    <h3>導覽五格</h3><ul><li>觀堂 · 談心 · <b>問</b> · 手帳 · 道籍。廣場、藏經、知庫收進道籍與觀堂次層。</li></ul>`,
+  chat:`<div class="kicker">③ 談 心（遊戲對話）</div><h2>幕與卷：一段對話，兩種讀法</h2>
+    <div class="vs"><b>現行</b><span>IG 式浮窗，泡泡列表；角色只是 46px 圓頭像。</span><b>改後</b><span>全屏對話幕：立繪＋場景＋底部對話框，數值沿用卦案 <code>pv-</code> 版面稿（立繪頂讓 120px、框高下限 220、上限 76dvh）。</span></div>
+    <h3>互動</h3><ul>
+    <li><b>幕</b>：只站最新的一來一回，打字機效果，點一下補完。</li>
+    <li><b>卷 ☰</b>：同一段話攤成紙本（欄線對齊行高），收下的句子畫螢光底。</li>
+    <li>角色邀你起卦時，擬題卡改成卦案那種選項框：「就問這一卦／先不問」。</li>
+    <li>「念給我聽／收下這句」常駐在對話框右上，不藏。</li></ul>
+    <h3>元件</h3><ul><li>入場、談心、道緣事件、卦案都用同一個對話幕元件——這正是 CLAUDE.md 裡「劇情層與卦案併成同一個對話元件」那條待辦。</li></ul>
+    <h3>美術缺口</h3><ul><li>立繪目前只有大師兄一張（測試圖）。師妹、觀貓沒有時，退回頭像＋場景底圖，版面照樣成立。</li></ul>`,
+  journal:`<div class="kicker">④ 手 帳</div><h2>心跡＋卦曆併成一本</h2>
+    <div class="vs"><b>現行</b><span>「心跡」與「卦曆」是兩格，都在記同一件事的不同切面。</span><b>改後</b><span>一本手帳，三種看法：時序（預設）／月曆（原卦曆）／心事（原心跡的串）。</span></div>
+    <h3>進手帳的東西</h3><ul>
+    <li>卦（含應期狀態戳：待回報／準／不準）</li><li>談心的摘要（一天一段，不是逐句）</li><li>收下的話（引文樣式）</li><li>貼紙照舊可貼。</li></ul>
+    <h3>為什麼併</h3><ul><li>核心是「紀錄手帳本」——兩格記錄會讓人不知道去哪找；併成一本，導覽也騰出一格給觀堂。</li></ul>`,
+};
+function go(id){
+  const p=PAGES[id]; if(!p){ return; }
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id===p.view));
+  $("tabbar").hidden=!p.tab; $("app").classList.toggle("has-tab",!!p.tab);
+  $("tabbar").querySelectorAll("[data-go]").forEach(b=>b.classList.toggle("on",b.dataset.go===p.tab));
+  $("flow").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.go===id));
+  $("notes").innerHTML=NOTES[id];
+  if(id!=="intro") introRun++;
+  $("slot").innerHTML=""; onTapNext=null;
+  p.enter&&p.enter();
+}
+$("flow").onclick=e=>{ const b=e.target.closest("[data-go]"); if(b) go(b.dataset.go); };
+$("tabbar").onclick=e=>{ const b=e.target.closest("[data-go]"); if(!b) return;
+  if(PAGES[b.dataset.go]) go(b.dataset.go);
+  else { const n=$("notes"); n.insertAdjacentHTML("afterbegin",`<p style="font-family:var(--sans);font-size:12.5px;color:var(--cinnabar);margin:0 0 12px">「${b.textContent.trim()||"問"}」沿用現行畫面，原型不重畫。</p>`); } };
+go("intro");
+</script>
