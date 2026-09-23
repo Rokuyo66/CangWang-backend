@@ -19,12 +19,12 @@ export type EventResult =
 interface EventRow {
   id: string; character_id: string; chapter: number; seq: number;
   title: string; summary: string | null;
-  require_favor: number; require_event: string | null;
+  require_favor: number; require_cultivation: number; require_event: string | null;
   scenes: unknown[]; choices: unknown[] | null;
 }
 
 const LIST_COLS =
-  "id, character_id, chapter, seq, title, summary, require_favor, require_event, scenes, choices";
+  "id, character_id, chapter, seq, title, summary, require_favor, require_cultivation, require_event, scenes, choices";
 
 /** 目錄：一角色一串，依 chapter／seq。
  *
@@ -35,7 +35,8 @@ const LIST_COLS =
 const briefOf = (r: EventRow) => ({
   id: r.id, chapter: r.chapter, seq: r.seq,
   title: r.title, summary: r.summary ?? "",
-  require_favor: r.require_favor, require_event: r.require_event,
+  require_favor: r.require_favor, require_cultivation: r.require_cultivation ?? 0,
+  require_event: r.require_event,
   scene_count: Array.isArray(r.scenes) ? r.scenes.length : 0,
   has_choices: Array.isArray(r.choices) && r.choices.length > 0,
 });
@@ -61,6 +62,22 @@ export async function listEvents(
   return { ok: true, payload: { catalog: byChar } };
 }
 
+/** 道緣、修為兩道門（0065 起可以同時要求）。回傳擋下的理由；都過了回 null。
+ *  open 與 finish 共用——兩處各寫一份，遲早有一處忘了加新條件。 */
+export async function gateOf(
+  db: SupabaseClient, uid: string,
+  e: { character_id: string; require_favor?: number | null; require_cultivation?: number | null },
+): Promise<string | null> {
+  const needF = e.require_favor ?? 0, needC = e.require_cultivation ?? 0;
+  if (needF <= 0 && needC <= 0) return null;
+  const { data: uc } = await db.from("user_character").select("favor, cultivation")
+    .eq("user_id", uid).eq("character_id", e.character_id).maybeSingle();
+  const u = uc as { favor: number; cultivation: number } | null;
+  if ((u?.favor ?? 0) < needF) return "道緣未至";
+  if ((u?.cultivation ?? 0) < needC) return "修為未至";
+  return null;
+}
+
 /** 開一章：門檻在這裡驗，過了才給 scenes。
  *
  *  三道門，順序就是玩家會遇到的順序，訊息也照這個順序給——
@@ -83,12 +100,8 @@ export async function openEvent(
       return { ok: false, msg: "前一章尚未了結" };
   }
 
-  if (e.require_favor > 0) {
-    const { data: uc } = await db.from("user_character").select("favor")
-      .eq("user_id", uid).eq("character_id", e.character_id).maybeSingle();
-    if (((uc as { favor: number } | null)?.favor ?? 0) < e.require_favor)
-      return { ok: false, msg: "道緣未至" };
-  }
+  const gate = await gateOf(db, uid, e);
+  if (gate) return { ok: false, msg: gate };
 
   // rewards 不下發：那是結案時由 event_finish 判定並發放的，
   // 提早送下去只會讓人知道走完有什麼，還讓客戶端有東西可以拿來對帳。

@@ -17,7 +17,7 @@ import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, del
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
-import { listEvents, openEvent } from "../_shared/events.ts";
+import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf,
@@ -1137,14 +1137,13 @@ async function handle(req: Request): Promise<Response> {
       const evId = String(body.event_id ?? "");
       const chosen = body.chosen == null ? null : String(body.chosen).slice(0, 40);
       const { data: ev } = await db.from("character_events")
-        .select("id, character_id, require_favor, require_event, rewards").eq("id", evId).maybeSingle();
-      if (!ev) return Response.json({ kind: "err", msg: "查無此事件" }, { headers: CORS });
+        .select("id, character_id, require_favor, require_cultivation, require_event, published")
+        .eq("id", evId).maybeSingle();
+      if (!ev || !ev.published) return Response.json({ kind: "err", msg: "查無此事件" }, { headers: CORS });
 
-      // 道緣門檻：現在才驗，因為前端擋得住的東西不等於伺服器可以不擋
-      const { data: uc } = await db.from("user_character").select("favor")
-        .eq("user_id", uid).eq("character_id", ev.character_id).maybeSingle();
-      if ((uc?.favor ?? 0) < (ev.require_favor ?? 0))
-        return Response.json({ kind: "err", msg: "道緣未至" }, { headers: CORS });
+      // 道緣／修為門檻：現在才驗，因為前端擋得住的東西不等於伺服器可以不擋
+      const gate = await gateOf(db, uid, ev);
+      if (gate) return Response.json({ kind: "err", msg: gate }, { headers: CORS });
 
       // 前置章未完成就不能跳關
       if (ev.require_event) {
@@ -1153,20 +1152,15 @@ async function handle(req: Request): Promise<Response> {
         if (!prev?.completed_at) return Response.json({ kind: "err", msg: "前一章尚未了結" }, { headers: CORS });
       }
 
-      const { data: cur } = await db.from("user_character_events").select("completed_at")
-        .eq("user_id", uid).eq("event_id", evId).maybeSingle();
-      const firstTime = !cur?.completed_at;
-      await db.from("user_character_events").upsert(
-        { user_id: uid, event_id: evId, chosen, completed_at: cur?.completed_at ?? new Date().toISOString() },
-        { onConflict: "user_id,event_id" });
-
-      // 重看時只更新選項，不再發一次獎勵
-      const rw = (ev.rewards ?? {}) as Record<string, unknown>;
-      if (firstTime && typeof rw.memory === "string" && rw.memory.trim())
-        await db.from("character_memories")
-          .insert({ user_id: uid, character_id: ev.character_id, body: rw.memory, source: "event" });
-
-      return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? rw : {} }, { headers: CORS });
+      // 記進度＋發獎交給 event_complete（0065）：判重、靈石、頭像、記憶同一個 transaction。
+      // 原本這裡「先查 completed_at 再 upsert」，兩支同時進來都會以為是第一次。
+      const { data: done, error: doneErr } = await db.rpc("event_complete", { p_user: uid, p_event: evId, p_chosen: chosen });
+      if (doneErr || !done?.ok) {
+        console.error("event_complete failed", doneErr ?? done);
+        return Response.json({ kind: "err", msg: "進度沒記上" }, { headers: CORS });
+      }
+      const firstTime = !!done.first;
+      return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? done.rewards : {} }, { headers: CORS });
     }
 
     // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）

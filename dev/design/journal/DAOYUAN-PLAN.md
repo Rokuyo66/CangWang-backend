@@ -91,10 +91,11 @@
 
 - [ ] 三人第一章（門檻 0）都寫好、美術到位
 - [ ] 三人第二章（300）都寫好——付費玩家第 8 天就到
-- [ ] 沒寫好的章 `published=false`（c2／c3 現在是 true、scenes 空，要先關）
+- [x] 沒寫好的章 `published=false`（0065）
 - [ ] §2 的 SQL 跑過：有人已過門檻的章，內容都在
 - [ ] 小節點信件至少寫到 250（每人 5 封）
-- [ ] `event_finish` 會發靈石／記憶額度（§5）
+- [x] `event_finish` 會發靈石／頭像／身分／記憶（0065）
+- [ ] 記憶額度加格（B5）
 - [ ] 前端泡泡規則不變：**只在「下一章道緣夠、而且 scene_count>0」時亮**（`storyReady()`，b61 已實作）——
       即使哪天漏關了一章，泡泡也不會把人帶去空章前面
 
@@ -106,15 +107,36 @@
 
 | # | 項目 | 說明 |
 |---|---|---|
-| B1 | 0065：關掉空章 | `update character_events set published=false where scenes = '[]'::jsonb` |
+| B1 | ✅ 0065：關掉空章 | 空章下架，之後 scenes 空的章存不成 published（trigger 擋） |
 | B2 | 0066：`favor_milestones` 表 | (character_id, at, subject, body, lingshi, memory)。一列一封信 |
 | B3 | 跨節點寄信 | 在所有加道緣的地方（chat.ts、pipeline.ts addCultivation、簽到）統一走一支 `add_favor(user, cid, n)`：更新後比對舊值與新值之間跨過的 `favor_milestones`，逐封 `mail_send`＋寫 memory。以 (user, cid, at) 做唯一鍵防重寄 |
-| B4 | `event_finish` 發全套 | rewards 增加 `lingshi`、`memory_slots`、`avatar`；第一次了結才發（沿用 firstTime） |
+| B4 | ✅ 0065：填表＋發全套 | 條件欄 `require_favor`／`require_cultivation`／`require_event`（全部要到）；獎勵欄 `reward_lingshi`／`reward_avatar`／`reward_title`／`reward_memory`，其他放 `rewards` JSON。`event_complete()` 一支發完、只發一次。記憶額度加格（memory_slots）還沒做 |
 | B5 | 記憶額度讀加格 | 方案額度＋已了結章的 memory_slots 總和 |
 
 B3 是關鍵：現在加道緣散在三處，各自 `update ... favor + n`。收成一支之後，節點判斷、封頂、寄信都只寫一次。
 
 ---
+
+## 5.1 怎麼填一章（0065 之後）
+
+Supabase → Table Editor → `character_events` → 點一列（或 Insert row）。
+
+| 欄 | 填什麼 | 空白／0 |
+|---|---|---|
+| id | `角色_c章`，如 `daoshi_f_c1` | 必填 |
+| character_id／chapter／seq／title／summary | 誰、第幾章、章名、一句摘要 | 必填（summary 可空） |
+| require_favor | 道緣門檻 | 不限 |
+| require_cultivation | 修為門檻 | 不限 |
+| require_event | 前一章 id | 章首 |
+| scenes／choices | 台詞與選項（JSON，照 c1 的格式） | 空的章不能上架 |
+| reward_lingshi | 靈石數 | 不發 |
+| reward_avatar | 頭像 key（r01～r13；新的要前端 REWARD_AV 先有） | 不發 |
+| reward_title | 他的新身分（自動生成可切換的身分，聲口到 character_titles.voice_hint 補） | 不發 |
+| reward_memory | 他會記住的一句話 | 不寫 |
+| rewards | 其他擴張（JSON），目前只回給前端顯示、不會真的發 | — |
+| published | 打勾上架 | 不上架 |
+
+改完即生效，不必出 APK、不必 deploy。
 
 ## 6. 內容與美術產量
 
@@ -132,8 +154,8 @@ B3 是關鍵：現在加道緣散在三處，各自 `update ... favor + n`。收
 
 ## 7. 建議順序
 
-1. B1（今天就能跑，把空章藏起來）
+1. ~~B1~~（0065 已含）
 2. 寫師妹、觀貓第一章＋三人第二章
 3. B2＋B3＋小節點信（這一步就算劇情還沒齊也能先上：玩家馬上感覺到「好感有回應」）
-4. B4＋B5
+4. ~~B4~~（0065 已含）＋B5
 5. 閘門全勾 → `STORY_OPEN=true` 出 APK
