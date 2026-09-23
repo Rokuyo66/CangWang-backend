@@ -1179,6 +1179,34 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ kind: "ok", items, selected: uc?.title_tag ?? null }, { headers: CORS });
     }
 
+    // 玩家稱號（0066）：他眼中的你。只列擁有的；「護道人」是人人都有的預設，不存在表裡
+    if (body.mode === "player_titles") {
+      const { data: own } = await db.from("user_player_titles")
+        .select("title_id, acquired_at, player_titles(label, seq)").eq("user_id", uid);
+      const { data: me } = await db.from("profiles").select("player_title").eq("id", uid).maybeSingle();
+      // call_as／voice_hint 不下發：給模型看的，外流等於劇透兼被玩家調校
+      const items = ((own ?? []) as { title_id: string; acquired_at: string; player_titles: { label: string; seq: number } | null }[])
+        .filter((r) => r.player_titles)
+        .map((r) => ({ id: r.title_id, label: r.player_titles!.label, seq: r.player_titles!.seq, at: r.acquired_at }))
+        .sort((a, b) => a.seq - b.seq || a.at.localeCompare(b.at));
+      return Response.json({ kind: "ok", items, selected: me?.player_title ?? null }, { headers: CORS });
+    }
+
+    // 換玩家稱號。空字串＝回預設（護道人）。title_tag 一起寫：廣場貼文讀的是它
+    if (body.mode === "set_player_title") {
+      const tid = String(body.title_id ?? "");
+      if (!tid) {
+        await db.from("profiles").update({ player_title: null, title_tag: null }).eq("id", uid);
+        return Response.json({ kind: "ok", title_id: null, label: null }, { headers: CORS });
+      }
+      const { data: own } = await db.from("user_player_titles")
+        .select("player_titles(label)").eq("user_id", uid).eq("title_id", tid).maybeSingle();
+      const label = (own as { player_titles: { label: string } | null } | null)?.player_titles?.label;
+      if (!label) return Response.json({ kind: "err", msg: "還沒有這個稱號" }, { headers: CORS });
+      await db.from("profiles").update({ player_title: tid, title_tag: label }).eq("id", uid);
+      return Response.json({ kind: "ok", title_id: tid, label }, { headers: CORS });
+    }
+
     // 換身分。會改變他聊天時的聲口（voice_hint 注進 systemPrompt 的 tail）
     if (body.mode === "set_char_title") {
       const cid = String(body.character_id ?? "");
