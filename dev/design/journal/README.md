@@ -117,6 +117,17 @@ const pick = await s.choose([{ b: "就問這一卦", go: true }, { b: "先不問
 
 S1、S2 先做，後面四步才不會又把新頁寫成第九種開關法。
 
+**進度（前端 `CangWang-web` › `claude/elegant-faraday-wf941u`）**
+
+| 步 | 狀態 |
+|---|---|
+| S1 | ✅ b54 · `src/app/router.js` |
+| S2 | ✅ b55 · `src/ui/scene.js`（入場、談心已用；道緣事件 `st-` 與卦案 `pv-` 尚未併入） |
+| S3 | ✅ b55 · 幕／卷。卷沿用原訊息串，沒改成欄線紙本 |
+| S4 | ✅ b55 · `src/pages/intro.js`。引路人暫存本機 |
+| S5 | ✅ b55 · `src/pages/hall.js`。頂列尚未瘦身（廣場、藏經、簽到仍在頂列） |
+| S6 | ◐ b55 · 心跡與卦曆互相以頁籤切換；「時序」合併檢視要等合併 API |
+
 ---
 
 ## 五、後端要配合的
