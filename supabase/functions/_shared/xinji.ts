@@ -583,6 +583,63 @@ export function topicOf(question: string): string {
   return q.slice(0, 12);
 }
 
+/**
+ * 一卦問完之後：這一卦要不要記成心事、或接上哪一條線（六六 2026-09-24）。
+ *
+ * 原本心事只有一個入口——閒聊裡模型擬出一句合格的題、他又按了那張卡——
+ * 直接去「問」起卦的人（大多數人）永遠碰不到心跡。這一支補的是那條最常走的路。
+ *
+ * 零 AI、至多四次查詢。回傳三種情況，前端照著出一張卡：
+ *   · already：這卦已經在某條線上（從閒聊或「就這件事再問一卦」來的）→ 不出卡
+ *   · hint.thread：問的是一條「在記」的線上的事 → 問要不要接上去
+ *   · related：近 60 天有幾張沒歸線的卦，問的像是同一件事 → 問要不要一起接成一件（B）
+ *   · 都沒有 → 問要不要記成一件新的心事（A）
+ * 比對規則與 threadHint／一事不二占同一套（normalizeQuestion ＋ 事由互相包含），
+ * 寧可漏抓也不要把別件事的卦抓進來——這裡只是「提議」，抓錯了人得一張張拔掉。
+ */
+export async function afterCast(
+  db: SupabaseClient, uid: string, plan: string, castId: unknown,
+): Promise<XinjiResult> {
+  const cid = String(castId ?? "");
+  if (!cid) return err("缺卦");
+  const { data: c } = await db.from("casts").select("id, question, category, thread_id, created_at")
+    .eq("id", cid).eq("user_id", uid).maybeSingle();
+  if (!c) return err("查無此卦");
+  const cast = c as { id: string; question: string | null; category: string | null; thread_id: string | null; created_at: string };
+  // 日運不是問事；已經在線上的不必再問
+  if (cast.category === FORTUNE_CATEGORY || cast.thread_id) return ok({ show: false });
+  const question = String(cast.question ?? "").trim();
+  if (!question) return ok({ show: false });
+
+  const topic = topicOf(question);
+  const hint = await threadHint(db, uid, plan, { question, topic });
+
+  // 近 60 天、沒歸線、不是日運的卦，問的像是同一件事
+  const since = new Date(Date.now() - 60 * 86400_000).toISOString();
+  const { data: loose } = await db.from("casts").select("id, question, gua_ben, created_at, category")
+    .eq("user_id", uid).is("thread_id", null).neq("id", cid).gte("created_at", since)
+    .order("created_at", { ascending: false }).limit(60);
+  const norm = normalizeQuestion(question);
+  const related = ((loose ?? []) as { id: string; question: string | null; gua_ben: string; created_at: string; category: string | null }[])
+    .filter((x) => x.category !== FORTUNE_CATEGORY && x.question)
+    .filter((x) => {
+      const q = String(x.question);
+      if (norm && normalizeQuestion(q) === norm) return true;
+      const t = topicOf(q);
+      return topic.length >= 2 && t.length >= 2 && (t.includes(topic) || topic.includes(t));
+    })
+    .slice(0, 5)
+    .map((x) => ({ id: x.id, question: x.question, gua_ben: x.gua_ben, created_at: x.created_at }));
+
+  return ok({
+    show: true,
+    title: topic,
+    thread: hint.thread,              // 在記的線裡有這件事 → 接上去
+    related,                          // 以前問過相近的散卦 → 一起接成一件
+    open: hint.open, max: hint.max, can_add: hint.can_add, fallback: hint.fallback,
+  });
+}
+
 /** 把一張散卦歸到既有的線上 */
 export async function attachCast(
   db: SupabaseClient, uid: string, castId: unknown, threadId: unknown,
