@@ -640,6 +640,78 @@ export async function afterCast(
   });
 }
 
+/* ═══════════════ 角色把心事放在心上（六六 2026-09-24）═══════════════
+ *
+ * 心事原本只活在心跡那一頁：談心看不到、解卦也看不到，擴充額度只買到「手帳多幾條線」。
+ * 這兩支把它接進角色的視野——在記幾件事，就等於他們同時把幾件你的事放在心上。
+ *
+ * 【封頂】一件心事塞再多卦，給模型的都是固定份量：
+ *   談心：至多 5 件、每件一行（事由＋卦數＋最近一卦的一句話＋應期狀態）
+ *   解卦：這條線最近 3 卦各一行，更早的壓成一行統計
+ * 用的是 digest（寫卦時就存好的一句話結論），不是整段批文。零 AI、各兩次查詢。
+ */
+const VERDICT_TXT: Record<number, string> = { 1: "準", 2: "部分準", 3: "不準" };
+const fbVerdict = (f: unknown): number | null => {
+  const x = Array.isArray(f) ? f[0] : f;
+  return (x as { verdict: number | null } | null)?.verdict ?? null;
+};
+
+/** 談心用：他在記的心事，每件一行。沒有就回空字串。 */
+export async function threadsBrief(db: SupabaseClient, uid: string): Promise<string> {
+  const { data: ts } = await db.from("threads").select("id, title")
+    .eq("user_id", uid).eq("status", "open")
+    .order("last_cast_at", { ascending: false, nullsFirst: false }).limit(5);
+  const threads = (ts ?? []) as { id: string; title: string }[];
+  if (!threads.length) return "";
+  const { data: cs } = await db.from("casts")
+    .select("thread_id, gua_ben, digest, due_date, created_at, feedback(verdict)")
+    .in("thread_id", threads.map((t) => t.id)).order("created_at", { ascending: false }).limit(200);
+  const today = taipeiToday();
+  const agg = new Map<string, { n: number; last: Record<string, unknown> | null }>();
+  for (const c of (cs ?? []) as Record<string, unknown>[]) {
+    const k = String(c.thread_id);
+    const a = agg.get(k) ?? { n: 0, last: null };
+    a.n++; if (!a.last) a.last = c;
+    agg.set(k, a);
+  }
+  return threads.map((t) => {
+    const a = agg.get(t.id), last = a?.last;
+    if (!last) return `・〈${t.title}〉：記下了，還沒起卦`;
+    const digest = last.digest ? `：${String(last.digest).slice(0, 40)}` : "";
+    const due = last.due_date ? String(last.due_date) : "";
+    const v = fbVerdict(last.feedback);
+    const dueTxt = !due ? "" : v != null ? `；應期 ${due}，他回報「${VERDICT_TXT[v] ?? "已回報"}」`
+      : due <= today ? `；應期 ${due} 已過，他還沒說後來怎樣` : `；應期 ${due}`;
+    return `・〈${t.title}〉：問過 ${a!.n} 卦，最近一卦${digest}${dueTxt}`;
+  }).join("\n");
+}
+
+/** 解卦用：這條線的前情。最近 3 卦各一行，更早的壓成一行統計。沒有前卦回空字串。 */
+export async function threadPrior(db: SupabaseClient, uid: string, threadId: string): Promise<string> {
+  const { data: t } = await db.from("threads").select("title")
+    .eq("id", threadId).eq("user_id", uid).maybeSingle();
+  if (!t) return "";
+  const { data: cs } = await db.from("casts")
+    .select("question, digest, due_date, created_at, feedback(verdict)")
+    .eq("user_id", uid).eq("thread_id", threadId).order("created_at", { ascending: false }).limit(200);
+  const casts = (cs ?? []) as Record<string, unknown>[];
+  if (!casts.length) return "";
+  const line = (c: Record<string, unknown>) => {
+    const v = fbVerdict(c.feedback);
+    return `・${String(c.created_at).slice(0, 10)} 問「${String(c.question ?? "").slice(0, 24)}」` +
+      `${c.digest ? `→ ${String(c.digest).slice(0, 50)}` : ""}` +
+      `${c.due_date ? `；應期 ${c.due_date}` : ""}${v != null ? `；他回報「${VERDICT_TXT[v] ?? "已回報"}」` : ""}`;
+  };
+  const recent = casts.slice(0, 3).map(line);
+  const older = casts.slice(3);
+  if (older.length) {
+    const cnt = { 1: 0, 2: 0, 3: 0, none: 0 } as Record<string, number>;
+    for (const c of older) { const v = fbVerdict(c.feedback); cnt[v != null ? String(v) : "none"]++; }
+    recent.push(`・更早還有 ${older.length} 卦（準 ${cnt["1"]}、部分準 ${cnt["2"]}、不準 ${cnt["3"]}、未回報 ${cnt.none}）`);
+  }
+  return `這件事他記作〈${(t as { title: string }).title}〉：\n${recent.join("\n")}`;
+}
+
 /** 把一張散卦歸到既有的線上 */
 export async function attachCast(
   db: SupabaseClient, uid: string, castId: unknown, threadId: unknown,

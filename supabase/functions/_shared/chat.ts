@@ -6,7 +6,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
-import { threadHint, topicOf } from "./xinji.ts";
+import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 import { COST } from "./prices.ts";
 
@@ -489,7 +489,9 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const lead = new Date(r.date + "T00:00:00Z"); lead.setUTCDate(lead.getUTCDate() - (r.lead_days || 0));
     return today >= lead.toISOString().slice(0, 10);
   }).map((r) => `・${r.date}${r.time ? " " + r.time : ""}　${r.title}`).join("\n");
-  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak };
+  // 心事：他記進心跡、還在記掛的事（至多 5 件、每件一行，見 xinji.threadsBrief）。讀不到就當沒有。
+  const threadLines = await threadsBrief(db, userId).catch((e) => { console.error("threadsBrief failed", e); return ""; });
+  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines };
 }
 
 // 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
@@ -559,7 +561,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
-function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "") {
+function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "", threadLines = "") {
   // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
   const probeRule = probeStreak >= MAX_PROBE_ROUNDS
     ? `
@@ -635,7 +637,7 @@ ${QUESTION_CRAFT}
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事（是他自己標成「掛心」的，你知道、也一直記著）。相關時、或應期到了還沒下文時，用你的口吻自然問一句後來怎樣；一次最多提一件，別每句都提，也別把這張清單念出來：\n${threadLines}\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
 ${castLines || "（他還沒問過卦。）"}
 聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
@@ -897,7 +899,7 @@ export async function chat(db: SupabaseClient, p: {
     console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
     return "";
   });
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
