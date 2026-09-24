@@ -20,7 +20,7 @@ import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type 
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
-  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf, afterCast,
+  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf, afterCast, hallMention,
 } from "../_shared/xinji.ts";
 import { callInterpret, logUsage } from "../_shared/services.ts";
 import {
@@ -927,6 +927,11 @@ async function handle(req: Request): Promise<Response> {
 
     if (body.mode === "xinji_delete") {
       return caseResult(await deleteThread(db, uid, body.thread_id));
+    }
+
+    // 觀堂置頂那一句：有心事就讓角色主動提起（零 AI）；null＝前端退回閒聊最後一句
+    if (body.mode === "hall_mention") {
+      return caseResult(await hallMention(db, uid));
     }
 
     // 一卦問完：要不要記成心事／接上哪條線／把以前問過的相近散卦一起接上（零 AI）

@@ -48,6 +48,7 @@
 | `xinji_close` | `thread_id`, `close`（預設 true） | `{thread_id, status}` |
 | `xinji_delete` | `thread_id` | `{thread_id, deleted}` |
 | `xinji_suggest` | `question` | `{thread}`（null＝沒有對應的線） |
+| `hall_mention` | — | `{mention}`：觀堂置頂那一句。`mention.kind`＝`due_passed`／`gone_quiet`／`closed`（待說的心跡留言，帶 `note_id`）或 `ongoing`（在記的心事，句庫＋上回 digest）；`character_id`、`thread_id`、`title`、`body`。`null`＝沒有心事，前端退回閒聊最後一句。零 AI |
 | `xinji_after_cast` | `cast_id` | `{show, title, thread, related[], open, max, can_add, fallback}`。一卦問完出的那張卡：`show:false`＝日運或已在線上；`thread`＝在記的線有這件事（問要不要接上）；`related`＝近 60 天相近的散卦（至多 5，問要不要一起接成一件）；都沒有＝問要不要記成新的一件。零 AI |
 | `xinji_note_reply` | `note_id` | `{character_id, thread_id, prefill}` |
 | `xinji_note_read` | `note_ids[]` | `{read}` |

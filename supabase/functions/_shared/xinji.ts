@@ -640,6 +640,74 @@ export async function afterCast(
   });
 }
 
+/* ═══════════════ 觀堂置頂那一句（六六 2026-09-24）═══════════════
+ *
+ * 觀堂最上面那條原本放「閒聊最後一句」——那是沒話說才該放的。有心事的時候，
+ * 該是角色自己開口提它：人一打開 App，先看見有人記著他的事。
+ *
+ * 優先序（零 AI，句子全從句庫挑）：
+ *   1 有待說的心跡留言（應期過了／擱久了／剛了結，brewNotes 熬的）→ 就是那一句
+ *   2 有在記的心事、沒有待說的 → 挑最近動過的那件，說一句「掛心」；
+ *     有前卦就帶上回那卦的一句話結論（與解卦的前情同一個 digest）
+ *   3 都沒有 → null，前端退回閒聊最後一句
+ * 說話的是那件心事最後一卦的解卦人；心事還沒起過卦，就是好感最高的那位。
+ * 句子以「心事＋日期」為種子挑：同一天打開幾次都是同一句，隔天換一句。
+ */
+const ONGOING_POOL: Record<string, { plain: string[]; prior: string[] }> = {
+  daoshi_m: {
+    plain: ["「{title}，我還記著。有下文就說。」", "「{title}。不急，但別擱著不看。」"],
+    prior: ["「{title}。上回卦上說的是——{digest}。眼下如何。」", "「{title}，上回那卦還沒走完。{digest}。你心裡有數。」"],
+  },
+  daoshi_f: {
+    plain: ["「施主，{title}那件事，我一直記在冊子上。」", "「{title}最近還好嗎？想說的時候，我在。」"],
+    prior: ["「{title}——上回的卦說：{digest}。後來有沒有照著走呀？」", "「我翻到{title}那一頁了。上回說的是：{digest}。現在呢？」"],
+  },
+  lingshou: {
+    plain: ["「{title}。你以為我忘了？」", "＊觀喵把尾巴搭在冊子上＊\n\n「{title}，還掛著呢。」"],
+    prior: ["「上回那卦說：{digest}。哼，看你怎麼辦。」", "「{title}。{digest}。我可是記得的。」"],
+  },
+};
+
+export async function hallMention(db: SupabaseClient, uid: string): Promise<XinjiResult> {
+  await brewNotes(db, uid);
+
+  // 1 待說的留言（from_chat 是那段閒聊的總結，不是角色說的話，不拿來當開口）
+  const { data: ns } = await db.from("thread_notes")
+    .select("id, thread_id, character_id, kind, body, threads(title)")
+    .eq("user_id", uid).is("replied_at", null).neq("kind", "from_chat")
+    .order("created_at", { ascending: false }).limit(1);
+  const n = (ns ?? [])[0] as { id: string; thread_id: string; character_id: string; kind: string; body: string; threads: unknown } | undefined;
+  if (n) {
+    const th = (Array.isArray(n.threads) ? n.threads[0] : n.threads) as { title: string } | null;
+    return ok({ mention: { kind: n.kind, note_id: n.id, thread_id: n.thread_id, character_id: n.character_id,
+      title: th?.title ?? "", body: n.body } });
+  }
+
+  // 2 在記的心事，挑最近動過的那件
+  const { data: ts } = await db.from("threads").select("id, title, subject")
+    .eq("user_id", uid).eq("status", "open")
+    .order("last_cast_at", { ascending: false, nullsFirst: false })
+    .order("opened_at", { ascending: false }).limit(1);
+  const t = (ts ?? [])[0] as { id: string; title: string; subject: string | null } | undefined;
+  if (!t) return ok({ mention: null });
+
+  const { data: cs } = await db.from("casts").select("character_id, digest")
+    .eq("user_id", uid).eq("thread_id", t.id).order("created_at", { ascending: false }).limit(1);
+  const last = (cs ?? [])[0] as { character_id: string | null; digest: string | null } | undefined;
+  let who = last?.character_id ?? null;
+  if (!who || !ONGOING_POOL[who]) {
+    const { data: uc } = await db.from("user_character").select("character_id, favor")
+      .eq("user_id", uid).order("favor", { ascending: false }).limit(1);
+    who = ((uc ?? [])[0] as { character_id: string } | undefined)?.character_id ?? "daoshi_m";
+    if (!ONGOING_POOL[who]) who = "daoshi_m";
+  }
+  const digest = String(last?.digest ?? "").trim().replace(/[。．.]+$/, "").slice(0, 40);
+  const pool = digest ? ONGOING_POOL[who].prior : ONGOING_POOL[who].plain;
+  const body = fillLine(pickLine(pool, `ongoing:${t.id}:${taipeiToday()}`),
+    { title: t.title, subject: t.subject ?? t.title, digest });
+  return ok({ mention: { kind: "ongoing", note_id: null, thread_id: t.id, character_id: who, title: t.title, body } });
+}
+
 /* ═══════════════ 角色把心事放在心上（六六 2026-09-24）═══════════════
  *
  * 心事原本只活在心跡那一頁：談心看不到、解卦也看不到，擴充額度只買到「手帳多幾條線」。
