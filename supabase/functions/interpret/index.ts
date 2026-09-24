@@ -20,7 +20,7 @@ import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type 
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
-  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf,
+  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf, afterCast,
 } from "../_shared/xinji.ts";
 import { callInterpret, logUsage } from "../_shared/services.ts";
 import {
@@ -929,6 +929,11 @@ async function handle(req: Request): Promise<Response> {
       return caseResult(await deleteThread(db, uid, body.thread_id));
     }
 
+    // 一卦問完：要不要記成心事／接上哪條線／把以前問過的相近散卦一起接上（零 AI）
+    if (body.mode === "xinji_after_cast") {
+      return caseResult(await afterCast(db, uid, await planOf(db, uid), body.cast_id));
+    }
+
     // 起卦前比對：這句問的是不是已經在記的某件事。
     // 這是「一事不二占從一道牆翻成一條線」的接點——前端拿到 thread 就改問
     // 「這件事我記得，現在到哪了？」而不是「你問過了」。
@@ -1363,7 +1368,8 @@ async function handle(req: Request): Promise<Response> {
     // 卦曆列表
     if (body.mode === "history") {
       const { data: casts } = await db.from("casts")
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, feedback(verdict, note)")
+        // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
+        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)")
         .eq("user_id", uid).order("created_at", { ascending: false }).limit(60);
       return Response.json({ kind: "ok", casts: casts ?? [] }, { headers: CORS });
     }
