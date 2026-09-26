@@ -618,8 +618,9 @@ async function handle(req: Request): Promise<Response> {
           casts: PLAN_CASTS[id] ?? PLAN_CASTS.free,
           followups: PLAN_FOLLOWUPS[id] ?? PLAN_FOLLOWUPS.free,
           chats: chatQuotaOf(id),
-          memories: memoryQuotaOf(id),
+          memories: memoryQuotaOf(id),   // 角色長期記憶注入幾則（閒聊用），不是心事
           pins: pinQuotaOf(id),
+          threads: threadQuotaOf(id),     // 心事同時記幾件（手帳›心事）。與 memories 是兩回事，方案頁曾混為一談
         };
       });
       return Response.json({

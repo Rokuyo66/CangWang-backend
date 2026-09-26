@@ -440,8 +440,8 @@ export async function openThread(
   const max = threadQuotaOf(plan);
   if ((count ?? 0) >= max) {
     return err(max === 1
-      ? "心跡同時只記得住一件事。要記新的，得先了結手上那一件——或持玉牒入觀，多幾格。"
-      : `心跡同時記 ${max} 件事已滿。先了結一件，再記新的。`);
+      ? "心事同時只記得住一件。要記新的，得先了結手上那一件——或持玉牒入觀，多幾格。"
+      : `心事同時記 ${max} 件已滿。先了結一件，再記新的。`);
   }
 
   let first: CastRow | null = null;
