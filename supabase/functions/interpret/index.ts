@@ -1415,7 +1415,7 @@ async function handle(req: Request): Promise<Response> {
 
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
     if (body.mode === "chat") {
-      const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? ""), plan: await planOf(db, uid) });
+      const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? ""), plan: await planOf(db, uid), where: body.where });
       return Response.json({
         kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost,
         freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast,
