@@ -562,22 +562,35 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
 }
 
 /* ═══ 旁白寫法 ═══
-   病灶（六六 2026-09-28：「師兄一直停頓、停頓」）有三個，各治一個：
-   ① 人設叫他「常停頓」「呼吸停頓」「沉默片刻才開口」——模型照字面寫，最省力的那個詞就是「停頓」。
-      → 這段規則：停頓一律換成「手上做了什麼／眼睛看哪裡」，並列出禁用的空轉詞。
-        （人設本身的字面由 0068 一併改掉，兩邊不要互相打架。）
+   病灶（六六 2026-09-28：「師兄一直停頓、停頓」）。停頓本身不是錯——
+   錯在**同一個詞在同一段對話裡一再出現**。寫作的人遇到要重複的地方會換句話說，
+   「停頓／頓了頓／沉默片刻／半晌／良久」交叉用可以，同一個詞連著用就不行。
+   三個來源，各治一個：
+   ① 人設叫他「常停頓」——模型照字面寫，永遠挑同一個詞。
+      → 這段規則：遲疑可以寫，但換著說；0068 把人設那句改成同一個意思。
    ② 歷史回灌：前幾則的＊停頓＊跟著 turns 餵回去，模型把自己的舊稿當範本，越寫越像。
-      → narrationHint：把最近幾則用過的動作列出來，叫它換一個。
+      → narrationHint：點名最近用過的停頓詞與旁白，這一則換別的。
    ③ 沒有場景：模型不知道他在哪，只能寫最抽象的動作。
       → 前端送「此刻在哪」（觀堂那行），旁白就地取材（廊下就是茶盞、灶房就是柴火）。
-   漏網的純停頓句由 dropEmptyPause 在輸出端剪掉。 */
+   漏網的由 dropEmptyPause 在輸出端收：只剪「重複」的那一段，不剪第一次。 */
 const NARRATION_CRAFT = `【旁白寫法】＊…＊不是必需品：多數回覆寫一段或不寫；連續幾則都有旁白時，這則就只說話。
 - 旁白寫「做了什麼、看向哪裡、手邊有什麼」，要具體到物件（茶盞、卦紙、燈芯、帳簿、掃帚、尾巴）；情緒藏在動作裡，不說破。
-- 禁用空轉詞：停頓、頓了頓、頓了一下、沉默片刻、沉默了一會兒、半晌、良久、片刻後才開口。「沒做什麼」不是動作——想表達遲疑，就寫他遲疑時手上在做的事（例：＊指腹把卦紙的折角壓平＊）。
-- 台詞開頭的「……」一則至多一次；遲疑用短句與改口表現，不靠刪節號。
+- 遲疑可以寫，但同一段對話裡**同一個詞不重複**：停頓、頓了頓、沉默片刻、半晌、良久、靜了一會兒可以交叉用；前面用過的就換一個說法，或改寫他遲疑時手上在做的事（例：＊指腹把卦紙的折角壓平＊）。
+- 台詞開頭的「……」一則至多一次；遲疑也可以用短句與改口表現。
 - 不重複自己前幾則用過的動作與句型。`;
 
-/** 讓旁白「在場」且不重複：此刻所在＋最近幾則用過的旁白。放 tail（每輪都變）。 */
+// 停頓一族。順序有意義：長的在前，「頓了頓」不可被「頓」先吃掉。
+// 同一族裡「換一個詞」就算換了說法——停頓之後接半晌是可以的，停頓之後再停頓不行。
+const PAUSE_WORDS = ["停頓", "頓了頓", "頓了一下", "沉默", "半晌", "良久", "靜了", "片刻"];
+/** 一段字裡用到哪幾個停頓詞（依 PAUSE_WORDS 的寫法回傳，去重）。 */
+export function pauseWordsIn(text: string): string[] {
+  const out: string[] = [];
+  let t = text;
+  for (const w of PAUSE_WORDS) if (t.includes(w)) { out.push(w); t = t.split(w).join(""); }
+  return out;
+}
+
+/** 讓旁白「在場」且不重複：此刻所在＋最近幾則用過的停頓詞與旁白。放 tail（每輪都變）。 */
 export function narrationHint(where: unknown, turns: { role: string; body: string }[]): string {
   const out: string[] = [];
   // 客戶端送來的字：只收短的純中文（「在廊下喝茶」），擋掉任何想藉此塞指令的東西
@@ -586,6 +599,7 @@ export function narrationHint(where: unknown, turns: { role: string; body: strin
     out.push(`【此刻】你${w.startsWith("在") ? "" : "正"}${w}。旁白可就地取材（身邊的器物、光線、聲響），不必每則都提，也不要把這句原樣念出來。`);
   }
   const used: string[] = [];
+  const pauses = recentPauseWords(turns);
   for (const t of turns.slice(-6).reverse()) {
     if (t.role !== "assistant") continue;
     for (const m of t.body.matchAll(/＊([^＊\n]{1,40})＊/g)) {
@@ -594,17 +608,38 @@ export function narrationHint(where: unknown, turns: { role: string; body: strin
     }
     if (used.length >= 4) break;
   }
+  if (pauses.length) out.push(`【換個說法】前幾則已經用過「${pauses.join("」「")}」，這一則要表現遲疑就換別的詞或寫手上的動作，別再用這幾個。`);
   if (used.length) out.push(`【別重複】你前幾則用過的旁白：${used.slice(0, 4).map((x) => `「${x}」`).join("")}。這則換別的動作，或乾脆只說話。`);
   return out.length ? "\n" + out.join("\n") : "";
 }
+/** 最近三則角色回覆裡出現過的停頓詞——「同一段對話」取這個窗口。 */
+export function recentPauseWords(turns: { role: string; body: string }[]): string[] {
+  const out: string[] = [];
+  for (const t of turns.filter((x) => x.role === "assistant").slice(-3)) {
+    for (const w of pauseWordsIn(t.body)) if (!out.includes(w)) out.push(w);
+  }
+  return out;
+}
 
 // 純停頓句：主語（可省）＋停頓類動詞（＋才開口／沒說話），此外什麼都沒有。
-// 只剪「整段只有這個」的：＊他頓了頓，把茶盞推過去＊ 有實際動作，留著。
+// 有實際動作的（＊他頓了頓，把茶盞推過去＊）一律不動。
 const EMPTY_PAUSE_RE = /^(?:大師兄|師兄|師妹|觀喵|觀貓|他|她|牠)?(?:又|只是|先|略)?(?:停頓(?:了)?(?:一下|片刻|一會兒?)?|頓了(?:頓|一下|片刻)|沉默(?:了)?(?:片刻|一會兒?|半晌|良久|幾息)?|靜了(?:片刻|一會兒?)|半晌|良久)(?:[，、]?(?:才(?:開口|說|道)|沒(?:有)?(?:說話|作聲|開口)))?[。．]?$/;
-/** 剪掉純停頓旁白；台詞開頭的「……」一則只留第一個。剪完沒剩台詞就原樣回（寧可停頓，不可無話）。 */
-export function dropEmptyPause(text: string): string {
+/** 只剪「重複」的純停頓旁白：這個詞前幾則（recent）或這一則前面已經用過，這一段才剪；
+ *  第一次出現照留——停頓本身不是錯，一再停頓才是。
+ *  台詞開頭的「……」同理，一則只留第一個。剪完沒剩台詞就原樣回（寧可重複，不可無話）。 */
+export function dropEmptyPause(text: string, recent: string[] = []): string {
   if (!text) return text;
-  let t = text.replace(/＊([^＊\n]*)＊/g, (all, inner: string) => EMPTY_PAUSE_RE.test(inner.trim()) ? "" : all);
+  const seenW = new Set(recent);
+  // 逐行做：被剪空的那一行整行拿掉，原本就空的行（段落間距）留著
+  let t = text.split("\n").flatMap((line) => {
+    const after = line.replace(/＊([^＊\n]*)＊/g, (all, inner: string) => {
+      const ws = pauseWordsIn(inner);
+      const dup = ws.some((w) => seenW.has(w));
+      ws.forEach((w) => seenW.add(w));
+      return dup && EMPTY_PAUSE_RE.test(inner.trim()) ? "" : all;
+    });
+    return line.trim() !== "" && after.trim() === "" ? [] : [after];
+  }).join("\n");
   let seen = false;
   t = t.replace(/「(?:……|…|\.{3,})(?![…」.])\s*/g, (all) => { if (!seen) { seen = true; return all; } return "「"; });
   t = t.split("\n").map((l) => l.trim() === "" ? "" : l).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -1011,7 +1046,8 @@ export async function chat(db: SupabaseClient, p: {
   // fixGuaciChars 必須排在 s2t 之後：s2t 保護的是「別把簡體丑轉成醜」，
   // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
-  const polish = (t: string): string => dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))));
+  const recentPauses = recentPauseWords(ctx.turns);
+  const polish = (t: string): string => dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses);
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
