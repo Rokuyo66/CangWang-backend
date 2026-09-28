@@ -440,8 +440,8 @@ export async function openThread(
   const max = threadQuotaOf(plan);
   if ((count ?? 0) >= max) {
     return err(max === 1
-      ? "心跡同時只記得住一件事。要記新的，得先了結手上那一件——或持玉牒入觀，多幾格。"
-      : `心跡同時記 ${max} 件事已滿。先了結一件，再記新的。`);
+      ? "心事同時只記得住一件。要記新的，得先了結手上那一件——或持玉牒入觀，多幾格。"
+      : `心事同時記 ${max} 件已滿。先了結一件，再記新的。`);
   }
 
   let first: CastRow | null = null;
@@ -638,6 +638,146 @@ export async function afterCast(
     related,                          // 以前問過相近的散卦 → 一起接成一件
     open: hint.open, max: hint.max, can_add: hint.can_add, fallback: hint.fallback,
   });
+}
+
+/* ═══════════════ 觀堂置頂那一句（六六 2026-09-24）═══════════════
+ *
+ * 觀堂最上面那條原本放「閒聊最後一句」——那是沒話說才該放的。有心事的時候，
+ * 該是角色自己開口提它：人一打開 App，先看見有人記著他的事。
+ *
+ * 優先序（零 AI，句子全從句庫挑）：
+ *   1 有待說的心跡留言（應期過了／擱久了／剛了結，brewNotes 熬的）→ 就是那一句
+ *   2 有在記的心事、沒有待說的 → 挑最近動過的那件，說一句「掛心」；
+ *     有前卦就帶上回那卦的一句話結論（與解卦的前情同一個 digest）
+ *   3 都沒有 → null，前端退回閒聊最後一句
+ * 說話的是那件心事最後一卦的解卦人；心事還沒起過卦，就是好感最高的那位。
+ * 句子以「心事＋日期」為種子挑：同一天打開幾次都是同一句，隔天換一句。
+ */
+const ONGOING_POOL: Record<string, { plain: string[]; prior: string[] }> = {
+  daoshi_m: {
+    plain: ["「{title}，我還記著。有下文就說。」", "「{title}。不急，但別擱著不看。」"],
+    prior: ["「{title}。上回卦上說的是——{digest}。眼下如何。」", "「{title}，上回那卦還沒走完。{digest}。你心裡有數。」"],
+  },
+  daoshi_f: {
+    plain: ["「施主，{title}那件事，我一直記在冊子上。」", "「{title}最近還好嗎？想說的時候，我在。」"],
+    prior: ["「{title}——上回的卦說：{digest}。後來有沒有照著走呀？」", "「我翻到{title}那一頁了。上回說的是：{digest}。現在呢？」"],
+  },
+  lingshou: {
+    plain: ["「{title}。你以為我忘了？」", "＊觀喵把尾巴搭在冊子上＊\n\n「{title}，還掛著呢。」"],
+    prior: ["「上回那卦說：{digest}。哼，看你怎麼辦。」", "「{title}。{digest}。我可是記得的。」"],
+  },
+};
+
+export async function hallMention(db: SupabaseClient, uid: string): Promise<XinjiResult> {
+  await brewNotes(db, uid);
+
+  // 1 待說的留言（from_chat 是那段閒聊的總結，不是角色說的話，不拿來當開口）
+  const { data: ns } = await db.from("thread_notes")
+    .select("id, thread_id, character_id, kind, body, threads(title)")
+    .eq("user_id", uid).is("replied_at", null).neq("kind", "from_chat")
+    .order("created_at", { ascending: false }).limit(1);
+  const n = (ns ?? [])[0] as { id: string; thread_id: string; character_id: string; kind: string; body: string; threads: unknown } | undefined;
+  if (n) {
+    const th = (Array.isArray(n.threads) ? n.threads[0] : n.threads) as { title: string } | null;
+    return ok({ mention: { kind: n.kind, note_id: n.id, thread_id: n.thread_id, character_id: n.character_id,
+      title: th?.title ?? "", body: n.body } });
+  }
+
+  // 2 在記的心事，挑最近動過的那件
+  const { data: ts } = await db.from("threads").select("id, title, subject")
+    .eq("user_id", uid).eq("status", "open")
+    .order("last_cast_at", { ascending: false, nullsFirst: false })
+    .order("opened_at", { ascending: false }).limit(1);
+  const t = (ts ?? [])[0] as { id: string; title: string; subject: string | null } | undefined;
+  if (!t) return ok({ mention: null });
+
+  const { data: cs } = await db.from("casts").select("character_id, digest")
+    .eq("user_id", uid).eq("thread_id", t.id).order("created_at", { ascending: false }).limit(1);
+  const last = (cs ?? [])[0] as { character_id: string | null; digest: string | null } | undefined;
+  let who = last?.character_id ?? null;
+  if (!who || !ONGOING_POOL[who]) {
+    const { data: uc } = await db.from("user_character").select("character_id, favor")
+      .eq("user_id", uid).order("favor", { ascending: false }).limit(1);
+    who = ((uc ?? [])[0] as { character_id: string } | undefined)?.character_id ?? "daoshi_m";
+    if (!ONGOING_POOL[who]) who = "daoshi_m";
+  }
+  const digest = String(last?.digest ?? "").trim().replace(/[。．.]+$/, "").slice(0, 40);
+  const pool = digest ? ONGOING_POOL[who].prior : ONGOING_POOL[who].plain;
+  const body = fillLine(pickLine(pool, `ongoing:${t.id}:${taipeiToday()}`),
+    { title: t.title, subject: t.subject ?? t.title, digest });
+  return ok({ mention: { kind: "ongoing", note_id: null, thread_id: t.id, character_id: who, title: t.title, body } });
+}
+
+/* ═══════════════ 角色把心事放在心上（六六 2026-09-24）═══════════════
+ *
+ * 心事原本只活在心跡那一頁：談心看不到、解卦也看不到，擴充額度只買到「手帳多幾條線」。
+ * 這兩支把它接進角色的視野——在記幾件事，就等於他們同時把幾件你的事放在心上。
+ *
+ * 【封頂】一件心事塞再多卦，給模型的都是固定份量：
+ *   談心：至多 5 件、每件一行（事由＋卦數＋最近一卦的一句話＋應期狀態）
+ *   解卦：這條線最近 3 卦各一行，更早的壓成一行統計
+ * 用的是 digest（寫卦時就存好的一句話結論），不是整段批文。零 AI、各兩次查詢。
+ */
+const VERDICT_TXT: Record<number, string> = { 1: "準", 2: "部分準", 3: "不準" };
+const fbVerdict = (f: unknown): number | null => {
+  const x = Array.isArray(f) ? f[0] : f;
+  return (x as { verdict: number | null } | null)?.verdict ?? null;
+};
+
+/** 談心用：他在記的心事，每件一行。沒有就回空字串。 */
+export async function threadsBrief(db: SupabaseClient, uid: string): Promise<string> {
+  const { data: ts } = await db.from("threads").select("id, title")
+    .eq("user_id", uid).eq("status", "open")
+    .order("last_cast_at", { ascending: false, nullsFirst: false }).limit(5);
+  const threads = (ts ?? []) as { id: string; title: string }[];
+  if (!threads.length) return "";
+  const { data: cs } = await db.from("casts")
+    .select("thread_id, gua_ben, digest, due_date, created_at, feedback(verdict)")
+    .in("thread_id", threads.map((t) => t.id)).order("created_at", { ascending: false }).limit(200);
+  const today = taipeiToday();
+  const agg = new Map<string, { n: number; last: Record<string, unknown> | null }>();
+  for (const c of (cs ?? []) as Record<string, unknown>[]) {
+    const k = String(c.thread_id);
+    const a = agg.get(k) ?? { n: 0, last: null };
+    a.n++; if (!a.last) a.last = c;
+    agg.set(k, a);
+  }
+  return threads.map((t) => {
+    const a = agg.get(t.id), last = a?.last;
+    if (!last) return `・〈${t.title}〉：記下了，還沒起卦`;
+    const digest = last.digest ? `：${String(last.digest).slice(0, 40)}` : "";
+    const due = last.due_date ? String(last.due_date) : "";
+    const v = fbVerdict(last.feedback);
+    const dueTxt = !due ? "" : v != null ? `；應期 ${due}，他回報「${VERDICT_TXT[v] ?? "已回報"}」`
+      : due <= today ? `；應期 ${due} 已過，他還沒說後來怎樣` : `；應期 ${due}`;
+    return `・〈${t.title}〉：問過 ${a!.n} 卦，最近一卦${digest}${dueTxt}`;
+  }).join("\n");
+}
+
+/** 解卦用：這條線的前情。最近 3 卦各一行，更早的壓成一行統計。沒有前卦回空字串。 */
+export async function threadPrior(db: SupabaseClient, uid: string, threadId: string): Promise<string> {
+  const { data: t } = await db.from("threads").select("title")
+    .eq("id", threadId).eq("user_id", uid).maybeSingle();
+  if (!t) return "";
+  const { data: cs } = await db.from("casts")
+    .select("question, digest, due_date, created_at, feedback(verdict)")
+    .eq("user_id", uid).eq("thread_id", threadId).order("created_at", { ascending: false }).limit(200);
+  const casts = (cs ?? []) as Record<string, unknown>[];
+  if (!casts.length) return "";
+  const line = (c: Record<string, unknown>) => {
+    const v = fbVerdict(c.feedback);
+    return `・${String(c.created_at).slice(0, 10)} 問「${String(c.question ?? "").slice(0, 24)}」` +
+      `${c.digest ? `→ ${String(c.digest).slice(0, 50)}` : ""}` +
+      `${c.due_date ? `；應期 ${c.due_date}` : ""}${v != null ? `；他回報「${VERDICT_TXT[v] ?? "已回報"}」` : ""}`;
+  };
+  const recent = casts.slice(0, 3).map(line);
+  const older = casts.slice(3);
+  if (older.length) {
+    const cnt = { 1: 0, 2: 0, 3: 0, none: 0 } as Record<string, number>;
+    for (const c of older) { const v = fbVerdict(c.feedback); cnt[v != null ? String(v) : "none"]++; }
+    recent.push(`・更早還有 ${older.length} 卦（準 ${cnt["1"]}、部分準 ${cnt["2"]}、不準 ${cnt["3"]}、未回報 ${cnt.none}）`);
+  }
+  return `這件事他記作〈${(t as { title: string }).title}〉：\n${recent.join("\n")}`;
 }
 
 /** 把一張散卦歸到既有的線上 */

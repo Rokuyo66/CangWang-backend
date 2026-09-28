@@ -48,6 +48,7 @@
 | `xinji_close` | `thread_id`, `close`（預設 true） | `{thread_id, status}` |
 | `xinji_delete` | `thread_id` | `{thread_id, deleted}` |
 | `xinji_suggest` | `question` | `{thread}`（null＝沒有對應的線） |
+| `hall_mention` | — | `{mention}`：觀堂置頂那一句。`mention.kind`＝`due_passed`／`gone_quiet`／`closed`（待說的心跡留言，帶 `note_id`）或 `ongoing`（在記的心事，句庫＋上回 digest）；`character_id`、`thread_id`、`title`、`body`。`null`＝沒有心事，前端退回閒聊最後一句。零 AI |
 | `xinji_after_cast` | `cast_id` | `{show, title, thread, related[], open, max, can_add, fallback}`。一卦問完出的那張卡：`show:false`＝日運或已在線上；`thread`＝在記的線有這件事（問要不要接上）；`related`＝近 60 天相近的散卦（至多 5，問要不要一起接成一件）；都沒有＝問要不要記成新的一件。零 AI |
 | `xinji_note_reply` | `note_id` | `{character_id, thread_id, prefill}` |
 | `xinji_note_read` | `note_ids[]` | `{read}` |
@@ -654,3 +655,16 @@ await apiInterpret({ mode: "cast", question: draft, thread_id: thread.id, /* …
 **貼紙的圖不在後端。** `asset` 只是鍵，圖是前端資產。所以出新貼紙包＝
 前端加圖 ＋ 後端 insert 幾列，兩邊都要動——這是刻意的，圖進資料庫的話
 每改一張圖就要跑一次 migration。
+
+## 角色把心事放在心上（2026-09-24）
+
+前端不用改，後端 deploy interpret 即生效。
+
+- **談心**：`buildContext` 多讀 `xinji.threadsBrief`——他在記的心事至多 5 件、每件一行
+  （事由、卦數、最近一卦的 digest、應期狀態），放進系統提示的 tail（快取斷點之後）。
+  角色被要求「相關或應期到了才提、一次一件、不念清單」。
+- **解卦**：起卦帶 `thread_id` 時，pipeline 多讀 `xinji.threadPrior`——這條線最近 3 卦各一行，
+  更早的壓成一行統計（準／部分準／不準／未回報各幾卦），以 `【這件事之前問過】` 交給解卦。
+  要求「依本卦盤面論斷、不因前卦改判，可帶一句與上回的對照」。
+- **封頂**：一件心事塞再多卦，份量都固定（實測 12 卦 → 前情 275 字，100 卦同樣份量）。
+  用 digest 不用整段批文。零 AI、各兩次查詢；讀不到就當沒有，不擋回覆。

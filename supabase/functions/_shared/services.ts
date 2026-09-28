@@ -147,6 +147,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   yong?: { qin: string; viaShi?: boolean; viaYing?: boolean; pos?: number | null };
   fortune?: { tierLabel: string; qian: Qian; jieqiLine: string }; // 日運卦：等第與籤由程式算定後傳入
   monthly?: { ym: string };   // 月誌卷首語：chartText 位置改放該月紀錄摘要（見 xinji.statsDigest）
+  prior?: string;           // cast 專用：同一件心事的前情（xinji.threadPrior，已封頂）
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，讓模型從斷點續寫（Claude 走多輪、KIMI 走 partial 預填）
 }) {
   const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
@@ -207,7 +208,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
           `卦頭：${opts.fortune.qian.allusion}\n\n` +
           `此籤是依上述等第自同等第籤池取出，與卦象同向。請依規則寫今日運勢：只取詩的意境，不得照字面談婚姻／官司／疾病／科舉，不給應期、不預測具體事件，150字內。`,
       }]
-    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
+    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}${opts.prior ? `\n\n【這件事之前問過】\n${opts.prior}\n前情只供參照：本卦一律依本卦盤面論斷，不得因前卦結論而改判；正文可自然帶一句與上回的對照（例如上回怎麼說、他回報準不準、這回看法有何不同），不逐卦複述，前情裡的日期可提、卦名與術語同樣不得出現在正文。` : ""}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
 
   // 接續補完：半成品作為模型自己上一輪的輸出放進對話，模型從斷點直接續寫（不重解、不另起新論）。
   // Claude 自 4.6 起不接受 assistant 預填（最後一則是 assistant 會回 400），所以 Claude 走多輪：

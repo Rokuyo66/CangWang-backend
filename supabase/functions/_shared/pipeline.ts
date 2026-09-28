@@ -8,6 +8,7 @@ import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
+import { threadPrior } from "./xinji.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -162,9 +163,13 @@ export async function castAndInterpret(db: SupabaseClient, p: {
 
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
   const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
-  const ai = await callInterpret(ch!.persona_prompt, ctext, askedQin
-    ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } }
-    : {});
+  // 心跡：這一卦掛在某件心事上，解卦的人要記得這件事之前問過什麼、準不準（已封頂，見 threadPrior）。
+  // 前情讀不到不擋解卦——那是加分項。
+  const prior = threadId ? await threadPrior(db, p.userId, threadId).catch((e) => { console.error("threadPrior failed", e); return ""; }) : "";
+  const ai = await callInterpret(ch!.persona_prompt, ctext, {
+    ...(askedQin ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } } : {}),
+    ...(prior ? { prior } : {}),
+  });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
   // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。

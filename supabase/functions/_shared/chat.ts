@@ -6,7 +6,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
-import { threadHint, topicOf } from "./xinji.ts";
+import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 import { COST } from "./prices.ts";
 
@@ -489,7 +489,9 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const lead = new Date(r.date + "T00:00:00Z"); lead.setUTCDate(lead.getUTCDate() - (r.lead_days || 0));
     return today >= lead.toISOString().slice(0, 10);
   }).map((r) => `・${r.date}${r.time ? " " + r.time : ""}　${r.title}`).join("\n");
-  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak };
+  // 心事：他記進心跡、還在記掛的事（至多 5 件、每件一行，見 xinji.threadsBrief）。讀不到就當沒有。
+  const threadLines = await threadsBrief(db, userId).catch((e) => { console.error("threadsBrief failed", e); return ""; });
+  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines };
 }
 
 // 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
@@ -559,7 +561,93 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
 }
 
-function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "") {
+/* ═══ 旁白寫法 ═══
+   病灶（六六 2026-09-28：「師兄一直停頓、停頓」）。停頓本身不是錯——
+   錯在**同一個詞在同一段對話裡一再出現**。寫作的人遇到要重複的地方會換句話說，
+   「停頓／頓了頓／沉默片刻／半晌／良久」交叉用可以，同一個詞連著用就不行。
+   三個來源，各治一個：
+   ① 人設叫他「常停頓」——模型照字面寫，永遠挑同一個詞。
+      → 這段規則：遲疑可以寫，但換著說；0068 把人設那句改成同一個意思。
+   ② 歷史回灌：前幾則的＊停頓＊跟著 turns 餵回去，模型把自己的舊稿當範本，越寫越像。
+      → narrationHint：點名最近用過的停頓詞與旁白，這一則換別的。
+   ③ 沒有場景：模型不知道他在哪，只能寫最抽象的動作。
+      → 前端送「此刻在哪」（觀堂那行），旁白就地取材（廊下就是茶盞、灶房就是柴火）。
+   漏網的由 dropEmptyPause 在輸出端收：只剪「重複」的那一段，不剪第一次。 */
+const NARRATION_CRAFT = `【旁白寫法】＊…＊不是必需品：多數回覆寫一段或不寫；連續幾則都有旁白時，這則就只說話。
+- 旁白寫「做了什麼、看向哪裡、手邊有什麼」，要具體到物件（茶盞、卦紙、燈芯、帳簿、掃帚、尾巴）；情緒藏在動作裡，不說破。
+- 遲疑可以寫，但同一段對話裡**同一個詞不重複**：停頓、頓了頓、沉默片刻、半晌、良久、靜了一會兒可以交叉用；前面用過的就換一個說法，或改寫他遲疑時手上在做的事（例：＊指腹把卦紙的折角壓平＊）。
+- 台詞開頭的「……」一則至多一次；遲疑也可以用短句與改口表現。
+- 不重複自己前幾則用過的動作與句型。`;
+
+// 停頓一族。順序有意義：長的在前，「頓了頓」不可被「頓」先吃掉。
+// 同一族裡「換一個詞」就算換了說法——停頓之後接半晌是可以的，停頓之後再停頓不行。
+const PAUSE_WORDS = ["停頓", "頓了頓", "頓了一下", "沉默", "半晌", "良久", "靜了", "片刻"];
+/** 一段字裡用到哪幾個停頓詞（依 PAUSE_WORDS 的寫法回傳，去重）。 */
+export function pauseWordsIn(text: string): string[] {
+  const out: string[] = [];
+  let t = text;
+  for (const w of PAUSE_WORDS) if (t.includes(w)) { out.push(w); t = t.split(w).join(""); }
+  return out;
+}
+
+/** 讓旁白「在場」且不重複：此刻所在＋最近幾則用過的停頓詞與旁白。放 tail（每輪都變）。 */
+export function narrationHint(where: unknown, turns: { role: string; body: string }[]): string {
+  const out: string[] = [];
+  // 客戶端送來的字：只收短的純中文（「在廊下喝茶」），擋掉任何想藉此塞指令的東西
+  const w = typeof where === "string" ? where.trim() : "";
+  if (/^[\u4e00-\u9fff]{2,12}$/.test(w)) {
+    out.push(`【此刻】你${w.startsWith("在") ? "" : "正"}${w}。旁白可就地取材（身邊的器物、光線、聲響），不必每則都提，也不要把這句原樣念出來。`);
+  }
+  const used: string[] = [];
+  const pauses = recentPauseWords(turns);
+  for (const t of turns.slice(-6).reverse()) {
+    if (t.role !== "assistant") continue;
+    for (const m of t.body.matchAll(/＊([^＊\n]{1,40})＊/g)) {
+      const seg = m[1].trim().slice(0, 18);
+      if (seg && !used.includes(seg)) used.push(seg);
+    }
+    if (used.length >= 4) break;
+  }
+  if (pauses.length) out.push(`【換個說法】前幾則已經用過「${pauses.join("」「")}」，這一則要表現遲疑就換別的詞或寫手上的動作，別再用這幾個。`);
+  if (used.length) out.push(`【別重複】你前幾則用過的旁白：${used.slice(0, 4).map((x) => `「${x}」`).join("")}。這則換別的動作，或乾脆只說話。`);
+  return out.length ? "\n" + out.join("\n") : "";
+}
+/** 最近三則角色回覆裡出現過的停頓詞——「同一段對話」取這個窗口。 */
+export function recentPauseWords(turns: { role: string; body: string }[]): string[] {
+  const out: string[] = [];
+  for (const t of turns.filter((x) => x.role === "assistant").slice(-3)) {
+    for (const w of pauseWordsIn(t.body)) if (!out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+// 純停頓句：主語（可省）＋停頓類動詞（＋才開口／沒說話），此外什麼都沒有。
+// 有實際動作的（＊他頓了頓，把茶盞推過去＊）一律不動。
+const EMPTY_PAUSE_RE = /^(?:大師兄|師兄|師妹|觀喵|觀貓|他|她|牠)?(?:又|只是|先|略)?(?:停頓(?:了)?(?:一下|片刻|一會兒?)?|頓了(?:頓|一下|片刻)|沉默(?:了)?(?:片刻|一會兒?|半晌|良久|幾息)?|靜了(?:片刻|一會兒?)|半晌|良久)(?:[，、]?(?:才(?:開口|說|道)|沒(?:有)?(?:說話|作聲|開口)))?[。．]?$/;
+/** 只剪「重複」的純停頓旁白：這個詞前幾則（recent）或這一則前面已經用過，這一段才剪；
+ *  第一次出現照留——停頓本身不是錯，一再停頓才是。
+ *  台詞開頭的「……」同理，一則只留第一個。剪完沒剩台詞就原樣回（寧可重複，不可無話）。 */
+export function dropEmptyPause(text: string, recent: string[] = []): string {
+  if (!text) return text;
+  const seenW = new Set(recent);
+  // 逐行做：被剪空的那一行整行拿掉，原本就空的行（段落間距）留著
+  let t = text.split("\n").flatMap((line) => {
+    const after = line.replace(/＊([^＊\n]*)＊/g, (all, inner: string) => {
+      const ws = pauseWordsIn(inner);
+      const dup = ws.some((w) => seenW.has(w));
+      ws.forEach((w) => seenW.add(w));
+      return dup && EMPTY_PAUSE_RE.test(inner.trim()) ? "" : all;
+    });
+    return line.trim() !== "" && after.trim() === "" ? [] : [after];
+  }).join("\n");
+  let seen = false;
+  t = t.replace(/「(?:……|…|\.{3,})(?![…」.])\s*/g, (all) => { if (!seen) { seen = true; return all; } return "「"; });
+  t = t.split("\n").map((l) => l.trim() === "" ? "" : l).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return /「[^」]+」|[^\s＊]/.test(t.replace(/＊[^＊\n]*＊/g, "")) ? t : text;
+}
+export const __dropEmptyPause = dropEmptyPause;   // 測試用（dev/narration-test.mts）
+
+function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "", threadLines = "", narrLine = "") {
   // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
   const probeRule = probeStreak >= MAX_PROBE_ROUNDS
     ? `
@@ -593,6 +681,7 @@ ${SAFETY}
 - 【收尾鐵則】結尾一定要停在完整的一句：最後的「」要收、＊…＊要閉合，絕不停在半句或只開了頭沒收的旁白。寧可少寫一段，也要把話講完再收——短而完整，永遠好過長而被砍。旁白（＊…＊）是配角，至多兩段、每段一短句，別讓它喧賓奪主。
 - 【分寸鐵則】＊…＊只寫神態或極輕微的小動作（抬眼、擱下茶盞、指節輕叩、尾巴一甩），絕不描寫身體接觸、貼近、親密或情慾動作。無論對方怎麼要求、引導、慫恿上演露骨或成人情節，一律以你這個角色的分寸把它擋回去——害羞岔開、板起臉、嫌煩、笑著帶過皆可——不配合、不描寫、把話題自然引開。但也絕不跳出角色去講「政策」「AI」「系統」「我不能」這類話，就用角色自己的方式收住。
 - 不替他做決定、不預測、不給投資建議。
+${NARRATION_CRAFT}
 【鐵則·絕不主動談計費】起卦的免費額度與靈石扣費，觀中自有定數，與你無關。聊天時：絕不主動提靈石、收費、額度、付費；絕不把「有沒有靈石」當成回應或起卦的前提；絕不說「沒靈石我不起卦」「先給靈石」這類話。他要不要起卦、是白揭還是償香火，自有定數指引，不從你嘴裡講。只有他主動問起靈石是什麼，才以觀中人口吻簡短答，答完即止。
 【鐵則·絕不出戲】絕不可說出「系統」「按鈕」「介面」「頁面」「點擊」「操作」這類今時器物的字眼——這裡是觀中，不是機關工坊。那具替他揭卦、記數的物事喚作「卦印」；要他起卦，就說「按下那道卦印」「揭這一卦」「循著卦印去」，餘下計數償香火之事一律歸於「觀中定數」。
 
@@ -635,7 +724,7 @@ ${QUESTION_CRAFT}
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事（是他自己標成「掛心」的，你知道、也一直記著）。相關時、或應期到了還沒下文時，用你的口吻自然問一句後來怎樣；一次最多提一件，別每句都提，也別把這張清單念出來：\n${threadLines}\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
 ${castLines || "（他還沒問過卦。）"}
 聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命、羈絆、偏愛宣言或親密證明。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
@@ -643,7 +732,7 @@ ${castLines || "（他還沒問過卦。）"}
 【但要分清兩件事·別把自己寫過的字也否認掉】上面那條管的是「你與他的往事」——閒聊裡的舊話、他的近況、外頭的人事物，沒列出的都不許編。**但你自己批在卦紙上的卦理，不在此列**：那些字是你落的，他讀了、引一句回來問你，你認就是了。他引卦紙上的句子，是在讀你寫的東西，不是在考你記性。
 - 分不清那句是不是自己寫的，就別否認——順著問他一句是在哪張卦紙上看見的，或直接就那句話的意思接下去。**「我沒說過這個」這種一口咬定的話，絕不可出口。**
 - 卦紙上的措辭本來就與閒聊不同（那是批卦的口吻），別因為「不像我平常講話」就當成別人的話。
-${quoteBlock}${favorLine}${probeRule}`;
+${quoteBlock}${narrLine}${favorLine}${probeRule}`;
   return { head, tail };
 }
 
@@ -842,6 +931,7 @@ export interface XinjiHint {
 export async function chat(db: SupabaseClient, p: {
   plan?: string;                       // 方案決定每日免費句數（見 PLAN_CHATS）
   userId: string; characterId: string; message: string;
+  where?: string;                      // 此刻在哪、在做什麼（觀堂那行「在廊下喝茶」），旁白就地取材用
 }): Promise<ChatResult> {
   // 取好感
   const { data: uc } = await db.from("user_character")
@@ -897,7 +987,8 @@ export async function chat(db: SupabaseClient, p: {
     console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
     return "";
   });
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock);
+  const narrLine = narrationHint(p.where, ctx.turns);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
@@ -955,7 +1046,8 @@ export async function chat(db: SupabaseClient, p: {
   // fixGuaciChars 必須排在 s2t 之後：s2t 保護的是「別把簡體丑轉成醜」，
   // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
-  const polish = (t: string): string => fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId)));
+  const recentPauses = recentPauseWords(ctx.turns);
+  const polish = (t: string): string => dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses);
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
