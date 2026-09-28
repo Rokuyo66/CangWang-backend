@@ -275,7 +275,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   userId: string; castId: string; question: string;
 }) {
   const { data: cast } = await db.from("casts")
-    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, yong_via_ying, category")
+    .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, yong_via_ying, category, due_date")
     .eq("id", p.castId).eq("user_id", p.userId).single();
   if (!cast) return { kind: "not_found" as const };
   if (cast.category === FORTUNE_CATEGORY) return { kind: "no_followup" as const };
@@ -300,7 +300,23 @@ export async function followupInterpret(db: SupabaseClient, p: {
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   await db.from("followups").insert({ cast_id: p.castId, question: p.question, answer: ai.reading, paid_lingshi: bill.paid });
   const breakthrough = await addCultivation(db, p.userId, cast.character_id, 10, 2);
-  return { kind: "ok" as const, answer: ai.reading, paid: bill.paid, breakthrough };
+
+  // 追問補應期（六六 2026-09-28）：首解沒給應期、他追問「大概什麼時候」而這一答給出了日期，
+  // 就把它記成這一卦的應期——上卦曆、到期來問準不準，與首解給的應期同一條路。
+  // 首解已有應期則不動：追問的規矩是不推翻首解，應期也一樣，不讓一句追問把回評日挪走。
+  // （日期已在 services 的 followupTagged 驗過格式、且不早於今日）
+  let appendix = "";
+  let due: string | null = null;
+  if (ai.due && !cast.due_date) {
+    const { error: upErr } = await db.from("casts").update({ due_date: ai.due }).eq("id", p.castId).is("due_date", null);
+    if (!upErr) {
+      await db.from("feedback").insert({ cast_id: p.castId, user_id: p.userId, due_date: ai.due });
+      due = ai.due;
+      appendix = `\n\n<i>（此卦應期記在 ${ai.due}，屆時我會來問你準不準——印證過的卦會永久留存。）</i>`;
+    } else console.error("followup due update failed", upErr.message);
+  }
+  // 附語同首解：只加在回傳的答覆上，不寫進 followups（重溫時不重複）
+  return { kind: "ok" as const, answer: ai.reading + appendix, paid: bill.paid, breakthrough, due };
 }
 
 /** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
