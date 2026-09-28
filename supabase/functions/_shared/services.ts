@@ -181,7 +181,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   const messages = opts.followup
     ? [{
         role: "user",
-        content: `【盤面】\n${chartText}${yongHint}\n\n【你先前的論斷】\n${opts.followup.prevReading}\n\n【追問】\n${opts.followup.question}`,
+        content: `【盤面】\n${chartText}${yongHint}\n\n【今日】${taipeiToday()}\n\n【你先前的論斷】\n${opts.followup.prevReading}\n\n【追問】\n${opts.followup.question}`,
       }]
     : opts.deepen
     ? [{
@@ -340,10 +340,22 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
-    ...(opts.followup || opts.deepen || opts.fortune || opts.monthly ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
+    ...(opts.followup ? followupTagged(reading)
+      : opts.deepen || opts.fortune || opts.monthly ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
     usage, model: usedModel, mode, estimated, stopReason,
   };
 }
+
+/** 追問只帶一個標籤：<due>（追問在問時間、且給了明確日期時才有）。
+ *  剝掉標籤再給人看；日期格式不對或早於今日一律作廢——早於今日的應期無從印證。 */
+function followupTagged(reading: string) {
+  const m = reading.match(/<due>\s*([^<]*?)\s*<\/due>/);
+  const raw = m ? m[1] : "";
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) && raw >= taipeiToday() ? raw : null;
+  return { reading: reading.replace(/<due>[\s\S]*?<\/due>/g, "").trim(), suggested: [], due, category: null, digest: null, yong: null };
+}
+
+export const __followupTagged = followupTagged;   // 測試用（dev/followup-due-test.mts）
 
 /** 每次 Claude 呼叫記一筆用量（失敗不阻斷主流程） */
 export async function logUsage(db: SupabaseClient, p: {
