@@ -179,6 +179,7 @@ const jsonb = (v) => JSON.parse(JSON.stringify(v));
  *  而 raise 會讓整個 function 回捲——所以扣不動時餘額必須原封不動，
  *  否則測出來的「靈石不足」會是一個已經被扣掉的假餘額。 */
 function rpc(store, name, args) {
+  if (name === "hidden_quest_claim") return hiddenQuestClaim(store, args);
   if (name !== "apply_lingshi") return Promise.resolve({ data: null, error: { message: "unknown rpc: " + name } });
   const prof = (store.profiles ??= []).find((r) => r.id === args.p_user);
   if (!prof) return Promise.resolve({ data: null, error: { message: "no such user" } });
@@ -187,6 +188,21 @@ function rpc(store, name, args) {
   prof.lingshi = next;
   (store.ledger ??= []).push({ id: uid(), user_id: args.p_user, action: args.p_action, amount: args.p_amount, ref_id: args.p_ref ?? null, created_at: iso() });
   return Promise.resolve({ data: next, error: null });
+}
+
+/** 照 0069 的語意：主鍵 (user_id, quest_id) 擋第二次，寫得進去才寄信（mail 一列，夾 lingshi）。 */
+function hiddenQuestClaim(store, { p_user, p_quest }) {
+  const q = (store.hidden_quests ??= []).find((r) => r.id === p_quest && r.active !== false);
+  if (!q) return Promise.resolve({ data: { ok: false, reason: "no_quest" }, error: null });
+  const found = (store.hidden_found ??= []);
+  if (found.some((r) => r.user_id === p_user && r.quest_id === p_quest)) {
+    return Promise.resolve({ data: { ok: false, reason: "already" }, error: null });
+  }
+  const mail_id = uid();
+  (store.mail ??= []).push({ id: mail_id, user_id: p_user, kind: "character", character_id: q.character_id,
+    subject: q.mail_subject, body: q.mail_body, lingshi: q.lingshi ?? 8, ref_kind: "hidden_quest", created_at: iso() });
+  found.push({ user_id: p_user, quest_id: p_quest, mail_id, found_at: iso() });
+  return Promise.resolve({ data: { ok: true, mail_id, lingshi: q.lingshi ?? 8 }, error: null });
 }
 
 /** Storage 的最小替身：list（用來查快取有沒有命中）、upload、getPublicUrl。

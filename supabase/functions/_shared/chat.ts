@@ -1,5 +1,6 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
+import { whereNow, whereHint, tryHiddenFound, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
@@ -904,6 +905,7 @@ export interface ChatResult {
   draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
   xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
   msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
+  found?: { questId: string; mailId: string | null; lingshi: number } | null;  // 這一句剛好撞見隱藏支線（寄了信）
 }
 
 /** 擬完題那一刻，心跡那邊是什麼狀況。零 AI——查詢與字串比對而已。
@@ -987,7 +989,12 @@ export async function chat(db: SupabaseClient, p: {
     console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
     return "";
   });
-  const narrLine = narrationHint(p.where, ctx.turns);
+  // 此刻在哪：伺服器抽（whereabouts.ts），不信前端送來的——隱藏支線要靠它判。
+  // 抽不到（舊資料庫還沒有 hidden_quests 表之類）才退回前端那行字。
+  let where: Where | null = null;
+  try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
+  const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "");
   const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
@@ -1138,8 +1145,16 @@ export async function chat(db: SupabaseClient, p: {
     }
   }
 
+  // 隱藏支線：他此刻在那一處、你這句問到了那件事 → 寄信（每人每條一次，判重在資料庫）。
+  // 罐頭回覆不算：那一句不是他在回你，是觀裡替他擋掉的。
+  let found: ChatResult["found"] = null;
+  if (tier !== "canned") {
+    try { found = await tryHiddenFound(db, p.userId, where, p.message); }
+    catch (e) { console.error("hidden found failed, skip", e); }
+  }
+
   return {
     reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
-    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId,
+    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId, found,
   };
 }
