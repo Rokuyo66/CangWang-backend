@@ -11,7 +11,7 @@
 // 跑法：node dev/narration-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { __normalizeNarration: norm, __dropEmptyPause: dp, narrationHint } = await import("../supabase/functions/_shared/chat.ts");
+const { __normalizeNarration: norm, __dropEmptyPause: dp, narrationHint, gapText } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const t = (name: string, fn: () => void) =>
@@ -82,8 +82,16 @@ await t("前幾則用停頓、這則換半晌：照留", () =>
 await t("同一則裡兩次沉默：第二段剪", () =>
   eq(dp("＊他沉默片刻＊\n「記得。」\n＊他沉默了一會兒＊\n「上次那卦。」"), "＊他沉默片刻＊\n「記得。」\n「上次那卦。」", "一則之內也算"));
 
-await t("停頓＋實際動作：重複也不剪（有東西可看）", () =>
-  eq(dp("＊他頓了頓，把茶盞推過去＊\n「喝。」", ["頓了頓"]), "＊他頓了頓，把茶盞推過去＊\n「喝。」", "只剪純停頓"));
+await t("停頓＋實際動作、詞重複：剪掉「頓了頓，」留動作", () =>
+  eq(dp("＊他頓了頓，把茶盞推過去＊\n「喝。」", ["頓了頓"]), "＊把茶盞推過去＊\n「喝。」", "留動作"));
+
+await t("回報原稿：四段「停頓，…」→ 第一段停頓照留、之後剪開頭、第三段起拿掉", () => {
+  const src = "＊大師兄抬眼看了你一下＊\n\n＊停頓，他的指尖在卦紙上停住了＊\n\n「時機還沒到。」\n\n＊停頓，他看著你＊\n\n「入冬前後。設計師進場。」\n\n＊停頓，他的聲音變得很低＊\n\n「應期是十一月七號。」";
+  const out = dp(src);
+  eq((out.match(/停頓/g) || []).length, 1, "停頓只剩一次");
+  eq((out.match(/＊/g) || []).length / 2, 2, "旁白至多兩段");
+  eq(out.includes("「應期是十一月七號。」") && out.includes("「入冬前後。設計師進場。」"), true, "台詞一句不少");
+});
 
 await t("整則只有重複的停頓：寧可留著也不回空白", () =>
   eq(dp("＊大師兄沉默良久＊", ["沉默"]), "＊大師兄沉默良久＊", "原樣"));
@@ -107,6 +115,15 @@ await t("換個說法：點名最近用過的停頓詞，別重複：列旁白",
   ]);
   eq(h.includes("「停頓」「半晌」") || h.includes("「半晌」「停頓」"), true, "停頓詞都點到");
   eq(h.includes("「指腹壓住卦紙，半晌才鬆開」「大師兄停頓了一下」"), true, "新的在前");
+});
+
+
+console.log("\n時間感\n");
+await t("隔多久的說法", () => {
+  eq(gapText(4 * 3600e3), "4 小時", "小時");
+  eq(gapText(20 * 3600e3), "一晚", "一晚");
+  eq(gapText(3 * 86400e3), "三天", "天");
+  eq(gapText(40 * 86400e3), "一個多月", "月");
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);

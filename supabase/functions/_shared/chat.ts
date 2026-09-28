@@ -1,5 +1,6 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
+import { whereNow, whereHint, tryHiddenFound, sinceDoings, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
@@ -426,6 +427,23 @@ async function quotedFromReadings(db: SupabaseClient, userId: string, characterI
 那張卦紙你看得見，所以絕不可裝作不知情；但也**不可認作自己說的**——要提就說明白那是誰寫的。可以就這句給一句你自己的看法，但不重解此卦，要細究請他去揭追問或換人評卦。\n`;
 }
 
+/* ═══ 時間感 ═══
+   回報（六六 2026-09-28）：隔了一晚甚至幾天，開新話題時他還繞回前一句，像時間停住了——
+   他只在你上線時活著。原因：回灌的歷史沒有時間，模型看到的就是「剛剛才說完那句」。
+   治法兩個：① 歷史裡隔很久的那一句前面標「（兩天之後）」；
+            ② 提示詞告訴他上次是多久以前、這段時間他自己過了什麼日子（whereabouts 往回抽幾格）。 */
+const GAP_MARK_MS = 3 * 3600_000;        // 隔三小時以上就算「另一場」
+export function gapText(ms: number): string {
+  const h = ms / 3600_000;
+  if (h < 1) return "一會兒";
+  if (h < 12) return `${Math.round(h)} 小時`;
+  const d = Math.round(h / 24);
+  if (d <= 1) return "一晚";
+  if (d < 7) return `${["", "一", "兩", "三", "四", "五", "六"][d]}天`;
+  if (d < 30) return `${Math.round(d / 7) <= 1 ? "一個多禮拜" : Math.round(d / 7) + " 個禮拜"}`;
+  return "一個多月";
+}
+
 async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
@@ -463,10 +481,21 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     console.error("character_memories 讀取失敗，退回 memory_summary", e);
   }
   const { data: history } = await db.from("chat_messages")
-    .select("role, body").eq("user_id", userId).eq("character_id", characterId)
+    .select("role, body, created_at").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
-  const turns = (history ?? []).reverse()
-    .map((t) => t.role === "assistant" ? { ...t, body: normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId) || "（……）" } : t);
+  const hist = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
+  // 最後一次說話的時間：隔太久的話，提示詞裡會說「那已經是昨天的事」（見 timeGapHint）
+  const lastAt = hist.length ? hist[hist.length - 1].created_at ?? null : null;
+  // 舊稿回灌前先照新規則收拾一遍：模型會把自己的舊回覆當範本——舊稿滿是「停頓，」，新稿就跟著寫。
+  // 兩則之間隔了很久的，在那一句前面標出來，模型才分得出哪些話是同一場、哪些是好幾天前的。
+  const turns = hist.map((t, i) => {
+    const prevAt = i > 0 ? hist[i - 1].created_at : null;
+    const gap = t.created_at && prevAt ? Date.parse(t.created_at) - Date.parse(prevAt) : 0;
+    if (t.role === "assistant") {
+      return { role: t.role, body: dropEmptyPause(normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId)) || "（……）" };
+    }
+    return { role: t.role, body: gap >= GAP_MARK_MS ? `（${gapText(gap)}之後）${t.body}` : t.body };
+  });
   // 確保歷史以 assistant 回覆結尾（若最後一則是 user，去掉它，避免新訊息與它黏成「回上一句」）
   while (turns.length && turns[turns.length - 1].role === "user") turns.pop();
   // 連續探詢輪次：由最近一則助理回覆往前數 mark='probe' 的連續段（撞到非探詢即停）。
@@ -491,7 +520,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   }).map((r) => `・${r.date}${r.time ? " " + r.time : ""}　${r.title}`).join("\n");
   // 心事：他記進心跡、還在記掛的事（至多 5 件、每件一行，見 xinji.threadsBrief）。讀不到就當沒有。
   const threadLines = await threadsBrief(db, userId).catch((e) => { console.error("threadsBrief failed", e); return ""; });
-  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines };
+  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt };
 }
 
 // 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
@@ -621,22 +650,52 @@ export function recentPauseWords(turns: { role: string; body: string }[]): strin
   return out;
 }
 
-// 純停頓句：主語（可省）＋停頓類動詞（＋才開口／沒說話），此外什麼都沒有。
-// 有實際動作的（＊他頓了頓，把茶盞推過去＊）一律不動。
-const EMPTY_PAUSE_RE = /^(?:大師兄|師兄|師妹|觀喵|觀貓|他|她|牠)?(?:又|只是|先|略)?(?:停頓(?:了)?(?:一下|片刻|一會兒?)?|頓了(?:頓|一下|片刻)|沉默(?:了)?(?:片刻|一會兒?|半晌|良久|幾息)?|靜了(?:片刻|一會兒?)|半晌|良久)(?:[，、]?(?:才(?:開口|說|道)|沒(?:有)?(?:說話|作聲|開口)))?[。．]?$/;
-/** 只剪「重複」的純停頓旁白：這個詞前幾則（recent）或這一則前面已經用過，這一段才剪；
- *  第一次出現照留——停頓本身不是錯，一再停頓才是。
- *  台詞開頭的「……」同理，一則只留第一個。剪完沒剩台詞就原樣回（寧可重複，不可無話）。 */
+/** 上次說話是多久以前；隔得夠久就交代「那是之前的事」與這段時間他在做什麼。 */
+export async function timeGapHint(db: SupabaseClient, uid: string, charId: string, lastAt: string | null, now = Date.now()): Promise<string> {
+  if (!lastAt) return "";
+  const gap = now - Date.parse(lastAt);
+  if (!(gap >= GAP_MARK_MS)) return "";
+  const did = await sinceDoings(db, uid, charId, Date.parse(lastAt), now).catch(() => [] as string[]);
+  return `\n【時間】你們上次說話是${gapText(gap)}以前的事了。那場對話已經過去：他這次開什麼話題就接什麼，`
+    + `別主動把話繞回上次聊到一半的事（他自己提起才接）。可以像久未見面的人那樣自然帶一句。`
+    + (did.length ? `這段時間你照常過日子：${did.join("、")}——想提就挑一件輕描淡寫，不必交代行程。` : "");
+}
+
+// 停頓類的詞（主語可省），後面可接「才開口／沒說話」。
+const PAUSE_CORE = String.raw`(?:大師兄|師兄|師妹|觀喵|觀貓|他|她|牠)?(?:又|只是|先|略)?(?:停頓(?:了)?(?:一下|片刻|一會兒?)?|頓了(?:頓|一下|片刻)|沉默(?:了)?(?:片刻|一會兒?|半晌|良久|幾息)?|靜了(?:片刻|一會兒?)|半晌|良久)`;
+// 整段只有停頓：＊他沉默片刻＊、＊停頓了一下，才開口＊
+const EMPTY_PAUSE_RE = new RegExp(`^${PAUSE_CORE}(?:[，、]?(?:才(?:開口|說|道)|沒(?:有)?(?:說話|作聲|開口)))?[。．]?$`);
+// 停頓當開頭、後面接動作：＊停頓，他的指尖在卦紙上停住了＊ → 剪掉「停頓，」留動作
+const PAUSE_LEAD_RE = new RegExp(`^${PAUSE_CORE}[，、,]\\s*`);
+/** 一則最多幾段旁白（聊天分寸那段寫的是「至多兩段」）。多的從第三段起拿掉，台詞一句不動。 */
+const MAX_NARR = 2;
+
+/** 旁白收拾（六六 2026-09-28 兩次回報：師兄「停頓、停頓」）：
+ *  ① 停頓詞可以用，同一段對話裡同一個詞不重複：前幾則（recent）或這一則前面用過的詞，
+ *     再出現時——整段只有停頓就剪掉；「停頓，他看著你」就剪掉「停頓，」留「他看著你」。
+ *     第一次出現照留。
+ *  ② 一則至多 MAX_NARR 段旁白，第三段起拿掉。
+ *  ③ 台詞開頭的「……」一則只留第一個。
+ *  剪完沒剩台詞就原樣回（寧可重複，不可無話）。 */
 export function dropEmptyPause(text: string, recent: string[] = []): string {
   if (!text) return text;
   const seenW = new Set(recent);
+  let narrN = 0;
   // 逐行做：被剪空的那一行整行拿掉，原本就空的行（段落間距）留著
   let t = text.split("\n").flatMap((line) => {
     const after = line.replace(/＊([^＊\n]*)＊/g, (all, inner: string) => {
-      const ws = pauseWordsIn(inner);
+      let body = inner.trim();
+      const ws = pauseWordsIn(body);
       const dup = ws.some((w) => seenW.has(w));
+      if (dup) {
+        if (EMPTY_PAUSE_RE.test(body)) return "";
+        const cut = body.replace(PAUSE_LEAD_RE, "");
+        if (cut !== body && cut.trim()) body = cut.trim();
+      }
+      pauseWordsIn(body).forEach((w) => seenW.add(w));
       ws.forEach((w) => seenW.add(w));
-      return dup && EMPTY_PAUSE_RE.test(inner.trim()) ? "" : all;
+      if (++narrN > MAX_NARR) return "";
+      return `＊${body}＊`;
     });
     return line.trim() !== "" && after.trim() === "" ? [] : [after];
   }).join("\n");
@@ -904,6 +963,7 @@ export interface ChatResult {
   draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null; // 擬題同時取定的用神（可直通起卦，省一次彈窗）
   xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
   msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
+  found?: { questId: string; mailId: string | null; lingshi: number } | null;  // 這一句剛好撞見隱藏支線（寄了信）
 }
 
 /** 擬完題那一刻，心跡那邊是什麼狀況。零 AI——查詢與字串比對而已。
@@ -987,7 +1047,13 @@ export async function chat(db: SupabaseClient, p: {
     console.error("quote bridge failed, skip", e);   // 比對只是加分，壞掉不該擋住聊天
     return "";
   });
-  const narrLine = narrationHint(p.where, ctx.turns);
+  // 此刻在哪：伺服器抽（whereabouts.ts），不信前端送來的——隱藏支線要靠它判。
+  // 抽不到（舊資料庫還沒有 hidden_quests 表之類）才退回前端那行字。
+  let where: Where | null = null;
+  try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
+  const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
+    + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
   const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
@@ -1138,8 +1204,16 @@ export async function chat(db: SupabaseClient, p: {
     }
   }
 
+  // 隱藏支線：他此刻在那一處、你這句問到了那件事 → 寄信（每人每條一次，判重在資料庫）。
+  // 罐頭回覆不算：那一句不是他在回你，是觀裡替他擋掉的。
+  let found: ChatResult["found"] = null;
+  if (tier !== "canned") {
+    try { found = await tryHiddenFound(db, p.userId, where, p.message); }
+    catch (e) { console.error("hidden found failed, skip", e); }
+  }
+
   return {
     reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
-    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId,
+    probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId, found,
   };
 }

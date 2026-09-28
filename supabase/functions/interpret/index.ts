@@ -1,6 +1,7 @@
 // interpret/index.ts — HTTP 端點
 //  · 網頁公開層：Authorization: Bearer <Supabase Auth JWT>（瀏覽器用，安全）
 //  · TG/Mini App 後端內部呼叫：x-internal-key（沿用，向後相容）
+import { whereaboutsAll } from "../_shared/whereabouts.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
@@ -931,6 +932,11 @@ async function handle(req: Request): Promise<Response> {
     }
 
     // 觀堂置頂那一句：有心事就讓角色主動提起（零 AI）；null＝前端退回閒聊最後一句
+    // 三人此刻在觀裡哪裡（每兩小時一格、依人抽）。觀堂那行字與談心的背景都照這個
+    if (body.mode === "whereabouts") {
+      return Response.json({ kind: "ok", ...(await whereaboutsAll(db, uid)) }, { headers: CORS });
+    }
+
     if (body.mode === "hall_mention") {
       return caseResult(await hallMention(db, uid));
     }
@@ -1425,6 +1431,7 @@ async function handle(req: Request): Promise<Response> {
         // 確認卡上多一行「先記下這件事」，按了就是 xinji_open，再帶著 thread_id 去起卦。
         xinji: r.xinji,
         msg_id: r.msgId,   // 這一則要朗讀或收藏時指名用（tts / voice_keep 的 chat_id）
+        found: r.found ?? null,   // 剛撞見隱藏支線：信已寄出，前端提示「有你的信」
       }, { headers: CORS });
     }
 
