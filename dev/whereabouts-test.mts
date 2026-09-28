@@ -10,7 +10,7 @@
 
 import { fakeDb } from "./fake-db.mts";
 import {
-  pickWhere, whereaboutsAll, tryHiddenFound, asksAbout, slotOf, bandOf, ROUTINE, PLACES, __resetQuestCache, type Quest,
+  pickWhere, whereaboutsAll, sinceDoings, tryHiddenFound, asksAbout, slotOf, bandOf, ROUTINE, PLACES, __resetQuestCache, type Quest,
 } from "../supabase/functions/_shared/whereabouts.ts";
 
 let pass = 0, fail = 0;
@@ -127,6 +127,17 @@ await t("觀堂那支不透露支線", async () => {
   ok(r.chars.daoshi_m.place === "zaofang", "應在灶房");
   ok(!("quest" in r.chars.daoshi_m) && !JSON.stringify(r).includes("m_zaofang"), "露出支線 id");
   ok(Date.parse(r.endsAt) === at(8), `時格結束應是 8 點，得到 ${r.endsAt}`);
+});
+
+
+await t("隔了一天：這段時間做過的事，至多三件、不重複、不說出支線", async () => {
+  __resetQuestCache();
+  const db = seedDb();
+  for (let i = 0; i < 50; i++) {
+    const d = await sinceDoings(db as never, "s" + i, "daoshi_m", at(20, 0, 27), at(20));
+    ok(d.length >= 1 && d.length <= 3 && new Set(d).size === d.length, `得到 ${d}`);
+    ok(!d.includes("在灶房"), "把支線說出來了");
+  }
 });
 
 await t("時格：台北時間每兩小時", () => {

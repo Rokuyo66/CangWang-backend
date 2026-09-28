@@ -170,3 +170,17 @@ export async function tryHiddenFound(db: SupabaseClient, uid: string, w: Where |
   const r = data as { ok?: boolean; mail_id?: string; lingshi?: number } | null;
   return r?.ok ? { questId: w.quest.id, mailId: r.mail_id ?? null, lingshi: r.lingshi ?? 0 } : null;
 }
+
+/** 上次說話到現在，他照常過的日子：往回每兩小時抽一格，取不重複的至多三件（不含此刻、不含隱藏支線——
+ *  支線是要人撞見的，不能由他自己說出口）。給談心的時間感用，見 chat.ts timeGapHint。 */
+export async function sinceDoings(db: SupabaseClient, uid: string, charId: string, from: number, now = Date.now()): Promise<string[]> {
+  const quests = await activeQuests(db);
+  const out: string[] = [];
+  const cur = pickWhere(uid, charId, quests, now)?.doing;
+  for (let t = now - 2 * 3600_000, n = 0; t > from && n < 24 && out.length < 3; t -= 2 * 3600_000, n++) {
+    const w = pickWhere(uid, charId, quests, t);
+    if (!w || w.quest || w.doing === cur || out.includes(w.doing)) continue;
+    out.push(w.doing);
+  }
+  return out;
+}
