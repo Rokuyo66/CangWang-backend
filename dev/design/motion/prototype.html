@@ -556,6 +556,9 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
         <div class="rule"><b>減少動態</b><p>系統開啟「減少動態」時，待機全停，按壓改成只變暗，轉場改成 120ms 淡入淡出。</p></div>
         <div class="rule"><b>硃砂的動態也保留給行動</b><p>E 強調型只給「這裡有一件事要你處理」的元素用，和硃砂色的規則相同。</p></div>
         <div class="rule"><b>只動 transform 與 opacity</b><p>不動寬高、邊距、模糊半徑，避免掉幀與耗電。</p></div>
+        <div class="rule"><b>凸起面上的字跟著面走</b><p>有厚度的元件，字要對齊「面」而不是整個元件。厚度畫在元件裡面時（例如開關的滑塊，底下那道硬陰影佔掉高度），面上的字上移，距離＝厚度。</p></div>
+        <div class="rule"><b>置中扣掉字距</b><p>letter-spacing 會在最後一個字後面多留一格，字看起來偏左。用同寬的 text-indent 補回去；量字寬來擺滑塊時，也要扣掉那一格。</p></div>
+        <div class="rule"><b>選中標記用滑的</b><p>頁籤、開關的選中狀態不跳色：底線、底塊、滑塊從舊位置滑到新位置，途中拉長蓋住兩格（底線、底塊）或擠扁（開關滑塊），到位時收回。</p></div>
       </div>
     </div>
   </section>
