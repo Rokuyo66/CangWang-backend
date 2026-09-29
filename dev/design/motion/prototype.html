@@ -1,0 +1,804 @@
+<title>幾知觀 動態規範</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：頂部總控列（sticky）＋ 五段規範，每段「左標題／右示範」。
+   色票沿用主站 src/part1.html 的宣紙系；規範頁刻意單一外觀（畫的是 App 本身）。 */
+:root{
+  --paper:#F2EBDA; --paper-2:#FBF6EA; --paper-edge:#E0D4B8; --ground:#E7DFCC;
+  --ink:#221E1A; --ink-soft:#6E6253; --ink-faint:#A89A84;
+  --cinnabar:#B5402E; --cinnabar-edge:#7E2A1E; --gold:#9A7B3F; --gold-edge:#6B5428;
+  --hair:rgba(34,30,26,.14); --shade:rgba(40,28,14,.22);
+  --c-m:#50637F; --c-f:#8A5566;
+  --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --sans:"Noto Sans TC",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+
+  /* ══ 動態 token：整份規範唯一的數字來源 ══ */
+  --k:1;          /* 速度倍率：所有時長 × k */
+  --a:1;          /* 待機幅度倍率 */
+  --d:3.6px;      /* 按壓深度（元件厚度）；元件用 --dk 取比例，不直接覆寫 --d */
+  --ov:1.56;      /* 回彈過衝量 */
+  --tilt:6deg;    /* 按壓傾斜上限 */
+
+  --t-press:  calc(90ms  * var(--k));
+  --t-release:calc(280ms * var(--k));
+  --t-quick:  calc(160ms * var(--k));
+  --t-exit:   calc(220ms * var(--k));
+  --t-enter:  calc(360ms * var(--k));
+  --t-page:   calc(460ms * var(--k));
+  --t-hold:   calc(700ms * var(--k));
+  --stagger:  calc(45ms  * var(--k));
+  --idle-s:   calc(2.4s  * var(--k));
+  --idle-m:   calc(3.7s  * var(--k));
+  --idle-l:   calc(6.1s  * var(--k));
+
+  --e-out:   cubic-bezier(.22,1,.36,1);
+  --e-in:    cubic-bezier(.5,0,.75,0);
+  --e-spring:cubic-bezier(.34,var(--ov),.64,1);
+  --e-breath:cubic-bezier(.45,0,.55,1);
+
+  --amp-move: calc(3px  * var(--a));
+  --amp-scale:calc(.03  * var(--a));
+  --amp-rot:  calc(4deg * var(--a));
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--ground)}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--serif);-webkit-font-smoothing:antialiased;padding-inline:16px;padding-block:0 64px}
+button{font-family:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--cinnabar);outline-offset:3px}
+.wrap{max-width:1080px;margin:0 auto}
+
+/* ── 頁首 ── */
+.head{padding-block:32px 20px}
+.head .kicker{font-family:var(--sans);font-size:12px;letter-spacing:.18em;color:var(--cinnabar);margin-bottom:8px}
+.head h1{font-size:30px;letter-spacing:.14em;margin:0 0 10px;text-wrap:balance}
+.head p{margin:0;font-size:15px;line-height:1.85;color:var(--ink-soft);max-width:64ch}
+
+/* ── 總控列 ── */
+.console{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:rgba(242,235,218,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--paper-edge);border-radius:14px;padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-bottom:28px;box-shadow:0 6px 20px rgba(40,28,14,.08)}
+.console .ttl{font-family:var(--sans);font-size:11.5px;letter-spacing:.16em;color:var(--ink-soft);font-weight:700;width:100%}
+.ctl{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:12.5px;color:var(--ink-soft)}
+.ctl input[type=range]{width:110px;accent-color:var(--cinnabar)}
+.ctl output{font-family:var(--mono);font-size:12px;color:var(--ink);min-width:44px;font-variant-numeric:tabular-nums}
+.sw{display:flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12.5px;color:var(--ink-soft);cursor:pointer}
+.sw input{accent-color:var(--cinnabar);width:16px;height:16px}
+.reset{font-family:var(--sans);font-size:12px;border:1px solid var(--paper-edge);background:var(--paper-2);border-radius:999px;padding:5px 12px}
+
+/* ── 段落 ── */
+section{display:grid;grid-template-columns:230px minmax(0,1fr);gap:28px;padding-block:34px;border-top:1px solid var(--hair)}
+@media (max-width:820px){section{grid-template-columns:minmax(0,1fr);gap:16px}}
+.sec-h .tag{font-family:var(--sans);font-size:11.5px;letter-spacing:.16em;color:var(--cinnabar);font-weight:700}
+.sec-h h2{font-size:21px;letter-spacing:.1em;margin:6px 0 10px;text-wrap:balance}
+.sec-h p{margin:0;font-size:14px;line-height:1.85;color:var(--ink-soft)}
+.body{min-width:0;display:flex;flex-direction:column;gap:22px}
+h3{font-size:15px;letter-spacing:.08em;margin:0 0 10px}
+.note{font-size:13.5px;line-height:1.8;color:var(--ink-soft);margin:0}
+code{font-family:var(--mono);font-size:12px;background:var(--paper-2);border:1px solid var(--paper-edge);padding:0 5px;border-radius:4px;color:var(--ink)}
+
+/* 表格 */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--paper-edge);border-radius:12px;background:var(--paper-2)}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--hair);vertical-align:top;line-height:1.6}
+th{font-family:var(--sans);font-size:11.5px;letter-spacing:.1em;color:var(--ink-soft);font-weight:500;background:var(--paper)}
+tr:last-child td{border-bottom:none}
+td.v{font-family:var(--mono);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+td b{font-weight:700}
+.pill{display:inline-block;font-family:var(--sans);font-size:11px;letter-spacing:.06em;border-radius:999px;padding:1px 8px;border:1px solid var(--paper-edge);background:var(--paper);color:var(--ink-soft);white-space:nowrap}
+.pill.L0{border-color:#C3CFDE;background:#E6ECF3;color:var(--c-m)}
+.pill.L1{border-color:#D8C79F;background:#F3EAD3;color:var(--gold-edge)}
+.pill.L2{border-color:#E4BDB4;background:#F6E3DE;color:var(--cinnabar-edge)}
+.pill.LD{border-color:#CFC6B4;background:#ECE5D6;color:var(--ink-soft)}
+
+/* 示範台 */
+.stage{background:var(--paper);border:1px solid var(--paper-edge);border-radius:14px;padding:22px;display:flex;flex-wrap:wrap;gap:22px 26px;align-items:flex-end}
+.demo{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0}
+.demo small{font-family:var(--sans);font-size:11.5px;color:var(--ink-faint);letter-spacing:.06em;text-align:center}
+
+/* ══════════ A 互動回饋：press 原語 ══════════
+   2D 模擬 3D：元件有「厚度」（下緣硬陰影＝--d），
+   按下＝本體下沉吃掉厚度＋朝觸點傾斜；放開＝彈簧回升並過衝。 */
+.m-press{
+  --edge:var(--gold-edge);
+  position:relative;border:none;
+  transform:perspective(420px) translateY(0) rotateX(0) rotateY(0) scale(1);
+  --dd:calc(var(--d) * var(--dk,1));
+  box-shadow:0 var(--dd) 0 var(--edge),0 calc(var(--dd) * 1.6 + 2px) calc(var(--dd) * 2.5 + 4px) var(--shade);
+  transition:transform var(--t-release) var(--e-spring),box-shadow var(--t-release) var(--e-spring),filter var(--t-quick) ease;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;
+}
+.m-press.is-down{
+  transform:perspective(420px) translateY(var(--dd)) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) scale(.975);
+  box-shadow:0 0 0 var(--edge),0 1px 2px var(--shade);
+  transition-duration:var(--t-press);transition-timing-function:var(--e-out);
+  filter:brightness(.96);
+}
+.btn{font-size:15px;letter-spacing:.14em;font-weight:700;border-radius:12px;padding:12px 26px;background:var(--gold);color:var(--paper-2)}
+.btn.primary{background:var(--cinnabar);--edge:var(--cinnabar-edge)}
+.btn.ghost{background:var(--paper-2);color:var(--ink);--edge:var(--paper-edge);border:1px solid var(--paper-edge);font-weight:500}
+.icon-btn{width:52px;height:52px;border-radius:50%;background:var(--paper-2);border:1px solid var(--paper-edge);--edge:var(--paper-edge);display:grid;place-items:center}
+.icon-btn svg{width:24px;height:24px;fill:none;stroke:var(--ink);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.card-p{width:210px;max-width:100%;text-align:left;padding:14px 16px;border-radius:14px;background:var(--paper-2);border:1px solid var(--paper-edge);--edge:var(--paper-edge);font-size:13.5px;line-height:1.7}
+.card-p b{display:block;font-size:14.5px;letter-spacing:.06em;margin-bottom:2px}
+.card-p span{color:var(--ink-soft)}
+
+/* 停用：拒絕搖頭 */
+.btn.is-disabled{background:#D9CFBC;color:#9C8F7A;--edge:#BFB39C}
+.deny{animation:deny calc(360ms * var(--k)) var(--e-out)}
+@keyframes deny{20%{translate:-5px 0}40%{translate:4px 0}60%{translate:-3px 0}80%{translate:2px 0}}
+
+/* 長按蓄力（起卦印） */
+.seal-hold{width:76px;height:76px;border-radius:18px;background:var(--cinnabar);--edge:var(--cinnabar-edge);color:var(--paper-2);font-size:24px;font-weight:700;display:grid;place-items:center;rotate:-4deg}
+.seal-hold svg{position:absolute;inset:-9px;width:calc(100% + 18px);height:calc(100% + 18px);pointer-events:none;overflow:visible}
+.seal-hold rect{fill:none;stroke:var(--gold);stroke-width:3;stroke-linecap:round;stroke-dasharray:300;stroke-dashoffset:300;transition:stroke-dashoffset var(--t-quick) var(--e-out)}
+.seal-hold.charging rect{stroke-dashoffset:0;transition:stroke-dashoffset var(--t-hold) linear}
+.seal-hold.fired{animation:fired calc(520ms * var(--k)) var(--e-spring)}
+@keyframes fired{0%{scale:1}35%{scale:1.14}100%{scale:1}}
+
+/* 切換開關：滑塊擠壓伸展 */
+.toggle{width:60px;height:34px;border-radius:999px;background:#D9CFBC;border:none;position:relative;padding:0;transition:background var(--t-quick) ease;box-shadow:inset 0 2px 3px rgba(40,28,14,.18)}
+.toggle i{position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;background:var(--paper-2);box-shadow:0 2px 0 var(--paper-edge),0 3px 6px var(--shade);transition:translate var(--t-release) var(--e-spring)}
+.toggle.on{background:var(--cinnabar)}
+.toggle.on i{translate:26px 0}
+.toggle.moving i{animation:squash var(--t-release) var(--e-out)}
+@keyframes squash{0%{scale:1 1}35%{scale:1.35 .82}100%{scale:1 1}}
+
+/* ══════════ B 容器轉場 ══════════ */
+.scrim{position:fixed;inset:0;background:rgba(24,18,12,.42);z-index:80;display:grid;place-items:center;padding:16px;animation:fade-in var(--t-enter) var(--e-out) both}
+.scrim.out{animation:fade-out var(--t-exit) var(--e-in) both}
+@keyframes fade-in{from{opacity:0}}
+@keyframes fade-out{to{opacity:0}}
+.dialog{width:min(340px,100%);background:var(--paper-2);border-radius:18px;padding:24px 22px 20px;box-shadow:0 5px 0 var(--paper-edge),0 24px 60px rgba(24,18,12,.35);transform-origin:50% 70%;animation:dlg-in var(--t-enter) var(--e-spring) both}
+.scrim.out .dialog{animation:dlg-out var(--t-exit) var(--e-in) both}
+@keyframes dlg-in{0%{opacity:0;transform:perspective(900px) translateY(28px) rotateX(16deg) scale(.9)}45%{opacity:1}100%{transform:perspective(900px) translateY(0) rotateX(0) scale(1)}}
+@keyframes dlg-out{to{opacity:0;transform:perspective(900px) translateY(10px) rotateX(-8deg) scale(.95)}}
+.dialog > *{animation:rise var(--t-enter) var(--e-out) both;animation-delay:calc(var(--t-quick) * .5 + var(--stagger) * var(--i,0))}
+.scrim.out .dialog > *{animation:none}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}
+.dialog h4{margin:0 0 8px;font-size:18px;letter-spacing:.1em}
+.dialog p{margin:0 0 18px;font-size:14px;line-height:1.8;color:var(--ink-soft)}
+.dialog .row{display:flex;gap:10px;justify-content:flex-end}
+.dialog .btn{padding:10px 20px;font-size:14px}
+
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 16px);z-index:90;background:var(--ink);color:var(--paper-2);font-family:var(--sans);font-size:13.5px;letter-spacing:.06em;border-radius:999px;padding:10px 20px;box-shadow:0 10px 26px rgba(24,18,12,.3);translate:-50% 0;animation:toast-in var(--t-enter) var(--e-spring) both}
+.toast.out{animation:toast-out var(--t-exit) var(--e-in) both}
+@keyframes toast-in{from{opacity:0;transform:translateY(-120%) scale(.9)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(-60%) scale(.96)}}
+
+/* 手機框：頁面切換 */
+.phone-row{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.phone{width:300px;max-width:100%;height:540px;border-radius:30px;overflow:hidden;position:relative;background:var(--paper);box-shadow:0 0 0 8px #1c1814,0 20px 50px rgba(40,28,14,.3);flex:none}
+.pg{position:absolute;inset:0;background:var(--paper);display:flex;flex-direction:column;will-change:transform}
+.pg-top{height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--hair);font-size:15px;letter-spacing:.12em;font-weight:700;flex:none}
+.pg-top button{border:none;background:none;font-size:18px;padding:4px 6px;margin-left:-6px}
+.pg-list{padding:14px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.pg-list .card-p{width:100%;--dk:.75}
+.pg-detail .hero{height:170px;background:linear-gradient(160deg,#E9C7BE,#F3EAD3);display:grid;place-items:center;font-size:44px;color:var(--cinnabar);font-weight:700;flex:none}
+.pg-detail .txt{padding:16px;font-size:13.5px;line-height:1.9;color:var(--ink-soft)}
+.pg-detail .txt b{display:block;color:var(--ink);font-size:16px;letter-spacing:.08em;margin-bottom:4px}
+.pg.sheet{top:auto;height:62%;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(24,18,12,.25)}
+.pg.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--paper-edge);margin:8px auto 0}
+.dim{position:absolute;inset:0;background:#0d0b08;opacity:0;pointer-events:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--sans);font-size:12.5px;letter-spacing:.05em;border:1px solid var(--paper-edge);background:var(--paper-2);border-radius:999px;padding:6px 13px;--dk:.5;--edge:var(--paper-edge)}
+.chip.on{background:var(--ink);color:var(--paper-2);--edge:#000}
+.trans-info{flex:1;min-width:240px;display:flex;flex-direction:column;gap:14px}
+
+/* ══════════ D 待機生命 ══════════ */
+.icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.ic{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:14px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ic .box{width:84px;height:84px;position:relative;display:grid;place-items:center}
+.ic .nm{font-size:14px;letter-spacing:.1em;font-weight:700}
+.ic .meta{display:flex;gap:4px;flex-wrap:wrap;justify-content:center}
+.ic .how{font-family:var(--sans);font-size:11px;color:var(--ink-faint);text-align:center;line-height:1.5}
+
+/* 共用：影子（2D→3D 的地面） */
+.shadow{position:absolute;left:50%;bottom:6px;width:40px;height:8px;margin-left:-20px;border-radius:50%;background:rgba(40,28,14,.28);filter:blur(1px)}
+
+/* 呼吸：印 */
+.i-seal{width:50px;height:50px;border-radius:12px;background:var(--cinnabar);color:var(--paper-2);display:grid;place-items:center;font-size:22px;font-weight:700;rotate:-4deg;box-shadow:0 3px 0 var(--cinnabar-edge);animation:breathe var(--idle-m) var(--e-breath) infinite}
+@keyframes breathe{50%{scale:calc(1 + var(--amp-scale));box-shadow:0 3px 0 var(--cinnabar-edge),0 0 calc(18px * var(--a)) rgba(181,64,46,.45)}}
+
+/* 擺盪：燈（流蘇延遲跟隨＝附屬動作） */
+.i-lantern{position:relative;width:40px;height:74px;transform-origin:50% 0;animation:swing var(--idle-m) var(--e-breath) infinite alternate}
+.i-lantern .str{position:absolute;left:19px;top:0;width:2px;height:12px;background:var(--ink-soft)}
+.i-lantern .body{position:absolute;left:2px;top:12px;width:36px;height:40px;border-radius:14px;background:radial-gradient(circle at 40% 35%,#E0715C,var(--cinnabar) 60%,var(--cinnabar-edge));box-shadow:inset 0 0 0 2px rgba(0,0,0,.08)}
+.i-lantern .body::before,.i-lantern .body::after{content:"";position:absolute;left:8px;right:8px;height:4px;background:var(--gold);border-radius:2px}
+.i-lantern .body::before{top:-2px}.i-lantern .body::after{bottom:-2px}
+.i-lantern .tassel{position:absolute;left:18px;top:52px;width:4px;height:18px;background:var(--gold);border-radius:2px;transform-origin:50% 0;animation:swing var(--idle-m) var(--e-breath) infinite alternate;animation-delay:calc(var(--idle-m) * -.2)}
+@keyframes swing{from{rotate:calc(var(--amp-rot) * -1)}to{rotate:var(--amp-rot)}}
+
+/* 翻面：銅錢（拋起＋翻轉＋影子縮放） */
+.i-coin{width:48px;height:48px;position:relative;perspective:260px;animation:toss var(--idle-m) var(--e-out) infinite}
+.i-coin .flip{position:absolute;inset:0;transform-style:preserve-3d;animation:flip var(--idle-m) var(--e-out) infinite}
+.i-coin .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.i-coin .face.b{transform:rotateY(180deg)}
+.i-coin + .shadow{animation:coin-sh var(--idle-m) var(--e-out) infinite}
+@keyframes flip{0%,8%{transform:rotateY(0)}40%{transform:rotateY(540deg)}100%{transform:rotateY(540deg)}}
+@keyframes toss{0%,8%{translate:0 0}24%{translate:0 calc(-14px * var(--a))}40%,100%{translate:0 0}}
+@keyframes coin-sh{0%,8%{scale:1;opacity:1}24%{scale:.55;opacity:.45}40%,100%{scale:1;opacity:1}}
+
+/* 序列：六爻由下而上生成 */
+.i-yao{display:flex;flex-direction:column-reverse;gap:5px;width:54px}
+.i-yao i{display:flex;gap:8px;height:5px;animation:yao var(--idle-m) var(--e-out) infinite both;animation-delay:calc(var(--n) * 140ms * var(--k))}
+.i-yao i::before,.i-yao i::after{content:"";flex:1;background:var(--ink);border-radius:2px}
+.i-yao i.yang{gap:0}
+.i-yao i.dong::before,.i-yao i.dong::after{background:var(--cinnabar)}
+@keyframes yao{0%{opacity:0;transform:scaleX(.2)}12%{opacity:1;transform:scaleX(1)}78%{opacity:1;transform:scaleX(1)}92%,100%{opacity:0;transform:scaleX(1)}}
+
+/* 彈跳：珠（落地擠壓、升空伸展、影子耦合） */
+.i-bead{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F4E1B0,var(--gold) 55%,var(--gold-edge));transform-origin:50% 100%;animation:bounce var(--idle-s) infinite;margin-bottom:10px}
+.i-bead + .shadow{width:28px;margin-left:-14px;animation:bounce-sh var(--idle-s) infinite}
+@keyframes bounce{
+  0%{transform:translateY(0) scale(1.18,.82);animation-timing-function:cubic-bezier(.2,.7,.4,1)}
+  12%{transform:translateY(calc(-8px * var(--a))) scale(.9,1.1);animation-timing-function:var(--e-out)}
+  50%{transform:translateY(calc(-30px * var(--a))) scale(1,1);animation-timing-function:var(--e-in)}
+  90%{transform:translateY(-2px) scale(.94,1.06)}
+  100%{transform:translateY(0) scale(1.18,.82)}}
+@keyframes bounce-sh{0%,100%{scale:1.1;opacity:1}50%{scale:.5;opacity:.35}}
+
+/* 公轉：三點（遠小近大＋前後遮擋），keyframes 由 JS 依橢圓生成 */
+.i-orbit{position:relative;width:70px;height:40px}
+.i-orbit i{position:absolute;left:29px;top:14px;width:12px;height:12px;border-radius:50%;animation:orbit var(--idle-s) linear infinite;animation-delay:calc(var(--idle-s) * var(--n) / -3)}
+.i-orbit i:nth-child(1){background:var(--cinnabar)}
+.i-orbit i:nth-child(2){background:var(--gold)}
+.i-orbit i:nth-child(3){background:var(--c-m)}
+
+/* 旋繞：環（弧長呼吸） */
+.i-ring{width:52px;height:52px;animation:spin var(--idle-s) linear infinite}
+.i-ring circle{fill:none;stroke-width:4;stroke-linecap:round}
+.i-ring .track{stroke:var(--paper-edge)}
+.i-ring .arc{stroke:var(--cinnabar);stroke-dasharray:20 131;animation:arc var(--idle-s) var(--e-breath) infinite}
+@keyframes spin{to{rotate:360deg}}
+@keyframes arc{50%{stroke-dasharray:90 61;stroke-dashoffset:-30}100%{stroke-dashoffset:-131}}
+
+/* 流動：香 */
+.i-incense{width:60px;height:80px;overflow:visible}
+.i-incense .smoke{fill:none;stroke:var(--ink-faint);stroke-width:2;stroke-linecap:round;stroke-dasharray:14 10;animation:flow var(--idle-l) linear infinite,smoke-sway var(--idle-m) var(--e-breath) infinite alternate;transform-origin:30px 60px}
+.i-incense .smoke.s2{opacity:.55;animation-delay:calc(var(--idle-l) * -.5),calc(var(--idle-m) * -.3)}
+@keyframes flow{to{stroke-dashoffset:-96}}
+@keyframes smoke-sway{from{transform:skewX(calc(var(--amp-rot) * -1.5))}to{transform:skewX(calc(var(--amp-rot) * 1.5))}}
+
+/* 掠光：卷（斜向高光＝表面有傾角） */
+.i-scroll{width:58px;height:70px;border-radius:8px;background:var(--paper);border:1.5px solid var(--paper-edge);position:relative;overflow:hidden;box-shadow:0 3px 0 var(--paper-edge);padding:10px 9px;display:flex;flex-direction:column;gap:6px}
+.i-scroll i{height:3px;background:var(--ink-faint);border-radius:2px}
+.i-scroll i:nth-child(2){width:70%}
+.i-scroll b{position:absolute;right:7px;bottom:7px;width:14px;height:14px;background:var(--cinnabar);border-radius:3px}
+.i-scroll::after{content:"";position:absolute;inset:-20% auto -20% 0;width:40%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.85),transparent);transform:translateX(-160%) skewX(-18deg);animation:glint var(--idle-l) var(--e-out) infinite}
+@keyframes glint{0%{transform:translateX(-160%) skewX(-18deg)}22%,100%{transform:translateX(320%) skewX(-18deg)}}
+
+/* 漂浮：月（物升影縮） */
+.i-moon{width:44px;height:44px;border-radius:50%;box-shadow:inset -12px -4px 0 0 var(--gold);animation:float var(--idle-l) var(--e-breath) infinite alternate;margin-bottom:14px;rotate:-20deg}
+.i-moon + .shadow{animation:float-sh var(--idle-l) var(--e-breath) infinite alternate}
+@keyframes float{from{translate:0 0}to{translate:0 calc(var(--amp-move) * -2.2)}}
+@keyframes float-sh{from{scale:1;opacity:1}to{scale:.75;opacity:.5}}
+
+/* 偶發：鈴 */
+.i-bell{width:44px;height:52px;transform-origin:50% 4px;position:relative}
+.i-bell svg{width:100%;height:100%;fill:var(--gold);stroke:var(--gold-edge);stroke-width:1.5}
+.i-bell .ding{position:absolute;inset:-6px -14px;opacity:0;border:2px solid var(--gold);border-color:transparent var(--gold);border-radius:50%}
+.fire .i-bell{animation:ring calc(900ms * var(--k)) var(--e-out)}
+.fire .i-bell .ding{animation:ding calc(700ms * var(--k)) var(--e-out)}
+@keyframes ring{0%{rotate:0}15%{rotate:16deg}32%{rotate:-12deg}50%{rotate:8deg}68%{rotate:-4deg}84%{rotate:2deg}100%{rotate:0}}
+@keyframes ding{0%{opacity:.9;scale:.7}100%{opacity:0;scale:1.3}}
+
+/* 偶發：貓（眨眼／抖耳）＋常駐極慢呼吸 */
+.i-cat{width:60px;height:54px;position:relative;transform-origin:50% 100%;animation:cat-breath var(--idle-l) var(--e-breath) infinite}
+.i-cat .head{position:absolute;left:6px;right:6px;bottom:0;height:40px;border-radius:50% 50% 46% 46%;background:var(--ink)}
+.i-cat .ear{position:absolute;top:2px;width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid var(--ink);transform-origin:50% 100%}
+.i-cat .ear.l{left:7px;rotate:-12deg}.i-cat .ear.r{right:7px;rotate:12deg}
+.i-cat .eye{position:absolute;bottom:17px;width:9px;height:9px;border-radius:50%;background:var(--gold)}
+.i-cat .eye.l{left:17px}.i-cat .eye.r{right:17px}
+@keyframes cat-breath{50%{scale:1 calc(1 + var(--amp-scale) * .6)}}
+.fire.blink .i-cat .eye{animation:blink calc(260ms * var(--k)) ease-in-out 2}
+.fire.flick .i-cat .ear.r{animation:flick calc(420ms * var(--k)) var(--e-out)}
+@keyframes blink{50%{transform:scaleY(.1)}}
+@keyframes flick{0%,100%{rotate:12deg}30%{rotate:34deg}60%{rotate:4deg}}
+
+/* 偶發：信（跳起＋徽章彈出） */
+.i-mail{width:54px;height:40px;position:relative;transform-origin:50% 100%}
+.i-mail svg{width:100%;height:100%;fill:var(--paper);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round}
+.i-mail .badge{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--cinnabar);color:var(--paper-2);font-family:var(--sans);font-size:10px;font-weight:700;display:grid;place-items:center}
+.fire .i-mail{animation:hop calc(620ms * var(--k)) var(--e-out)}
+.fire .i-mail .badge{animation:pop calc(520ms * var(--k)) var(--e-spring)}
+@keyframes hop{0%{transform:scale(1.12,.88)}30%{transform:translateY(-10px) scale(.94,1.06)}60%{transform:translateY(0) scale(1.06,.94)}100%{transform:none}}
+@keyframes pop{0%{scale:0}70%{scale:1.25}100%{scale:1}}
+
+/* 點選任一 icon：所有待機 icon 共用的「回應」（壓一下再彈回） */
+.ic.poke .box{animation:poke calc(420ms * var(--k)) var(--e-spring)}
+@keyframes poke{0%{scale:1}25%{scale:.88}100%{scale:1}}
+
+/* ── 暫停條件 ── */
+.off *, .no-idle .icons *, .no-idle .idle-bg *{animation-play-state:paused!important}
+.rm *,.rm *::before,.rm *::after{animation-duration:1ms!important;animation-iteration-count:1!important}
+.rm .icons *,.rm .idle-bg *{animation:none!important}
+.rm .m-press,.rm .m-press.is-down{transform:none!important;transition:filter var(--t-quick) ease!important}
+.rm .m-press.is-down{filter:brightness(.88)}
+
+/* 規則卡 */
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.rule{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:14px 16px}
+.rule b{display:block;font-size:14.5px;letter-spacing:.06em;margin-bottom:4px}
+.rule p{margin:0;font-size:13px;line-height:1.75;color:var(--ink-soft)}
+
+/* 交付碼 */
+pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px;padding:16px 18px;font-family:var(--mono);font-size:12px;line-height:1.7}
+.copy-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+
+/* 背景層 L0：頁首墨暈（示範「沒有畫面完全靜止」的最低層） */
+.idle-bg{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.idle-bg i{position:absolute;border-radius:50%;filter:blur(40px);opacity:.35;animation:drift var(--idle-l) var(--e-breath) infinite alternate}
+.idle-bg i:nth-child(1){width:420px;height:420px;left:-120px;top:-100px;background:#E9C7BE}
+.idle-bg i:nth-child(2){width:360px;height:360px;right:-100px;top:30%;background:#F3EAD3;animation-duration:calc(var(--idle-l) * 1.4)}
+@keyframes drift{to{translate:calc(var(--amp-move) * 8) calc(var(--amp-move) * 6)}}
+</style>
+
+<div class="idle-bg" aria-hidden="true"><i></i><i></i></div>
+
+<div class="wrap">
+  <header class="head">
+    <div class="kicker">幾知觀 · MOTION SYSTEM v0.1</div>
+    <h1>動態規範</h1>
+    <p>所有動態只從一組 token 取值。元件只宣告自己屬於哪一型，不寫數字。調整下方總控列，整頁同型的動態會一起改變。</p>
+  </header>
+
+  <div class="console" role="group" aria-label="動態總控">
+    <div class="ttl">總控（改的是 token，全頁同步）</div>
+    <label class="ctl">速度 <input type="range" id="k" min="0.5" max="2" step="0.05" value="1"><output id="k-o">×1.00</output></label>
+    <label class="ctl">待機幅度 <input type="range" id="a" min="0" max="2" step="0.05" value="1"><output id="a-o">×1.00</output></label>
+    <label class="ctl">按壓深度 <input type="range" id="d" min="0" max="8" step="0.1" value="3.6"><output id="d-o">3.6px</output></label>
+    <label class="ctl">回彈 <input type="range" id="ov" min="1" max="2.2" step="0.02" value="1.56"><output id="ov-o">1.56</output></label>
+    <label class="sw"><input type="checkbox" id="idle" checked> 待機動態</label>
+    <label class="sw"><input type="checkbox" id="rm"> 減少動態</label>
+    <button class="reset" id="reset" type="button">還原預設</button>
+  </div>
+
+  <!-- ══ 0 分類 ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">總覽</div>
+      <h2>五類動態</h2>
+      <p>先分類，再設計。每一類有固定的組成方式，同類元件共用同一組參數。</p>
+    </div>
+    <div class="body">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>類</th><th>成員</th><th>觸發</th><th>組成</th><th>何時會停</th></tr></thead>
+        <tbody>
+          <tr><td><b>A 互動回饋</b></td><td>按下、放開、長按、停用、切換</td><td>使用者觸碰</td><td>下沉 + 傾斜 → 彈簧回升</td><td>放開即結束</td></tr>
+          <tr><td><b>B 容器轉場</b></td><td>彈框、抽屜、提示、頁面切換</td><td>狀態改變</td><td>抬升 + 淡入 + 縮放 ／ 反向</td><td>一次性</td></tr>
+          <tr><td><b>C 內容出場</b></td><td>列表、彈框內文、數字</td><td>容器轉場後</td><td>逐項錯開的上浮淡入</td><td>一次性</td></tr>
+          <tr><td><b>D 待機生命</b></td><td>icon、背景、角色</td><td>一直在</td><td>九型循環 ＋ 偶發反應</td><td>離開畫面、被蓋住、減少動態</td></tr>
+          <tr><td><b>E 強調</b></td><td>新訊息、應驗、獎勵</td><td>事件</td><td>彈出 + 掠光，限次不循環</td><td>播完即停</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ══ 1 Token ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">第一層</div>
+      <h2>Token</h2>
+      <p>唯一的數字來源。改這裡，所有引用它的動態一起變。右欄數值跟著總控列即時更新。</p>
+    </div>
+    <div class="body">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Token</th><th>現值</th><th>用在</th></tr></thead>
+        <tbody id="tok"></tbody>
+      </table></div>
+      <p class="note">三條鐵律：離場比入場快（約 60%）。進場用減速，離場用加速。只有「放開」和「彈出」可以過衝，其他都不過衝。</p>
+    </div>
+  </section>
+
+  <!-- ══ A ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">A 互動回饋</div>
+      <h2>按下與放開</h2>
+      <p>每個可點元件都有「厚度」，就是下緣那道硬陰影。按下時本體沉下去吃掉厚度，並朝手指的位置傾斜。放開時用彈簧回升，略微超過原位再回來。按鈕的四個角各按一下，傾斜方向會不同。</p>
+    </div>
+    <div class="body">
+      <div class="stage">
+        <div class="demo"><button class="m-press btn primary" type="button">起卦</button><small>主按鈕</small></div>
+        <div class="demo"><button class="m-press btn" type="button">收下</button><small>次按鈕</small></div>
+        <div class="demo"><button class="m-press btn ghost" type="button">再想想</button><small>文字按鈕</small></div>
+        <div class="demo"><button class="m-press icon-btn" type="button" aria-label="收藏"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><small>圖示按鈕</small></div>
+        <div class="demo"><button class="m-press card-p" type="button"><b>搬家這件事</b><span>三卦 · 上次 9 月 12 日</span></button><small>卡片，較淺的深度</small></div>
+      </div>
+      <div class="stage">
+        <div class="demo"><button class="m-press btn is-disabled" type="button" id="denyBtn" aria-disabled="true">領取</button><small>停用：搖頭拒絕</small></div>
+        <div class="demo"><button class="m-press seal-hold" type="button" id="hold"><svg viewBox="0 0 94 94" aria-hidden="true"><rect x="3" y="3" width="88" height="88" rx="22"/></svg>問</button><small>長按蓄力，放早了會退回</small></div>
+        <div class="demo"><button class="toggle" type="button" id="tg" role="switch" aria-checked="false" aria-label="示範開關"><i></i></button><small>切換：滑塊擠壓</small></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>狀態</th><th>變化</th><th>時長</th><th>曲線</th></tr></thead>
+        <tbody>
+          <tr><td>按下</td><td>下移 <code>--d</code>、厚度歸零、縮 0.975、朝觸點傾斜 ≤ <code>--tilt</code></td><td class="v">--t-press</td><td class="v">--e-out</td></tr>
+          <tr><td>放開</td><td>全部回到原位，過衝一次</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
+          <tr><td>取消（手指拖出）</td><td>同放開，但不觸發動作</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
+          <tr><td>停用</td><td>左右搖 4 下，振幅遞減</td><td class="v">360ms × k</td><td class="v">--e-out</td></tr>
+          <tr><td>長按</td><td>外框描邊填滿，完成時彈一下</td><td class="v">--t-hold</td><td class="v">linear</td></tr>
+          <tr><td>切換</td><td>滑塊位移，途中橫向拉長 1.35</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ══ B ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">B 容器轉場 ＋ C 內容出場</div>
+      <h2>彈框與頁面</h2>
+      <p>彈框從下方微微後仰的位置翻起，像一張卡片立起來，內文再逐行浮上。離場時往後倒並加速消失，比入場短。頁面切換沿用 Figma 常見的五種 transition，各自對應一種導航語意。</p>
+    </div>
+    <div class="body">
+      <div class="stage">
+        <div class="demo"><button class="m-press btn primary" type="button" id="openDlg">開彈框</button><small>彈框入場／離場</small></div>
+        <div class="demo"><button class="m-press btn" type="button" id="openToast">送出提示</button><small>提示：從上方落下</small></div>
+      </div>
+
+      <div class="phone-row">
+        <div class="phone" id="phone">
+          <div class="pg pg-list-page" id="pgA">
+            <div class="pg-top">心跡</div>
+            <div class="pg-list">
+              <button class="m-press card-p" type="button" data-go><b>搬家這件事</b><span>三卦 · 上次 9 月 12 日</span></button>
+              <button class="m-press card-p" type="button" data-go><b>換工作要不要</b><span>兩卦 · 上次 8 月 30 日</span></button>
+              <button class="m-press card-p" type="button" data-go><b>跟她的緣分</b><span>一卦 · 上次 8 月 2 日</span></button>
+            </div>
+          </div>
+          <div class="dim" id="dim"></div>
+          <div class="pg pg-detail" id="pgB" hidden>
+            <div class="grab" hidden></div>
+            <div class="pg-top"><button type="button" id="back" aria-label="返回">←</button><span id="bTitle">搬家這件事</span></div>
+            <div class="hero">遷</div>
+            <div class="txt"><b>第三卦 · 地山謙</b>九三動，用神持世而旺。上次問的是時機，這次問的是地點，兩卦要合起來看。</div>
+          </div>
+        </div>
+        <div class="trans-info">
+          <div class="chips" id="chips">
+            <button class="m-press chip on" type="button" data-t="push">推擠 Push</button>
+            <button class="m-press chip" type="button" data-t="slide">滑入 Slide in</button>
+            <button class="m-press chip" type="button" data-t="move">移入 Move in</button>
+            <button class="m-press chip" type="button" data-t="dissolve">溶解 Dissolve</button>
+            <button class="m-press chip" type="button" data-t="smart">智慧過渡 Smart animate</button>
+          </div>
+          <p class="note" id="tDesc"></p>
+          <div class="tbl-wrap"><table style="min-width:420px">
+            <thead><tr><th>Transition</th><th>導航語意</th><th>用在</th></tr></thead>
+            <tbody>
+              <tr><td>推擠 Push</td><td>同層級前進／後退</td><td>設定頁、步驟流程</td></tr>
+              <tr><td>滑入 Slide in</td><td>深入一層，舊頁留在底下</td><td>列表 → 詳情</td></tr>
+              <tr><td>移入 Move in</td><td>暫時覆蓋，完成就收回</td><td>底部抽屜、選擇器</td></tr>
+              <tr><td>溶解 Dissolve</td><td>平行切換，沒有前後</td><td>底部分頁列</td></tr>
+              <tr><td>智慧過渡 Smart animate</td><td>同一件東西展開</td><td>卡片 → 全頁、卦 → 解讀</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ D ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">D 待機生命</div>
+      <h2>九型待機 ＋ 偶發</h2>
+      <p>靜態 icon 也不停在原地，但動得很輕。每個 icon 從九型裡選一型；標 L2 的 icon 平常靜止，排程每隔 4 到 8 秒從中挑一個做一次小動作。點任一格，它會壓一下回應你。</p>
+    </div>
+    <div class="body">
+      <div class="icons" id="icons">
+        <div class="ic" data-tier="L1"><div class="box"><div class="i-seal">問</div></div><div class="nm">印</div><div class="meta"><span class="pill">呼吸</span><span class="pill L1">L1 待機</span></div><div class="how">放大 3%，同時外光擴散</div></div>
+
+        <div class="ic" data-tier="L1"><div class="box"><div class="i-lantern"><i class="str"></i><i class="body"></i><i class="tassel"></i></div></div><div class="nm">燈</div><div class="meta"><span class="pill">擺盪</span><span class="pill L1">L1 待機</span></div><div class="how">頂部支點；流蘇晚一拍跟上</div></div>
+
+        <div class="ic" data-tier="LD"><div class="box"><div class="i-coin"><div class="flip">
+          <svg class="face a" viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="#C9A86A" stroke="#6B5428" stroke-width="2"/><circle cx="24" cy="24" r="17" fill="none" stroke="#6B5428" stroke-width="1"/><rect x="18" y="18" width="12" height="12" fill="#F2EBDA" stroke="#6B5428" stroke-width="1.5"/></svg>
+          <svg class="face b" viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="#9A7B3F" stroke="#6B5428" stroke-width="2"/><rect x="18" y="18" width="12" height="12" fill="#F2EBDA" stroke="#6B5428" stroke-width="1.5"/></svg>
+        </div></div><i class="shadow"></i></div><div class="nm">錢</div><div class="meta"><span class="pill">翻面</span><span class="pill LD">載入：擲錢</span></div><div class="how">拋起、翻面、影子隨高度縮小</div></div>
+
+        <div class="ic" data-tier="LD"><div class="box"><div class="i-yao">
+          <i class="yang" style="--n:0"></i><i style="--n:1"></i><i class="yang dong" style="--n:2"></i><i style="--n:3"></i><i style="--n:4"></i><i style="--n:5"></i>
+        </div></div><div class="nm">爻</div><div class="meta"><span class="pill">序列</span><span class="pill LD">載入：成卦</span></div><div class="how">由初爻往上爻逐一生成，動爻用硃砂</div></div>
+
+        <div class="ic" data-tier="L1"><div class="box"><div class="i-bead"></div><i class="shadow"></i></div><div class="nm">珠</div><div class="meta"><span class="pill">彈跳</span><span class="pill L1">L1 待機</span></div><div class="how">落地擠扁、上升拉長、影子耦合</div></div>
+
+        <div class="ic" data-tier="LD"><div class="box"><div class="i-orbit"><i style="--n:0"></i><i style="--n:1"></i><i style="--n:2"></i></div></div><div class="nm">三才</div><div class="meta"><span class="pill">公轉</span><span class="pill LD">載入</span></div><div class="how">橢圓軌道，遠小近大，轉到後方時被擋住</div></div>
+
+        <div class="ic" data-tier="LD"><div class="box"><svg class="i-ring" viewBox="0 0 52 52"><circle class="track" cx="26" cy="26" r="21"/><circle class="arc" cx="26" cy="26" r="21"/></svg></div><div class="nm">環</div><div class="meta"><span class="pill">旋繞</span><span class="pill LD">載入</span></div><div class="how">旋轉，同時弧長一伸一縮</div></div>
+
+        <div class="ic" data-tier="L0"><div class="box"><svg class="i-incense" viewBox="0 0 60 80"><path class="smoke" d="M30 58 C22 48 38 40 30 30 C22 20 38 12 30 2"/><path class="smoke s2" d="M30 58 C38 50 22 40 30 30 C38 20 24 12 32 4"/><rect x="28.5" y="58" width="3" height="20" rx="1.5" fill="#6E6253"/><circle cx="30" cy="58" r="2" fill="#B5402E"/></svg></div><div class="nm">香</div><div class="meta"><span class="pill">流動</span><span class="pill L0">L0 環境</span></div><div class="how">煙沿路徑流動，同時左右偏擺</div></div>
+
+        <div class="ic" data-tier="L0"><div class="box"><div class="i-scroll"><i></i><i></i><i></i><b></b></div></div><div class="nm">卷</div><div class="meta"><span class="pill">掠光</span><span class="pill L0">L0 環境</span></div><div class="how">斜向高光掃過，讓平面看起來有傾角</div></div>
+
+        <div class="ic" data-tier="L0"><div class="box"><div class="i-moon"></div><i class="shadow"></i></div><div class="nm">月</div><div class="meta"><span class="pill">漂浮</span><span class="pill L0">L0 環境</span></div><div class="how">緩慢升降，升高時影子變小變淡</div></div>
+
+        <div class="ic" data-tier="L2" data-occ="ring"><div class="box"><div class="i-bell"><svg viewBox="0 0 44 52"><path d="M22 4c-9 0-14 8-14 18v10l-4 7h36l-4-7V22C36 12 31 4 22 4z"/><circle cx="22" cy="45" r="4"/></svg><i class="ding"></i></div></div><div class="nm">鈴</div><div class="meta"><span class="pill">偶發</span><span class="pill L2">L2 偶發</span></div><div class="how">搖一次，振幅遞減</div></div>
+
+        <div class="ic" data-tier="L2" data-occ="blink flick"><div class="box"><div class="i-cat"><i class="ear l"></i><i class="ear r"></i><i class="head"></i><i class="eye l"></i><i class="eye r"></i></div></div><div class="nm">觀貓</div><div class="meta"><span class="pill">偶發</span><span class="pill L2">L2 偶發</span></div><div class="how">常駐極慢呼吸；隨機眨眼或抖耳</div></div>
+
+        <div class="ic" data-tier="L2" data-occ="hop"><div class="box"><div class="i-mail"><svg viewBox="0 0 54 40"><rect x="2" y="2" width="50" height="36" rx="4"/><path d="M3 4l24 18L51 4" fill="none"/></svg><span class="badge">2</span></div></div><div class="nm">信</div><div class="meta"><span class="pill">偶發</span><span class="pill L2">L2 偶發</span></div><div class="how">跳一下，徽章同時彈出</div></div>
+      </div>
+
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>型</th><th>做什麼</th><th>週期</th><th>幅度上限</th><th>2D 做出 3D 的手法</th></tr></thead>
+        <tbody>
+          <tr><td><b>呼吸</b></td><td>縮放加亮度</td><td class="v">--idle-m</td><td class="v">3%</td><td>外光跟著擴散</td></tr>
+          <tr><td><b>漂浮</b></td><td>上下位移</td><td class="v">--idle-l</td><td class="v">7px</td><td>影子耦合：物體升高，影子縮小變淡</td></tr>
+          <tr><td><b>擺盪</b></td><td>繞頂部支點旋轉</td><td class="v">--idle-m</td><td class="v">4°</td><td>附屬物延遲跟隨（流蘇、繩）</td></tr>
+          <tr><td><b>彈跳</b></td><td>位移加擠壓伸展</td><td class="v">--idle-s</td><td class="v">30px</td><td>落地擠扁、升空拉長，影子耦合</td></tr>
+          <tr><td><b>翻面</b></td><td>繞 Y 軸翻轉</td><td class="v">--idle-m</td><td class="v">540°</td><td>正反面換色，翻轉時拋起</td></tr>
+          <tr><td><b>公轉</b></td><td>沿橢圓軌道移動</td><td class="v">--idle-s</td><td class="v">—</td><td>遠小近大、遠淡近濃、前後遮擋</td></tr>
+          <tr><td><b>序列</b></td><td>逐一出現再一起消失</td><td class="v">--idle-m</td><td class="v">—</td><td>錯開 140ms，由下而上</td></tr>
+          <tr><td><b>旋繞</b></td><td>旋轉，弧長伸縮</td><td class="v">--idle-s</td><td class="v">—</td><td>—</td></tr>
+          <tr><td><b>掠光／流動</b></td><td>高光掃過／線段流動</td><td class="v">--idle-l</td><td class="v">—</td><td>斜向高光讓平面有傾角</td></tr>
+          <tr><td><b>偶發</b></td><td>單次反應</td><td class="v">隨機 4–8s</td><td class="v">—</td><td>擠壓伸展、延遲跟隨</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ══ 規則 ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">規則</div>
+      <h2>「沒有畫面靜止」的邊界</h2>
+      <p>每個畫面都有生命，但動的強度分層，各層有上限。</p>
+    </div>
+    <div class="body">
+      <div class="rules">
+        <div class="rule"><b>分三層</b><p>L0 環境（背景、裝飾，週期 ≥ 6 秒）、L1 待機（icon，2–4 秒）、L2 偶發（平常靜止，隨機觸發一次）。載入型只在等待時出現。</p></div>
+        <div class="rule"><b>一個畫面只有一個主角</b><p>同一畫面最多一個 L1 以明顯幅度在動，其餘 L1 降到一半幅度，或改成 L2。</p></div>
+        <div class="rule"><b>正在讀的文字不動</b><p>卦辭、解讀、談心對話的正文區，只允許背景 L0。這一條優先於「不能靜止」。</p></div>
+        <div class="rule"><b>相位錯開</b><p>同型 icon 各自隨機起點。週期取不能整除的數字（2.4／3.7／6.1 秒），避免一起動而顯得機械。</p></div>
+        <div class="rule"><b>該停就停</b><p>元件離開畫面、被彈框蓋住、App 進背景、省電模式時暫停。彈框開啟時只有彈框本身的待機在動。</p></div>
+        <div class="rule"><b>減少動態</b><p>系統開啟「減少動態」時，待機全停，按壓改成只變暗，轉場改成 120ms 淡入淡出。</p></div>
+        <div class="rule"><b>硃砂的動態也保留給行動</b><p>E 強調型只給「這裡有一件事要你處理」的元素用，和硃砂色的規則相同。</p></div>
+        <div class="rule"><b>只動 transform 與 opacity</b><p>不動寬高、邊距、模糊半徑，避免掉幀與耗電。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 交付 ══ -->
+  <section>
+    <div class="sec-h">
+      <div class="tag">交付</div>
+      <h2>前端怎麼接</h2>
+      <p>把 token 貼進主站的 <code>:root</code>。元件只加 class，不寫數字。</p>
+    </div>
+    <div class="body">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>要做的事</th><th>加上</th></tr></thead>
+        <tbody>
+          <tr><td>任何可點元件</td><td><code>.m-press</code>，可用 <code>--edge</code> 指定厚度顏色，用 <code>--dk</code> 取全域厚度的比例（卡片 .75、小標籤 .5）</td></tr>
+          <tr><td>彈框</td><td><code>.scrim</code> ＋ <code>.dialog</code>；關閉時在 scrim 加 <code>.out</code>，等 animationend 再移除</td></tr>
+          <tr><td>彈框內逐行出場</td><td>子元素設 <code>--i: 0, 1, 2…</code></td></tr>
+          <tr><td>待機 icon</td><td>套九型之一的 keyframes，時長只用 <code>--idle-s / m / l</code></td></tr>
+          <tr><td>偶發</td><td>容器加 <code>data-occ</code>，由排程器加上 <code>.fire</code> 播一次</td></tr>
+        </tbody>
+      </table></div>
+      <div class="copy-row"><h3 style="margin:0">Token 原始碼</h3><button class="m-press chip" type="button" id="copy">複製</button></div>
+      <pre id="code"></pre>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const root=document.documentElement;
+  const $=id=>document.getElementById(id);
+  const K=()=>parseFloat(getComputedStyle(root).getPropertyValue('--k'))||1;
+
+  /* ── 總控 ── */
+  const DEF={k:1,a:1,d:3.6,ov:1.56};
+  const fmt={k:v=>'×'+(+v).toFixed(2),a:v=>'×'+(+v).toFixed(2),d:v=>v+'px',ov:v=>(+v).toFixed(2)};
+  function setVar(key,v){
+    root.style.setProperty('--'+key,key==='d'?v+'px':v);
+    $(key+'-o').textContent=fmt[key](v);
+    renderTokens();
+  }
+  ['k','a','d','ov'].forEach(key=>$(key).addEventListener('input',e=>setVar(key,e.target.value)));
+  $('reset').addEventListener('click',()=>{for(const key in DEF){$(key).value=DEF[key];setVar(key,DEF[key])}});
+  $('idle').addEventListener('change',e=>root.classList.toggle('no-idle',!e.target.checked));
+  $('rm').addEventListener('change',e=>root.classList.toggle('rm',e.target.checked));
+  try{if(matchMedia('(prefers-reduced-motion: reduce)').matches){$('rm').checked=true;root.classList.add('rm')}}catch(e){}
+
+  /* ── Token 表 ── */
+  const TOK=[
+    ['--t-press',90,'按下'],['--t-release',280,'放開、切換滑塊'],['--t-quick',160,'小狀態變化'],
+    ['--t-exit',220,'彈框、提示離場'],['--t-enter',360,'彈框、提示入場'],['--t-page',460,'頁面切換'],
+    ['--t-hold',700,'長按蓄力'],['--stagger',45,'內容逐項間隔'],
+    ['--idle-s',2400,'待機短週期'],['--idle-m',3700,'待機中週期'],['--idle-l',6100,'待機長週期'],
+  ];
+  const EASE=[['--e-out','cubic-bezier(.22,1,.36,1)','入場、按下'],['--e-in','cubic-bezier(.5,0,.75,0)','離場'],['--e-spring',null,'放開、彈出（唯一允許過衝）'],['--e-breath','cubic-bezier(.45,0,.55,1)','待機循環']];
+  function renderTokens(){
+    const k=K(),a=+$('a').value,d=+$('d').value,ov=(+$('ov').value).toFixed(2);
+    const ms=v=>v>=1000?(v*k/1000).toFixed(2)+'s':Math.round(v*k)+'ms';
+    let h=TOK.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${ms(v)}</td><td>${u}</td></tr>`).join('');
+    h+=EASE.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${v||`cubic-bezier(.34,${ov},.64,1)`}</td><td>${u}</td></tr>`).join('');
+    h+=`<tr><td class="v">--d</td><td class="v">${d}px</td><td>按壓深度＝元件厚度；卡片 ×.75、標籤 ×.5</td></tr>`;
+    h+=`<tr><td class="v">--tilt</td><td class="v">6deg</td><td>按壓傾斜上限</td></tr>`;
+    h+=`<tr><td class="v">--amp-move / scale / rot</td><td class="v">${(3*a).toFixed(1)}px / ${(3*a).toFixed(1)}% / ${(4*a).toFixed(1)}°</td><td>待機幅度上限</td></tr>`;
+    $('tok').innerHTML=h;
+    $('code').textContent=`:root{
+  /* 倍率：只改這四個 */
+  --k:${k};  --a:${a};  --d:${d}px;  --ov:${ov};  --tilt:6deg;
+
+  /* 時長 */
+  --t-press:  calc(90ms  * var(--k));
+  --t-release:calc(280ms * var(--k));
+  --t-quick:  calc(160ms * var(--k));
+  --t-exit:   calc(220ms * var(--k));
+  --t-enter:  calc(360ms * var(--k));
+  --t-page:   calc(460ms * var(--k));
+  --t-hold:   calc(700ms * var(--k));
+  --stagger:  calc(45ms  * var(--k));
+  --idle-s:   calc(2.4s  * var(--k));
+  --idle-m:   calc(3.7s  * var(--k));
+  --idle-l:   calc(6.1s  * var(--k));
+
+  /* 曲線 */
+  --e-out:   cubic-bezier(.22,1,.36,1);
+  --e-in:    cubic-bezier(.5,0,.75,0);
+  --e-spring:cubic-bezier(.34,var(--ov),.64,1);
+  --e-breath:cubic-bezier(.45,0,.55,1);
+
+  /* 待機幅度上限 */
+  --amp-move: calc(3px  * var(--a));
+  --amp-scale:calc(.03  * var(--a));
+  --amp-rot:  calc(4deg * var(--a));
+}`;
+  }
+  renderTokens();
+
+  /* ── A：press 原語（朝觸點傾斜） ── */
+  function bindPress(el){
+    let active=false;
+    el.addEventListener('pointerdown',e=>{
+      const r=el.getBoundingClientRect();
+      const px=(e.clientX-r.left)/r.width-.5, py=(e.clientY-r.top)/r.height-.5;
+      const t=6*(r.width>160?.5:1);
+      el.style.setProperty('--rx',(-py*2*t).toFixed(2)+'deg');
+      el.style.setProperty('--ry',(px*2*t).toFixed(2)+'deg');
+      el.classList.add('is-down');active=true;
+    });
+    const up=()=>{if(!active)return;active=false;el.classList.remove('is-down')};
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>el.addEventListener(ev,up));
+    el.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){el.classList.add('is-down')}});
+    el.addEventListener('keyup',()=>el.classList.remove('is-down'));
+  }
+  document.querySelectorAll('.m-press').forEach(bindPress);
+
+  const deny=$('denyBtn');
+  deny.addEventListener('click',()=>{deny.classList.remove('deny');void deny.offsetWidth;deny.classList.add('deny')});
+
+  const hold=$('hold');let hT=null;
+  hold.addEventListener('pointerdown',()=>{hold.classList.add('charging');hT=setTimeout(()=>{hold.classList.remove('charging');hold.classList.remove('fired');void hold.offsetWidth;hold.classList.add('fired');toast('已起卦')},700*K())});
+  ['pointerup','pointerleave','pointercancel'].forEach(ev=>hold.addEventListener(ev,()=>{clearTimeout(hT);hold.classList.remove('charging')}));
+
+  const tg=$('tg');
+  tg.addEventListener('click',()=>{const on=!tg.classList.contains('on');tg.classList.toggle('on',on);tg.setAttribute('aria-checked',on);tg.classList.remove('moving');void tg.offsetWidth;tg.classList.add('moving')});
+
+  /* ── B：彈框、提示 ── */
+  function openDialog(){
+    const s=document.createElement('div');s.className='scrim';
+    s.innerHTML=`<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgT"><h4 id="dlgT" style="--i:0">收下這一句？</h4><p style="--i:1">「你怕的不是被拒絕，是被拒絕之後還得自己收拾。」收下後會放進手帳。</p><div class="row" style="--i:2"><button class="m-press btn ghost" type="button" data-x>再想想</button><button class="m-press btn primary" type="button" data-x>收下</button></div></div>`;
+    document.body.appendChild(s);
+    s.querySelectorAll('.m-press').forEach(bindPress);
+    const close=()=>{if(s.classList.contains('out'))return;s.classList.add('out');s.addEventListener('animationend',ev=>{if(ev.target===s)s.remove()})};
+    s.addEventListener('click',e=>{if(e.target===s||e.target.closest('[data-x]'))close()});
+    document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){close();document.removeEventListener('keydown',esc)}});
+    s.querySelector('[data-x]:last-child').focus({preventScroll:true});
+    icons.classList.add('off'); // 被蓋住的待機暫停
+    s.addEventListener('animationend',ev=>{if(ev.target===s&&s.classList.contains('out'))icons.classList.remove('off')});
+  }
+  $('openDlg').addEventListener('click',openDialog);
+  let tEl=null;
+  function toast(msg){
+    if(tEl)tEl.remove();
+    const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=msg;document.body.appendChild(t);tEl=t;
+    setTimeout(()=>{t.classList.add('out');t.addEventListener('animationend',()=>{if(t.classList.contains('out'))t.remove()})},1800*K());
+  }
+  $('openToast').addEventListener('click',()=>toast('已收進手帳'));
+
+  /* ── B：頁面切換（Figma 五式） ── */
+  const A=$('pgA'),B=$('pgB'),dim=$('dim'),grab=B.querySelector('.grab');
+  const DESC={
+    push:'新頁把舊頁整個推出去，兩頁等速。適合同層級的前後步驟。',
+    slide:'新頁從右側蓋上，舊頁只退 30% 並變暗，看起來像疊在下面一層。',
+    move:'新頁從底部升起蓋住一部分，舊頁微縮並變暗。收回就回到原處。',
+    dissolve:'交叉淡化，新頁同時上浮 8px。沒有方向，因為分頁之間沒有前後關係。',
+    smart:'點到的卡片直接展開成整頁：剪裁框從卡片的位置和圓角長到全螢幕。'
+  };
+  let mode='push',busy=false,from=null;
+  const chips=$('chips');
+  chips.addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;mode=b.dataset.t;chips.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===b));$('tDesc').textContent=DESC[mode]});
+  $('tDesc').textContent=DESC[mode];
+  const EO='cubic-bezier(.22,1,.36,1)';
+  function run(el,kf,dur,opt={}){return el.animate(kf,{duration:dur,easing:EO,fill:'both',...opt}).finished}
+  function frames(m,card){
+    const W='100%';
+    switch(m){
+      case 'push':return{a:[{transform:'translateX(0)'},{transform:'translateX(-100%)'}],b:[{transform:'translateX(100%)'},{transform:'translateX(0)'}]};
+      case 'slide':return{a:[{transform:'translateX(0)'},{transform:'translateX(-30%)'}],b:[{transform:'translateX(100%)',boxShadow:'-10px 0 30px rgba(24,18,12,0)'},{transform:'translateX(0)',boxShadow:'-10px 0 30px rgba(24,18,12,.25)'}],dim:[{opacity:0},{opacity:.25}]};
+      case 'move':return{a:[{transform:'scale(1)',borderRadius:'0'},{transform:'scale(.94)',borderRadius:'16px'}],b:[{transform:'translateY(100%)'},{transform:'translateY(0)'}],dim:[{opacity:0},{opacity:.35}]};
+      case 'dissolve':return{a:[{opacity:1},{opacity:0}],b:[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}]};
+      case 'smart':{
+        const p=$('phone').getBoundingClientRect(),c=card.getBoundingClientRect();
+        const ins=`inset(${c.top-p.top}px ${p.right-c.right}px ${p.bottom-c.bottom}px ${c.left-p.left}px round 14px)`;
+        return{a:[{transform:'scale(1)'},{transform:'scale(.97)'}],b:[{clipPath:ins},{clipPath:'inset(0 0 0 0 round 0px)'}],dim:[{opacity:0},{opacity:.2}]};
+      }
+    }
+  }
+  async function go(card){
+    if(busy)return;busy=true;
+    from={mode,card};
+    B.classList.toggle('sheet',mode==='move');grab.hidden=mode!=='move';
+    $('bTitle').textContent=card.querySelector('b').textContent;
+    B.hidden=false;
+    const f=frames(mode,card),T=460*K();
+    const txt=B.querySelectorAll('.pg-top,.hero,.txt');
+    const jobs=[run(A,f.a,T),run(B,f.b,T)];
+    if(f.dim)jobs.push(run(dim,f.dim,T));
+    if(mode==='smart')txt.forEach((el,i)=>run(el,[{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],T*.8,{delay:T*.35+i*45*K()}));
+    await Promise.all(jobs);busy=false;
+  }
+  async function back(){
+    if(busy||!from)return;busy=true;
+    const f=frames(from.mode,from.card),T=380*K(),EI='cubic-bezier(.4,0,.2,1)';
+    const rev=a=>a.slice().reverse();
+    const jobs=[run(A,rev(f.a),T,{easing:EI}),run(B,rev(f.b),T,{easing:EI})];
+    if(f.dim)jobs.push(run(dim,rev(f.dim),T,{easing:EI}));
+    await Promise.all(jobs);
+    B.hidden=true;A.getAnimations().forEach(x=>x.cancel());B.getAnimations().forEach(x=>x.cancel());dim.getAnimations().forEach(x=>x.cancel());
+    B.querySelectorAll('.pg-top,.hero,.txt').forEach(el=>el.getAnimations().forEach(x=>x.cancel()));
+    busy=false;
+  }
+  A.querySelectorAll('[data-go]').forEach(c=>c.addEventListener('click',()=>go(c)));
+  $('back').addEventListener('click',back);
+
+  /* ── D：公轉 keyframes（橢圓＋深度） ── */
+  (function(){
+    let s='@keyframes orbit{';
+    for(let i=0;i<=24;i++){
+      const t=i/24*Math.PI*2,x=Math.cos(t)*26,y=Math.sin(t)*7,z=Math.sin(t);
+      s+=`${(i/24*100).toFixed(2)}%{transform:translate(${x.toFixed(1)}px,${y.toFixed(1)}px) scale(${(0.72+0.38*(z+1)/2).toFixed(3)});opacity:${(0.45+0.55*(z+1)/2).toFixed(2)};z-index:${z>0?3:1}}`;
+    }
+    const st=document.createElement('style');st.textContent=s+'}';document.head.appendChild(st);
+  })();
+
+  /* ── D：相位錯開（同型 icon 起點隨機） ── */
+  document.querySelectorAll('.idle-bg i').forEach(el=>el.style.animationDelay=(-Math.random()*6).toFixed(2)+'s');
+
+  /* ── D：點選回應 ── */
+  const icons=$('icons');
+  icons.addEventListener('click',e=>{const c=e.target.closest('.ic');if(!c)return;c.classList.remove('poke');void c.offsetWidth;c.classList.add('poke');if(c.dataset.occ)fire(c)});
+
+  /* ── D：偶發排程（只在可見、未暫停時） ── */
+  function fire(c){
+    const acts=(c.dataset.occ||'').split(' ');const act=acts[Math.floor(Math.random()*acts.length)];
+    c.classList.remove('fire','blink','flick');void c.offsetWidth;c.classList.add('fire',act);
+    setTimeout(()=>c.classList.remove('fire',act),1000*K());
+  }
+  let visible=true;
+  try{new IntersectionObserver(es=>es.forEach(en=>{visible=en.isIntersecting;icons.classList.toggle('off',!visible)})).observe(icons)}catch(e){}
+  (function loop(){
+    setTimeout(()=>{
+      if(visible&&!icons.classList.contains('off')&&!root.classList.contains('no-idle')&&!root.classList.contains('rm')){
+        const occ=[...icons.querySelectorAll('[data-occ]')];fire(occ[Math.floor(Math.random()*occ.length)]);
+      }
+      loop();
+    },(4000+Math.random()*4000)*K());
+  })();
+  document.addEventListener('visibilitychange',()=>root.classList.toggle('no-idle',document.hidden||!$('idle').checked));
+
+  /* ── 複製 ── */
+  $('copy').addEventListener('click',()=>{
+    const txt=$('code').textContent;
+    const done=()=>{$('copy').textContent='已複製';setTimeout(()=>$('copy').textContent='複製',1400)};
+    try{navigator.clipboard.writeText(txt).then(done,()=>sel())}catch(e){sel()}
+    function sel(){const r=document.createRange();r.selectNodeContents($('code'));const s=getSelection();s.removeAllRanges();s.addRange(r)}
+  });
+})();
+</script>
