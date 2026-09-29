@@ -706,7 +706,15 @@ async function handle(req: Request): Promise<Response> {
         console.error("mail_list failed", uid, error.message);
         return Response.json({ kind: "err", msg: "信箱讀不到" }, { headers: CORS });
       }
-      return Response.json({ kind: "ok", mail: data ?? [] }, { headers: CORS });
+      // 觀中誌・更新日誌（0074）：全站一份，不進信、不算未讀，只在第一頁一併帶出。
+      // 表還沒建（0074 沒跑）就當沒有——信箱照常能開。
+      let changelog: unknown[] = [];
+      if (Number(body.offset ?? 0) === 0) {
+        const { data: log, error: logErr } = await db.from("changelog")
+          .select("id, day, body").order("day", { ascending: false }).order("id", { ascending: false }).limit(80);
+        if (!logErr) changelog = log ?? [];
+      }
+      return Response.json({ kind: "ok", mail: data ?? [], changelog }, { headers: CORS });
     }
 
     // 讀了／刪了。兩件事同一支 RPC——它們都只是在 mail_state 上記一筆。
