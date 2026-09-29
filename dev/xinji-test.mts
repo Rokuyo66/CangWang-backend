@@ -12,7 +12,7 @@ import { fakeDb } from "./fake-db.mts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, brewNotes, monthlyStats, monthlyReview, monthlyIndex,
-  threadQuotaOf, statsDigest,
+  threadQuotaOf, statsDigest, monthlyRefresh, REFRESH_MIN, REFRESH_MAX,
 } from "../supabase/functions/_shared/xinji.ts";
 import { buildChart } from "../supabase/functions/_shared/core.ts";
 
@@ -427,6 +427,53 @@ await t("摘要餵給模型的是人話，不是 JSON", () => {
   ok(d.includes("感情 5 卦"), "分類該寫成人話");
   ok(d.includes("阿凱這條線"), "未了那件該帶進去");
   ok(!d.includes("{"), "不該是 JSON");
+});
+
+
+// ── 卷首語重錄（0076）：六六定的硬規則——不自動重生、人按才花錢、其後又問滿 3 卦才給按、每月最多 4 次 ──
+await t("重錄：其後沒再問就不給按；又問不到門檻也不給；滿門檻才重生並覆蓋", async () => {
+  const db = fakeDb() as any;
+  await seedCast(db, {});
+  let called = 0;
+  const gen = async () => { called++; return { text: `第 ${called} 段`, model: "claude-haiku-4-5", usage: { in: 1, out: 1 }, estimated: false }; };
+  const a = P(await monthlyReview(db, U, "zhiji", YM(), gen));
+  eq(a.refresh.since, 0, "剛錄下，其後應為 0 卦");
+  eq(a.refresh.can, false, "其後沒再問不該給按");
+  for (let i = 0; i < REFRESH_MIN - 1; i++) await seedCast(db, {});
+  const b = P(await monthlyReview(db, U, "zhiji", YM(), gen));
+  eq(b.refresh.since, REFRESH_MIN - 1, "其後卦數不對");
+  eq(b.refresh.can, false, "不到門檻不該給按");
+  E(await monthlyRefresh(db, U, "zhiji", YM(), gen));
+  eq(called, 1, "不到門檻硬按也不該花錢");
+  await seedCast(db, {});
+  const c = P(await monthlyReview(db, U, "zhiji", YM(), gen));
+  eq(c.refresh.can, true, "滿門檻該給按");
+  eq(c.refresh.left, REFRESH_MAX, "還沒重錄過，次數該是滿的");
+  const d = P(await monthlyRefresh(db, U, "zhiji", YM(), gen));
+  eq(d.preface, "第 2 段", "重錄該換成新的一段");
+  eq(d.refresh.since, 0, "重錄後其後卦數歸零");
+  eq(d.refresh.left, REFRESH_MAX - 1, "重錄該扣一次");
+  eq(called, 2, "重錄該呼叫一次模型");
+});
+
+await t("重錄：每月最多 REFRESH_MAX 次，用完就擋；免費不能重錄", async () => {
+  const db = fakeDb() as any;
+  await seedCast(db, {});
+  let called = 0;
+  const gen = async () => { called++; return { text: `段 ${called}`, model: "m", usage: { in: 1, out: 1 }, estimated: false }; };
+  P(await monthlyReview(db, U, "zhiji", YM(), gen));
+  for (let k = 0; k < REFRESH_MAX; k++) {
+    for (let i = 0; i < REFRESH_MIN; i++) await seedCast(db, {});
+    P(await monthlyRefresh(db, U, "zhiji", YM(), gen));
+  }
+  for (let i = 0; i < REFRESH_MIN; i++) await seedCast(db, {});
+  const p = P(await monthlyReview(db, U, "zhiji", YM(), gen));
+  eq(p.refresh.left, 0, "次數該用完");
+  eq(p.refresh.can, false, "用完不該給按");
+  const before = called;
+  E(await monthlyRefresh(db, U, "zhiji", YM(), gen));
+  eq(called, before, "用完硬按不該花錢");
+  E(await monthlyRefresh(db, U, "free", YM(), gen));
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);
