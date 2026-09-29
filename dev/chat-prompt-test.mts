@@ -1,0 +1,40 @@
+// dev/chat-prompt-test.mts — 談心提示詞精簡後（2026-09-29）的幾條底線。
+//
+//   ・閒聊不帶問卦三段式；像在求結果、或探詢中，才帶
+//   ・記憶標得出日子（「聊過感冒就一直當他在感冒」那條）
+//   ・head 不摻任何隨用戶而異的東西（快取前綴）
+//
+// 跑法：node --experimental-strip-types dev/chat-prompt-test.mts
+
+(globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
+const { wantsAskBlock, memAge, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
+
+let pass = 0, fail = 0;
+const ok = (name: string, cond: boolean) => { if (cond) pass++; else { fail++; console.log("✗", name); } };
+
+// 閒聊：不帶
+for (const m of ["今天好累", "師兄你在幹嘛", "我剛吃完飯", "你喜歡喝什麼茶", "哈哈你好可愛"])
+  ok(`閒聊不帶：${m}`, !wantsAskBlock(m));
+// 求結果：帶
+for (const m of ["這個案子會不會成", "我該不該換工作", "他什麼時候會回來", "幫我看一下財運", "童童要不要看醫生", "想問一卦"])
+  ok(`求結果要帶：${m}`, wantsAskBlock(m));
+ok("探詢中一律帶", wantsAskBlock("嗯對啊", 1));
+
+const now = Date.parse("2026-09-29T10:00:00+08:00");
+ok("今天", memAge("2026-09-29T01:00:00+08:00", now) === "〔9/29・今天〕");
+ok("昨天", memAge("2026-09-28T23:00:00+08:00", now) === "〔9/28・昨天〕");
+ok("三天前", memAge("2026-09-26T12:00:00+08:00", now) === "〔9/26・3 天前〕");
+ok("沒日期不標", memAge(undefined, now) === "");
+
+const persona = "【人設】我是大師兄。";
+const a = sp(persona, "", "六六", "・〔9/20・1 週前〕他那陣子感冒了", "", "daoshi_m", 100, 0, "", "", "", "", false);
+const b = sp(persona, "・問X→《乾》", "別人", "", "", "daoshi_m", 900, 0, "", "", "", "", true);
+ok("head 對不同用戶逐字相同", a.head === b.head);
+ok("head 以人設開頭", a.head.startsWith(persona));
+ok("閒聊 tail 不含擬題規矩", !a.tail.includes("[[DRAFT"));
+ok("求結果 tail 含擬題規矩", b.tail.includes("[[DRAFT|理好的問句|用神六親|事由|一句話說這件事]]"));
+ok("記憶附上時態提醒", a.tail.includes("記憶是往事"));
+console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);
+
+console.log(`\n${pass} 過 / ${fail} 敗`);
+if (fail) process.exit(1);
