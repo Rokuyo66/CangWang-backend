@@ -1183,16 +1183,19 @@ async function handle(req: Request): Promise<Response> {
     // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）
     if (body.mode === "char_titles") {
       const cid = String(body.character_id ?? "");
-      const { data: list } = await db.from("character_titles")
-        .select("id, label, unlock_event").eq("character_id", cid).order("seq");
+      // description（0075）：給人看的身分描述。欄位還沒建（0075 沒跑）就退回不帶它的查法，身分頁照常能開
+      let { data: list, error: listErr } = await db.from("character_titles")
+        .select("id, label, unlock_event, description").eq("character_id", cid).order("seq");
+      if (listErr) ({ data: list } = await db.from("character_titles")
+        .select("id, label, unlock_event").eq("character_id", cid).order("seq"));
       const { data: doneRows } = await db.from("user_character_events")
         .select("event_id").eq("user_id", uid).not("completed_at", "is", null);
       const done = new Set((doneRows ?? []).map((r: { event_id: string }) => r.event_id));
       const { data: uc } = await db.from("user_character").select("title_tag")
         .eq("user_id", uid).eq("character_id", cid).maybeSingle();
       // voice_hint 不下發：那是給模型看的，不是給人看的，外流等於劇透兼被玩家調校
-      const items = (list ?? []).map((t: { id: string; label: string; unlock_event: string | null }) =>
-        ({ id: t.id, label: t.label, unlock_event: t.unlock_event, unlocked: !t.unlock_event || done.has(t.unlock_event) }));
+      const items = (list ?? []).map((t: { id: string; label: string; unlock_event: string | null; description?: string | null }) =>
+        ({ id: t.id, label: t.label, description: t.description ?? null, unlock_event: t.unlock_event, unlocked: !t.unlock_event || done.has(t.unlock_event) }));
       return Response.json({ kind: "ok", items, selected: uc?.title_tag ?? null }, { headers: CORS });
     }
 
