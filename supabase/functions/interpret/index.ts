@@ -21,7 +21,7 @@ import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type 
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
-  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyIndex, threadQuotaOf, afterCast, hallMention,
+  suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyRefresh, monthlyIndex, threadQuotaOf, afterCast, hallMention,
 } from "../_shared/xinji.ts";
 import { callInterpret, logUsage } from "../_shared/services.ts";
 import {
@@ -979,9 +979,10 @@ async function handle(req: Request): Promise<Response> {
     // 月誌。免費：統計照給、卷首語鎖上（locked_reason 是可直接顯示的中文）。
     // 付費：有存的取存的，沒有就生一次再存。生成失敗照給統計——
     // 少一段卷首語是遺憾，整頁打不開是故障。
-    if (body.mode === "xinji_month") {
+    if (body.mode === "xinji_month" || body.mode === "xinji_month_refresh") {
       const plan = await planOf(db, uid);
-      const r = await monthlyReview(db, uid, plan, body.ym, async (digest) => {
+      const run = body.mode === "xinji_month_refresh" ? monthlyRefresh : monthlyReview;   // 重錄：0076 的硬規則在 monthlyRefresh 裡擋
+      const r = await run(db, uid, plan, body.ym, async (digest) => {
         // 司籍不是三位角色中的任何一位，所以聲線位置給一句中性的定位，
         // 而不是把大師兄的人設塞進來——那樣寫出來的卷首語會開始叫人「護道人」。
         const ai = await callInterpret("你是幾知觀的司籍，只記錄、不評斷、不安慰。", digest, {

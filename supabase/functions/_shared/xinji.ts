@@ -1041,9 +1041,8 @@ export async function monthlyReview(
     });
   }
 
-  const { data: had } = await db.from("monthly_reviews").select("preface, created_at")
-    .eq("user_id", uid).eq("ym", ym).maybeSingle();
-  if (had) return ok({ ...base, preface: (had as { preface: string }).preface, locked: false });
+  const had = await reviewRow(db, uid, ym);
+  if (had) return ok({ ...base, preface: had.preface, locked: false, refresh: refreshInfo(had, stats.casts) });
 
   // 沒卦就不生：花錢請模型對著一片空白寫感想，寫出來的一定是廢話
   if (!stats.casts) return ok({ ...base, preface: null, locked: false, empty: true });
@@ -1055,18 +1054,86 @@ export async function monthlyReview(
     if (!preface) return ok({ ...base, preface: null, locked: false });
     // onConflict 忽略重複：兩個裝置同時開月誌，只留先寫進去的那一份，
     // 不覆蓋——覆蓋的話後開的人會看到跟先前不同的一段話。
-    await db.from("monthly_reviews").upsert({
-      user_id: uid, ym, preface, model: out.model,
-      tokens_in: out.usage.in, tokens_out: out.usage.out,
-    }, { onConflict: "user_id,ym", ignoreDuplicates: true });
-    const { data: fresh } = await db.from("monthly_reviews").select("preface")
-      .eq("user_id", uid).eq("ym", ym).maybeSingle();
-    return ok({ ...base, preface: (fresh as { preface: string } | null)?.preface ?? preface, locked: false });
+    const row = { user_id: uid, ym, preface, model: out.model, tokens_in: out.usage.in, tokens_out: out.usage.out };
+    const { error: upErr } = await db.from("monthly_reviews").upsert(
+      { ...row, casts_at_gen: stats.casts, refresh_count: 0 }, { onConflict: "user_id,ym", ignoreDuplicates: true });
+    // 0076 還沒跑（沒有 casts_at_gen 欄）：照舊存，只是之後算不出「其後又問幾卦」
+    if (upErr) await db.from("monthly_reviews").upsert(row, { onConflict: "user_id,ym", ignoreDuplicates: true });
+    const fresh = await reviewRow(db, uid, ym);
+    return ok({ ...base, preface: fresh?.preface ?? preface, locked: false,
+      refresh: fresh ? refreshInfo(fresh, stats.casts) : null });
   } catch (e) {
     console.error("monthlyReview gen failed", e instanceof Error ? e.stack ?? e.message : String(e));
     // 生不出來就照給統計。少一段卷首語是遺憾，整頁打不開是故障。
     return ok({ ...base, preface: null, locked: false, gen_failed: true });
   }
+}
+
+/* ══ 卷首語重錄（0076）══
+   六六 2026-09-29 定的硬規則：不自動重生，人自己按才花錢；上次錄下之後又問了 REFRESH_MIN 卦以上
+   才給按；每人每月最多 REFRESH_MAX 次（首次生成不算）。前端只照 refresh.can 畫鈕，這裡再擋一次。 */
+export const REFRESH_MIN = 3;
+export const REFRESH_MAX = 4;
+
+type ReviewRow = { preface: string; created_at: string; casts_at_gen: number | null; refresh_count: number; updated_at: string | null };
+
+/** 讀存下的卷首語。0076 沒跑時退回只讀 preface／created_at（重錄資訊當作沒有）。 */
+async function reviewRow(db: SupabaseClient, uid: string, ym: string): Promise<ReviewRow | null> {
+  const full = await db.from("monthly_reviews").select("preface, created_at, casts_at_gen, refresh_count, updated_at")
+    .eq("user_id", uid).eq("ym", ym).maybeSingle();
+  if (!full.error) {
+    const r = full.data as ReviewRow | null;
+    return r ? { ...r, refresh_count: r.refresh_count ?? 0 } : null;
+  }
+  const { data } = await db.from("monthly_reviews").select("preface, created_at").eq("user_id", uid).eq("ym", ym).maybeSingle();
+  return data ? { ...(data as { preface: string; created_at: string }), casts_at_gen: null, refresh_count: 0, updated_at: null } : null;
+}
+
+/** 前端畫「9/1 所錄・其後又問 25 卦・重錄」用。casts_at_gen 不知道（0076 沒跑）就不給重錄。 */
+export function refreshInfo(r: ReviewRow, castsNow: number) {
+  const since = r.casts_at_gen == null ? 0 : Math.max(0, castsNow - r.casts_at_gen);
+  const left = Math.max(0, REFRESH_MAX - (r.refresh_count ?? 0));
+  return { at: r.updated_at ?? r.created_at, since, left, min: REFRESH_MIN, can: r.casts_at_gen != null && since >= REFRESH_MIN && left > 0 };
+}
+
+/**
+ * 重錄卷首語：付費、已有一段、其後又問 ≥ REFRESH_MIN 卦、本月還有次數，才重生一次並覆蓋。
+ * 覆蓋時比對 refresh_count（樂觀鎖）：兩個裝置同時按，只有一個會真的扣次數、換掉那段話。
+ */
+export async function monthlyRefresh(
+  db: SupabaseClient, uid: string, plan: string, ymRaw: unknown, gen: PrefaceGen,
+): Promise<XinjiResult> {
+  if (plan === "free") return err("持牒之後才能重錄");
+  const ym = /^\d{4}-\d{2}$/.test(String(ymRaw ?? "")) ? String(ymRaw) : taipeiMonth();
+  const had = await reviewRow(db, uid, ym);
+  if (!had) return monthlyReview(db, uid, plan, ym, gen);        // 還沒錄過：走首次生成
+  const stats = await monthlyStats(db, uid, ym);
+  const info = refreshInfo(had, stats.casts);
+  if (!info.can) {
+    return err(info.left <= 0 ? `這一月已經重錄 ${REFRESH_MAX} 次了`
+      : `上次錄下之後再問滿 ${REFRESH_MIN} 卦，才有新的東西可錄`);
+  }
+  const { from, to } = monthRange(ym);
+  const { data: tRows } = await db.from("threads").select("id, title")
+    .eq("user_id", uid).gte("last_cast_at", from).lt("last_cast_at", to).limit(10);
+  const counts = await Promise.all(((tRows ?? []) as { id: string; title: string }[]).map(async (t) => {
+    const { count } = await db.from("casts").select("id", { count: "exact", head: true })
+      .eq("thread_id", t.id).gte("created_at", from).lt("created_at", to);
+    return { title: t.title, casts: count ?? 0 };
+  }));
+  let out;
+  try { out = await gen(statsDigest(stats, counts)); }
+  catch (e) {
+    console.error("monthlyRefresh gen failed", e instanceof Error ? e.stack ?? e.message : String(e));
+    return err("這一次沒能錄成，次數沒有扣，稍後再試");
+  }
+  const preface = (out.text ?? "").trim();
+  if (!preface) return err("這一次沒能錄成，次數沒有扣，稍後再試");
+  await db.from("monthly_reviews").update({
+    preface, model: out.model, tokens_in: out.usage.in, tokens_out: out.usage.out,
+    casts_at_gen: stats.casts, refresh_count: had.refresh_count + 1, updated_at: new Date().toISOString(),
+  }).eq("user_id", uid).eq("ym", ym).eq("refresh_count", had.refresh_count);
+  return monthlyReview(db, uid, plan, ym, gen);                  // 讀回存下的那一段，回同一個形狀
 }
 
 /** 往月目錄：畫「往月　未啟封」那一列用。只回月份與卦數，不回內容。 */
