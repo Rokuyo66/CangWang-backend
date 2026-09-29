@@ -371,6 +371,36 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
     }
     return;
   }
+  /* 觀中誌・更新日誌：/log 內文（0074）
+       /mail → 寄信：一人一份、亮紅點、可夾靈石。大版本、補償、節慶用。
+       /log  → 記一條更新日誌：全站一份，放在信箱「觀中誌」那一格，不亮紅點、不打擾人。
+     初期一天改好幾次，就用這支；要所有人都看到的，才另外 /mail。 */
+  if (text === "/log" || /^\/log\s/.test(text)) {
+    const ADMIN = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
+    if (tgId !== ADMIN) { await send(chatId, "（此為觀主專用。）"); return; }
+    const raw = text.slice(4).trim();
+    const del = raw.match(/^del\s+(\d+)$/i);
+    if (del) {
+      const { data, error } = await db.from("changelog").delete().eq("id", Number(del[1])).select("id");
+      await send(chatId, error ? `刪不掉：${tgEsc(error.message)}` : data?.length ? `🗑 已刪 #${del[1]}` : `沒有 #${del[1]} 這一條。`);
+      return;
+    }
+    if (!raw) {
+      const { data } = await db.from("changelog").select("id, day, body")
+        .order("day", { ascending: false }).order("id", { ascending: false }).limit(5);
+      await send(chatId,
+        "<b>觀中誌・更新日誌</b>\n\n" +
+        "<code>/log 內文</code>　記一條（今天的日期，可換行）\n" +
+        "<code>/log del 編號</code>　刪一條\n\n" +
+        "<i>不寄信、不亮紅點，玩家在信箱「觀中誌」翻得到。要所有人都看到的，用 /mail。</i>\n\n" +
+        ((data ?? []).map((r) => `#${r.id}　${r.day}\n${tgEsc(String(r.body).slice(0, 60))}${String(r.body).length > 60 ? "…" : ""}`).join("\n\n") || "（還沒有日誌）"));
+      return;
+    }
+    const { data, error } = await db.from("changelog").insert({ body: raw.slice(0, 4000) }).select("id, day").single();
+    if (error) { await send(chatId, `記不下來：${tgEsc(error.message)}`); return; }
+    await send(chatId, `📜 <b>已記進觀中誌</b>　#${data.id}　${data.day}\n\n${tgEsc(raw.slice(0, 300))}${raw.length > 300 ? "…" : ""}\n\n<i>記錯了：/log del ${data.id}</i>`);
+    return;
+  }
   /* 站內信廣播：/mail 標題｜內文
      與 /broadcast 的差別要講清楚，否則兩支遲早會被誤用：
        /broadcast → 推到 Telegram，只有綁過 TG 的人收得到，看完就過去了
