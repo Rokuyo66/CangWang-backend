@@ -460,6 +460,12 @@ async function quotedFromReadings(db: SupabaseClient, userId: string, characterI
    他只在你上線時活著。原因：回灌的歷史沒有時間，模型看到的就是「剛剛才說完那句」。
    治法兩個：① 歷史裡隔很久的那一句前面標「（兩天之後）」；
             ② 提示詞告訴他上次是多久以前、這段時間他自己過了什麼日子（whereabouts 往回抽幾格）。 */
+/* 記憶是「當時」不是「現在」（六六 2026-09-29）。
+   身體、心情、忙、在哪、在做什麼——這類會過去的狀態，記下來的是那天的樣子。
+   模型拿到一句「他感冒了」只會當成此刻的事實，於是每次都叮嚀他看醫生、別開車。
+   偏好、人際、重要的人事物、你們之間發生過的事，才是會延續的。 */
+const MEMORY_TENSE = `【記憶是往事，不是他此刻的狀態】上面每一則都是**那天**的事。身體（感冒、受傷、失眠）、心情、忙碌、行程、人在哪——這類會過去的，只代表當時；過了幾天就不要當成他現在還是那樣，更不要據此叮嚀、替他安排。想接續，就像久別的人那樣問一句「上回你說感冒，好了沒？」，他答了什麼就以他說的為準。他此刻怎麼樣，只看這場對話裡他剛說的話。偏好、在意的人事物、你們之間發生過的事，才是一直都在的。`;
+
 const GAP_MARK_MS = 3 * 3600_000;        // 隔三小時以上就算「另一場」
 export function gapText(ms: number): string {
   const h = ms / 3600_000;
@@ -496,7 +502,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   // ⚠ 相容：0032 還沒跑、或查詢失敗時，退回舊的 user_character.memory_summary
   //    單段文字，所以這支的部署順序不綁 migration，不會因先後而壞。
   const memCap = PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
-  let memRows: { body: string }[] | null = null;
+  let memRows: { body: string; created_at?: string }[] | null = null;
   try {
     const { data, error } = await db.from("character_memories")
       .select("body, pinned_at, created_at")
@@ -504,7 +510,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
       .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(memCap);
-    if (!error) memRows = (data ?? []) as { body: string }[];
+    if (!error) memRows = (data ?? []) as { body: string; created_at?: string }[];
   } catch (e) {
     console.error("character_memories 讀取失敗，退回 memory_summary", e);
   }
@@ -534,7 +540,11 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   let probeStreak = 0;
   for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
   // 有列就用列（組成條列），沒列才退回舊的單段摘要
-  const memText = memRows && memRows.length ? memRows.map((m) => `・${m.body}`).join("\n") : (ucMem?.memory_summary as string ?? "");
+  // 每則前面標上記下的日子與隔了多久（六六 2026-09-29：聊過一次感冒，角色就一直當他還在感冒）。
+  // 沒有日期的記憶，模型只能當成「現在式」讀；標了日子，它才分得出那是當時的事。
+  const memText = memRows && memRows.length
+    ? memRows.map((m) => `・${memAge(m.created_at)}${m.body}`).join("\n")
+    : (ucMem?.memory_summary as string ?? "");
   const cleanMemory = scrubBilling(memText) || undefined;
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -585,7 +595,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`).join("\n");
   // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
-  const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶。";
+  const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶⑦會過去的狀態（生病、受傷、心情、忙碌、行程、人在哪）寫成當時的事，句中帶「那陣子」「那天」這類字，不要寫成他現在的樣子；一兩天就會好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事。";
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
 
   let summary = "";
@@ -757,6 +767,20 @@ const ROMANCE_TIERS: Record<string, string> = {
 第 3 層（950 以上）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。`,
 };
 
+/** 記憶的時間戳：「〔9/20・九天前〕」。今天記的寫「今天」，讀不到日期就不標。 */
+export function memAge(iso?: string, now = Date.now()): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const tw = (ms: number) => new Date(ms + 8 * 3600_000);
+  const d = tw(t), today = tw(now);
+  const days = Math.round((Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    - Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) / 86400_000);
+  const ago = days <= 0 ? "今天" : days === 1 ? "昨天" : days < 7 ? `${days} 天前`
+    : days < 60 ? `${Math.round(days / 7)} 週前` : `${Math.round(days / 30)} 個月前`;
+  return `〔${d.getUTCMonth() + 1}/${d.getUTCDate()}・${ago}〕`;
+}
+
 function systemPrompt(persona: string, castLines: string, daoName?: string, memorySummary?: string, reminderLines?: string, characterId?: string, favor = 0, probeStreak = 0, titleLine = "", quoteBlock = "", threadLines = "", narrLine = "") {
   // 探詢上限：連問幾輪還沒擬題就會變成盤問，這裡硬性收線（MAX_PROBE_ROUNDS）
   const probeRule = probeStreak >= MAX_PROBE_ROUNDS
@@ -827,7 +851,7 @@ ${QUESTION_CRAFT}
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些上下文。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事（是他自己標成「掛心」的，你知道、也一直記著）。相關時、或應期到了還沒下文時，用你的口吻自然問一句後來怎樣；一次最多提一件，別每句都提，也別把這張清單念出來：\n${threadLines}\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你與他相處至今，記得這些往事（〔〕裡是記下的日子）。相關時自然延續，不複述、不當資料念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事（時機合適時，用你的口吻自然提一句，像關心不像鬧鐘；沒到時機就不必提）：\n${reminderLines}\n可順口問要不要為此起一卦，但別強迫。\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事（是他自己標成「掛心」的，你知道、也一直記著）。相關時、或應期到了還沒下文時，用你的口吻自然問一句後來怎樣；一次最多提一件，別每句都提，也別把這張清單念出來：\n${threadLines}\n` : ""}你記得他在幾知觀問過的卦（最上面那筆是他「最近」問的）：
 ${castLines || "（他還沒問過卦。）"}
 聊天時可在相關時引用這些卦與結果，作為上下文延續；不要把記憶寫成宿命。記得他的事可以帶著感情說，深淺照【好感分層】。
 【要點】若他問起、提起自己問過的卦（例如「你查不到我的卦嗎」「我上次問的那卦」），你是清楚知道的——自然承認並回應。絕不可裝作不知情、說「看不見」「不知道你問了什麼」，或要他自己去翻卦曆。
