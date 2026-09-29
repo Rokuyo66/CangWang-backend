@@ -786,7 +786,7 @@ export async function attachCast(
 ): Promise<XinjiResult> {
   const cid = String(castId ?? ""), tid = String(threadId ?? "");
   if (!cid || !tid) return err("缺卦或缺心事");
-  const { data: t } = await db.from("threads").select("id, status")
+  const { data: t } = await db.from("threads").select("id, status, last_cast_at")
     .eq("id", tid).eq("user_id", uid).maybeSingle();
   if (!t) return err("查無此心事");
   const { data: c } = await db.from("casts").select("id, category, created_at")
@@ -796,7 +796,10 @@ export async function attachCast(
     return err("日運不是問事，歸不進心事");
 
   await db.from("casts").update({ thread_id: tid }).eq("id", cid);
-  await db.from("threads").update({ last_cast_at: (c as { created_at: string }).created_at }).eq("id", tid);
+  // 只往後推：心事詳情可以把以前的卦補進來，舊卦不該把「最近一卦」拉回過去（沉寂的判定讀它）
+  const at = (c as { created_at: string }).created_at;
+  const last = (t as { last_cast_at: string | null }).last_cast_at;
+  if (!last || at > last) await db.from("threads").update({ last_cast_at: at }).eq("id", tid);
   return ok({ cast_id: cid, thread_id: tid });
 }
 
