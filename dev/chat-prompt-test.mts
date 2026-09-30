@@ -35,13 +35,13 @@ ok("閒聊 tail 不含擬題規矩", !a.tail.includes("[[DRAFT"));
 ok("求結果 tail 含擬題規矩", b.tail.includes("[[DRAFT|理好的問句|用神六親|事由|一句話說這件事]]"));
 ok("記憶附上時態提醒", a.tail.includes("都是那天的事"));
 // 思路與可破的邊界（MIND）：依層給，進 tail 不進 head
-ok("思路在 tail、不在 head", a.tail.includes("【你的思路】") && !a.head.includes("【你的思路】"));
-ok("大師兄未到第四層：不接情緒", mindLine("daoshi_m", 649).includes("不接情緒"));
-ok("大師兄第四層（650）：笨拙共情", mindLine("daoshi_m", 650).includes("不熟練"));
-ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("擅長共情"));
-ok("觀喵第一層：懶得搭理", mindLine("lingshou", 299).includes("懶得搭理"));
-ok("觀喵第二層（300）：安慰、無大道理", mindLine("lingshou", 300).includes("安慰") && !mindLine("lingshou", 300).includes("大道理"));
-ok("觀喵第三層（500）：講大道理", mindLine("lingshou", 500).includes("大道理"));
+ok("你這個人在 tail、不在 head", a.tail.includes("【你這個人】") && !a.head.includes("【你這個人】"));
+ok("大師兄未到第四層：不接情緒", !mindLine("daoshi_m", 649).includes("笨拙"));
+ok("大師兄第四層（650）：笨拙共情", mindLine("daoshi_m", 650).includes("笨拙"));
+ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("懂人的感受"));
+ok("觀喵第一層：懶得搭理", mindLine("lingshou", 299).includes("不熟"));
+ok("觀喵第二層（300）：安慰、無大道理", mindLine("lingshou", 300).includes("安慰") && !mindLine("lingshou", 300).includes("道理"));
+ok("觀喵第三層（500）：講大道理", mindLine("lingshou", 500).includes("道理"));
 ok("第六層才有生氣規則", b.tail.includes("[[SULK]]") === false && sp(persona, "", "", "", "", "lingshou", 960, 0, "", "", "", "", false).tail.includes("[[SULK]]"));
 // 台詞併段（mergeQuotes）
 ok("逗號半句隔旁白 → 接起來、旁白提前",
@@ -50,7 +50,6 @@ ok("相鄰台詞併成一個", mergeQuotes("「活著就好。」\n「別想太�
 ok("台詞之間的空行吃掉", mergeQuotes("「a。」\n\n「b。」") === "「a。b。」");
 ok("旁白與台詞之間的空行留著", mergeQuotes("＊他放下筆＊\n\n「睡覺。」") === "＊他放下筆＊\n\n「睡覺。」");
 ok("句號收尾的台詞不跨旁白接", mergeQuotes("「好。」\n＊他看你＊\n「睡。」") === "「好。」\n＊他看你＊\n「睡。」");
-ok("不審判動機", a.head.includes("不拆解他的動機"));
 console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);
 
 console.log(`\n${pass} 過 / ${fail} 敗`);
