@@ -1,4 +1,209 @@
-<title>幾知觀 動態規範</title>
+<title>幾知觀 美術規範</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style id="spec-style">
+/* 版面：頂部固定工具列（主題切換＋存檔狀態）＋ 左側章節導覽 ＋ 右側內容。
+   外框（--c-*）是固定的工作台色，不跟主題換；五套主題的色碼只作用在「預覽」裡（--paper、--ink … 掛在 body）。
+   這份規範刻意單一外觀：畫的是幾知觀本身，不跟著瀏覽器的深淺色切換。 */
+:root{
+  --c-bg:#E9E5DD; --c-panel:#F8F6F1; --c-line:#D3CBBC; --c-ink:#1E1A16; --c-soft:#665D52; --c-faint:#978D7F;
+  --c-accent:#8E3A2A; --c-ok:#3F6B45; --c-warn:#9A6B1F;
+  --f-disp:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --f-body:"Noto Sans TC",system-ui,sans-serif;
+  --f-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--c-bg);color:var(--c-ink);font-family:var(--f-body);font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+code,.mono{font-family:var(--f-mono);font-size:12px}
+
+/* ── 頂部工具列 ── */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:rgba(233,229,221,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--c-line)}
+.bar-in{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
+.brand{display:flex;flex-direction:column;line-height:1.3;margin-right:auto}
+.brand b{font-family:var(--f-disp);font-size:17px;letter-spacing:.2em}
+.brand small{font-size:11px;letter-spacing:.14em;color:var(--c-faint)}
+.themes{display:flex;flex-wrap:wrap;gap:6px}
+.th{display:flex;align-items:center;gap:6px;border:1px solid var(--c-line);background:var(--c-panel);border-radius:999px;padding:4px 12px 4px 5px;font-size:13px;letter-spacing:.08em}
+.th i{width:18px;height:18px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:block}
+.th[aria-pressed="true"]{border-color:var(--c-ink);background:var(--c-ink);color:var(--c-panel)}
+.state{font-size:12px;letter-spacing:.06em;border-radius:999px;padding:4px 11px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-soft);white-space:nowrap}
+.state.dirty{border-color:var(--c-warn);color:var(--c-warn)}
+.state.pend{border-color:var(--c-accent);color:var(--c-accent)}
+
+/* ── 主體 ── */
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 120px;display:grid;grid-template-columns:170px minmax(0,1fr);gap:28px}
+@media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr)}.nav{display:none}}
+.nav{position:sticky;top:calc(env(safe-area-inset-top,0px) + 76px);align-self:start;display:flex;flex-direction:column;gap:2px}
+.nav a{color:var(--c-soft);text-decoration:none;font-size:13px;letter-spacing:.12em;padding:6px 10px;border-radius:8px;border-left:2px solid transparent}
+.nav a:hover{color:var(--c-ink);background:var(--c-panel)}
+main{min-width:0;display:flex;flex-direction:column;gap:44px}
+.sec{display:flex;flex-direction:column;gap:16px;scroll-margin-top:90px}
+.sec-k{font-size:11.5px;letter-spacing:.24em;color:var(--c-accent);font-weight:700}
+.sec h2{font-family:var(--f-disp);font-size:24px;letter-spacing:.12em;margin:2px 0 0;text-wrap:balance}
+.lead{margin:0;color:var(--c-soft);max-width:68ch}
+.note{margin:0;font-size:12.5px;color:var(--c-faint);max-width:72ch}
+.panel{background:var(--c-panel);border:1px solid var(--c-line);border-radius:14px;padding:16px}
+.tbl{overflow-x:auto;border:1px solid var(--c-line);border-radius:12px;background:var(--c-panel)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--c-line);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.1em;color:var(--c-soft);font-weight:500;background:#F1EEE7;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.num{font-family:var(--f-mono);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:11px;letter-spacing:.06em;border-radius:999px;padding:0 8px;border:1px solid var(--c-line);color:var(--c-soft);white-space:nowrap}
+.tag.app{border-color:#9DB4A0;color:#3F6B45;background:#EEF4EE}
+.tag.web{border-color:#A9B5CB;color:#3E5580;background:#EEF1F7}
+.tag.todo{border-color:#D8B38A;color:var(--c-warn);background:#FBF3E8}
+
+/* ── 色彩：編輯列 ＋ 預覽 ── */
+.color-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:18px;align-items:start}
+@media (max-width:980px){.color-grid{grid-template-columns:minmax(0,1fr)}}
+.tok-list{display:flex;flex-direction:column;gap:0}
+.tok{display:grid;grid-template-columns:44px minmax(0,1fr) 150px;gap:4px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--c-line)}
+.tok:last-child{border-bottom:none}
+.tok-sw{position:relative;width:44px;height:44px;border-radius:10px;border:1px solid rgba(0,0,0,.14);overflow:hidden;background-image:linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%);background-size:10px 10px;background-position:0 0,5px 5px}
+.tok-sw span{position:absolute;inset:0}
+.tok-sw input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none;padding:0}
+.tok-name{min-width:0}
+.tok-name b{font-size:14px;letter-spacing:.06em}
+.tok-name code{color:var(--c-faint);margin-left:6px}
+.tok-name p{margin:0;font-size:12px;color:var(--c-soft);line-height:1.6}
+.tok-val{display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.tok-val input[type=text]{font-family:var(--f-mono);font-size:12px;border:1px solid var(--c-line);border-radius:7px;padding:5px 7px;background:#fff;width:100%}
+.tok-val .alpha{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--c-faint)}
+.tok-val .alpha input{flex:1;min-width:0;accent-color:var(--c-accent)}
+.tok.changed .tok-name b::after{content:"已改";margin-left:8px;font-size:10.5px;letter-spacing:.1em;color:var(--c-warn);border:1px solid currentColor;border-radius:999px;padding:0 6px;vertical-align:2px}
+.reset1{font-size:11px;color:var(--c-faint);background:none;border:none;padding:0;text-align:right;text-decoration:underline}
+.grp-h{font-size:12px;letter-spacing:.16em;color:var(--c-soft);margin:14px 0 2px}
+.grp-h:first-child{margin-top:0}
+
+/* 全主題總覽 */
+.matrix td{padding:6px 10px}
+.mx{display:inline-block;width:26px;height:18px;border-radius:5px;border:1px solid rgba(0,0,0,.12);vertical-align:middle}
+.mx-hex{font-family:var(--f-mono);font-size:11px;color:var(--c-soft);margin-left:6px}
+
+/* ══ 預覽：這一塊吃主題色碼（--paper、--ink …）══ */
+.pv{position:sticky;top:calc(env(safe-area-inset-top,0px) + 76px);border-radius:16px;overflow:hidden;border:1px solid var(--c-line);box-shadow:0 10px 30px rgba(40,30,20,.12)}
+@media (max-width:980px){.pv{position:static}}
+.pv-page{background:radial-gradient(120% 90% at 50% -10%, color-mix(in srgb,var(--paper) 88%,#fff) 0%, var(--paper) 46%, var(--paper-2) 100%);color:var(--ink);font-family:var(--f-disp);padding:16px 18px 20px;display:flex;flex-direction:column;gap:14px}
+.pv-top{display:flex;align-items:center;gap:8px}
+.pv-date{font-size:12px;color:var(--ink-faint);letter-spacing:.06em;margin-right:auto}
+.pv-mail{position:relative;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--hair);color:var(--ink-faint)}
+.pv-mail svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6}
+.reddot{position:absolute;top:-3px;right:-3px;width:9px;height:9px;border-radius:50%;background:var(--cinnabar);box-shadow:0 0 0 2px var(--paper)}
+.lingshi{font-size:14px;letter-spacing:.06em;color:var(--ink);background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:30px;padding:6px 12px;display:inline-flex;align-items:center;gap:4px;line-height:16px}
+.lingshi b{color:var(--cinnabar);font-weight:700}
+.pv-h{font-size:20px;font-weight:700;letter-spacing:.14em}
+.pv-sub{font-size:12.5px;color:var(--ink-soft);letter-spacing:.04em;margin-top:-8px}
+.pv-card{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.pv-card b{font-size:14.5px;letter-spacing:.06em}
+.pv-card span{font-size:12.5px;color:var(--ink-soft)}
+.pv-card small{font-size:11.5px;color:var(--gold);letter-spacing:.08em}
+.pv-hair{height:1px;background:var(--hair)}
+.pv-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pv-wx{display:flex;flex-wrap:wrap;gap:6px}
+.pv-wx span{font-size:11.5px;letter-spacing:.08em;padding:1px 9px;border-radius:999px;border:1px solid currentColor}
+.pv-faint{font-size:12px;color:var(--ink-faint)}
+.pv-accent{color:var(--cinnabar);font-weight:700}
+
+/* 頁籤（同站上 .tag-tabs） */
+.tag-tabs{display:flex;gap:6px;position:relative;isolation:isolate}
+.tag-tab{flex:1 1 0;min-width:0;text-align:center;position:relative;font-family:var(--f-disp);font-size:13.5px;letter-spacing:.12em;text-indent:.12em;padding:7px 0;border:1px solid transparent;border-radius:30px;background:transparent;color:var(--ink-faint);transition:color .2s}
+.tag-tab::before{content:"";position:absolute;inset:-1px;z-index:-2;border-radius:inherit;background:var(--paper-2)}
+.tag-tab.on{color:var(--paper);font-weight:500}
+.m-pill{position:absolute;left:0;top:0;z-index:-1;border-radius:30px;background:var(--ink);pointer-events:none}
+
+/* 頂列膠囊（站上 .topbtn）：沒有厚度 */
+.topbtn{font-family:var(--f-disp);font-size:12px;letter-spacing:.14em;color:var(--ink-soft);background:transparent;border:1px solid var(--hair);border-radius:30px;padding:6px 12px;line-height:17px}
+.topbtn:hover{border-color:var(--cinnabar);color:var(--cinnabar)}
+
+/* ══ 按鈕：一塊有厚度的東西 ══
+   面（--bf）、框（--bb）、側邊（--be）、字（--bt）四個色由 --b-<型>-* 給；
+   連動時它們是色碼的算式，斷開時是單獨設的色。厚度 --bd，按下吃掉厚度。 */
+.b{--bd:3.6px;--press:0;font-family:var(--f-disp);font-size:14px;letter-spacing:.14em;font-weight:500;border-radius:30px;padding:11px 22px;line-height:1.4;
+  background:var(--bf);color:var(--bt);border:1px solid var(--bb);
+  translate:0 calc(var(--bd) * var(--press));
+  box-shadow:0 calc(var(--bd) * (1 - var(--press))) 0 var(--be), 0 calc((var(--bd) * 1.6 + 2px) * (1 - var(--press))) calc(var(--bd) * 2.5 + 4px) color-mix(in srgb, var(--shadow) calc(100% * (1 - var(--press))), transparent);
+  transition:translate .28s cubic-bezier(.34,1.56,.64,1), box-shadow .28s cubic-bezier(.34,1.56,.64,1), background-color .2s, color .2s, border-color .2s;
+  -webkit-tap-highlight-color:transparent;user-select:none}
+.b:active,.b.down{--press:1;transition-duration:.09s;transition-timing-function:cubic-bezier(.22,1,.36,1)}
+.b.primary{--bf:var(--b-primary-face);--bb:var(--b-primary-border);--be:var(--b-primary-edge);--bt:var(--b-primary-text)}
+.b.second{--bf:var(--b-second-face);--bb:var(--b-second-border);--be:var(--b-second-edge);--bt:var(--b-second-text)}
+.b.text{--bf:var(--b-text-face);--bb:var(--b-text-border);--be:var(--b-text-edge);--bt:var(--b-text-text)}
+.b.text:hover{--bb:var(--cinnabar);--bt:var(--cinnabar)}
+.b.danger{--bf:var(--b-danger-face);--bb:var(--b-danger-border);--be:var(--b-danger-edge);--bt:var(--b-danger-text)}
+.b.sm{font-size:13px;padding:8px 14px}
+@media (prefers-reduced-motion:reduce){.b{transition:none;translate:none}}
+
+.btn-types{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.bt-card{display:flex;flex-direction:column;gap:10px}
+.bt-stage{border-radius:12px;padding:22px 12px 26px;display:flex;justify-content:center;align-items:center;background:var(--paper);border:1px solid var(--c-line)}
+.bt-card h3{margin:0;font-family:var(--f-disp);font-size:15px;letter-spacing:.1em}
+.bt-card p{margin:0;font-size:12.5px;color:var(--c-soft)}
+.anat{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;font-size:12px;align-items:center}
+.anat i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.14);display:block}
+.anat span{color:var(--c-soft)}
+.anat input[type=color]{width:34px;height:22px;padding:0;border:1px solid var(--c-line);border-radius:5px;background:none}
+.link-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+.switch{display:inline-flex;align-items:center;gap:10px;font-size:13.5px;cursor:pointer}
+.switch input{width:40px;height:22px;appearance:none;-webkit-appearance:none;border-radius:999px;background:#CFC7B8;position:relative;cursor:pointer;transition:background .2s}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:translate .2s}
+.switch input:checked{background:var(--c-ok)}
+.switch input:checked::after{translate:18px 0}
+
+/* 場景層（不隨主題）的樣本 */
+.scene-sample{background:#0d0b08;color:#ECE3D3;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;font-family:var(--f-disp)}
+.scene-sample .spk{font-weight:700;color:#fff}
+.scene-sample .spk small{font-weight:400;font-size:11px;color:rgba(236,227,211,.58);margin-left:6px}
+.scene-sample .pill{align-self:flex-start;font-size:12.5px;letter-spacing:.14em;border:1px solid rgba(236,227,211,.8);border-radius:20px;padding:7px 12px;background:rgba(0,0,0,.35)}
+.scene-sample .ch{border:1px solid rgba(236,227,211,.22);background:rgba(20,16,11,.85);border-radius:4px;padding:9px 12px;font-size:14px}
+.scene-sample .ch.go{border-color:rgba(201,168,106,.6);color:#C9A86A}
+
+/* ── 版面：手機框示意 ── */
+.phones{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}
+.phone{width:220px;max-width:100%;border-radius:26px;border:7px solid #1c1814;background:var(--paper);overflow:hidden;display:flex;flex-direction:column;height:420px;flex:none}
+.phone .ph-top{height:40px;display:flex;align-items:center;gap:6px;padding:0 var(--pad);font-size:9px;color:var(--ink-faint);border-bottom:1px solid var(--hair)}
+.phone .ph-body{flex:1;padding:12px var(--pad);display:flex;flex-direction:column;gap:8px;position:relative}
+.phone .ph-body::before,.phone .ph-body::after{content:"";position:absolute;top:0;bottom:0;width:var(--pad);background:repeating-linear-gradient(45deg,rgba(142,58,42,.16) 0 4px,transparent 4px 8px)}
+.phone .ph-body::before{left:0}.phone .ph-body::after{right:0}
+.phone .ph-card{height:44px;border-radius:8px;background:var(--paper-2);border:1px solid var(--paper-edge)}
+.phone .ph-tab{height:var(--tab);border-top:1px solid var(--hair);display:flex;justify-content:space-around;align-items:center;font-size:9px;color:var(--ink-faint)}
+.ph-cap{font-size:12px;color:var(--c-soft);margin-top:8px;max-width:220px}
+
+/* ── 動態：嵌進來的動態規範 ── */
+.motion-frame{width:100%;height:80vh;min-height:560px;border:1px solid var(--c-line);border-radius:14px;background:var(--paper)}
+
+/* ── 待套用 ── */
+.pending{display:flex;flex-direction:column;gap:10px}
+.chg{font-size:13px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--c-line)}
+.chg .from,.chg .to{font-family:var(--f-mono);font-size:12px;display:inline-flex;align-items:center;gap:5px}
+.chg .from{color:var(--c-faint);text-decoration:line-through}
+.chg i{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);display:inline-block}
+pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16;color:#EDE6D8;border-radius:10px;padding:14px;font-family:var(--f-mono);font-size:12px;line-height:1.7;max-height:320px;overflow:auto}
+.ghost{border:1px solid var(--c-line);background:var(--c-panel);border-radius:999px;padding:6px 14px;font-size:13px}
+.ghost:hover{border-color:var(--c-ink)}
+.solid{border:1px solid var(--c-ink);background:var(--c-ink);color:var(--c-panel);border-radius:999px;padding:7px 16px;font-size:13px}
+.danger-l{color:var(--c-accent)}
+
+/* 未存檔提示條 */
+.savebar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));translate:-50% 0;z-index:40;background:#1E1A16;color:#F4EFE6;border-radius:999px;padding:8px 8px 8px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 12px 30px rgba(0,0,0,.28);max-width:calc(100% - 32px);font-size:13.5px}
+.savebar[hidden]{display:none}
+.savebar .solid{background:#F4EFE6;color:#1E1A16;border-color:#F4EFE6}
+.savebar .ghost{background:transparent;color:#F4EFE6;border-color:rgba(244,239,230,.35)}
+/* 確認框 */
+.dlg{position:fixed;inset:0;z-index:50;background:rgba(20,16,12,.45);display:grid;place-items:center;padding:16px}
+.dlg[hidden]{display:none}
+.dlg-card{background:var(--c-panel);border-radius:16px;max-width:520px;width:100%;padding:22px;display:flex;flex-direction:column;gap:12px;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.dlg-card h3{margin:0;font-family:var(--f-disp);font-size:18px;letter-spacing:.1em}
+.dlg-row{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.toast{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;translate:-50% 0;z-index:60;background:#1E1A16;color:#F4EFE6;border-radius:999px;padding:8px 18px;font-size:13px}
+.toast[hidden]{display:none}
+</style>
+
+<div id="root"></div>
+<template id="motionSrc"><title>幾知觀 動態規範</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
 <style>
 /* 版面：頂部總控列（sticky）＋ 五段規範，每段「左標題／右示範」。
@@ -895,5 +1100,501 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
       });
     });
   })();
+})();
+</script>
+</template>
+<script id="spec-state" type="application/json">{"version":"v2・2026-09-30（已套用 14 項）","baseline":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#272320","ink-soft":"#5A5045","ink-faint":"#8A7E6C","hair":"rgba(34,30,26,.13)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#1D1914","paper-edge":"#2A2218","ink":"#ECE3D1","ink-soft":"#B3A78F","ink-faint":"#857B68","hair":"rgba(236,227,209,.13)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C9A45C","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#c9a45c","wx-金":"#cabfa0","wx-水":"#6fa3c4"},"bamboo":{"paper":"#E7E9D8","paper-2":"#C6D8BA","paper-edge":"#A2B9A3","ink":"#12210F","ink-soft":"#21321A","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#96421F","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#8a7434","wx-金":"#7f8c62","wx-水":"#2f6470"},"cinnabar":{"paper":"#220907","paper-2":"#69120C","paper-edge":"#4E1A15","ink":"#FAE2E0","ink-soft":"#D3A69F","ink-faint":"#A2756E","hair":"rgba(250,226,224,0.3)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#001F52","ink-soft":"#2A477A","ink-faint":"#1456B8","hair":"rgba(0,31,82,.16)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"themes":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#272320","ink-soft":"#5A5045","ink-faint":"#8A7E6C","hair":"rgba(34,30,26,.13)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#1D1914","paper-edge":"#2A2218","ink":"#ECE3D1","ink-soft":"#B3A78F","ink-faint":"#857B68","hair":"rgba(236,227,209,.13)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C9A45C","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#c9a45c","wx-金":"#cabfa0","wx-水":"#6fa3c4"},"bamboo":{"paper":"#E7E9D8","paper-2":"#C6D8BA","paper-edge":"#A2B9A3","ink":"#12210F","ink-soft":"#21321A","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#96421F","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#8a7434","wx-金":"#7f8c62","wx-水":"#2f6470"},"cinnabar":{"paper":"#220907","paper-2":"#69120C","paper-edge":"#4E1A15","ink":"#FAE2E0","ink-soft":"#D3A69F","ink-faint":"#A2756E","hair":"rgba(250,226,224,0.3)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#001F52","ink-soft":"#2A477A","ink-faint":"#1456B8","hair":"rgba(0,31,82,.16)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"buttons":{"linked":true,"custom":{}},"history":[{"at":"2026-09-30T06:22:59.070Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"gold","name":"金","from":"#9A7B3F","to":"#D59F62"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper","name":"紙","from":"#E4E7D3","to":"#E7E9D8"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-2","name":"次一階紙","from":"#D3D9BC","to":"#C6D8BA"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#AEBB92","to":"#A2B9A3"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-soft","name":"淡墨","from":"#33691E","to":"#21321A"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-faint","name":"極淡墨","from":"#6E8455","to":"#3C5D3E"}]},{"at":"2026-09-30T07:21:31.482Z","changes":[{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-2","name":"次一階紙","from":"#38100D","to":"#69120C"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"hair","name":"細線","from":"rgba(250,226,224,.14)","to":"rgba(250,226,224,0.3)"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"shadow","name":"影","from":"rgba(0,0,0,.55)","to":"rgba(0,0,0,0.65)"}]},{"at":"2026-09-30T07:23:24.604Z","changes":[{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-soft","name":"淡墨","from":"#003DA5","to":"#2A477A"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-faint","name":"極淡墨","from":"#5878A8","to":"#1456B8"},{"kind":"token","theme":"porcelain","tn":"青花","key":"cinnabar","name":"硃砂","from":"#003DA5","to":"#144190"},{"kind":"token","theme":"porcelain","tn":"青花","key":"gold","name":"金","from":"#2A6BB8","to":"#307FD5"}]},{"at":"2026-09-30T07:40:48.756Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink","name":"墨","from":"#221E1A","to":"#272320"}]},{"at":"2026-09-30T08:00:00Z","applied":true,"note":"14 項色碼與按鈕規範已套用到前端 main，基準更新"}]}</script>
+<script id="spec-app">
+(function(){
+  "use strict";
+  /* ══ 狀態 ══
+     baseline：站上現在的色碼（前端 src/part1.html 的 :root 與五套 [data-theme]）——比對「改了什麼」的基準。
+     themes：目前的色碼（編輯中）。buttons：按鈕是否跟基礎色碼連動，斷開時每套主題各自的四色。
+     saved：上一次存檔時的樣子，用來判斷「有沒有還沒存的修改」。存檔＝把整份頁面連同這包狀態重新發佈。 */
+  const STATE = JSON.parse(document.getElementById("spec-state").textContent);
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+  let cur = clone({ themes: STATE.themes, buttons: STATE.buttons });
+  const saved = clone(cur);
+  let theme = "xuan";
+  try { const t = localStorage.getItem("spec-theme"); if (STATE.themes[t]) theme = t; } catch (e) {}
+
+  const THEMES = [["xuan","宣紙"],["night","夜觀"],["bamboo","竹簡"],["cinnabar","硃砂"],["porcelain","青花"]];
+  const DARK = { night: true, cinnabar: true };
+  const TOKENS = [
+    { g: "紙與墨", k: "paper",       n: "紙",       u: "頁面底色。全站最大的一塊顏色。" },
+    { g: "紙與墨", k: "paper-2",     n: "次一階紙", u: "卡片、頁籤未選、輸入框、靈石膠囊的底。淺色主題比紙深一階，深色主題比紙亮一階。" },
+    { g: "紙與墨", k: "paper-edge",  n: "紙邊",     u: "卡片框、文字按鈕的框與側邊（厚度）。" },
+    { g: "紙與墨", k: "ink",         n: "墨",       u: "主要文字、標題、頁籤選中的底。" },
+    { g: "紙與墨", k: "ink-soft",    n: "淡墨",     u: "次要文字、說明、頂列膠囊的字。" },
+    { g: "紙與墨", k: "ink-faint",   n: "極淡墨",   u: "日期、圖示、頁籤未選的字、提示。" },
+    { g: "紙與墨", k: "hair",        n: "細線",     u: "分隔線、頂列膠囊與圖示鈕的框。帶透明度。" },
+    { g: "紙與墨", k: "shadow",      n: "影",       u: "按鈕落地的軟影、浮起的卡片。帶透明度。" },
+    { g: "強調",   k: "cinnabar",    n: "硃砂",     u: "行動色：主按鈕、刪除、數字強調、紅點、滑過。只給「這裡有一件事要你處理」的東西。" },
+    { g: "強調",   k: "cinnabar-soft", n: "硃砂淡底", u: "硃砂的淡底（選中列、提示底）。帶透明度。" },
+    { g: "強調",   k: "gold",        n: "金",       u: "小標、日期、節氣、稱號；次按鈕的面。" },
+    { g: "五行",   k: "wx-木",       n: "木",       u: "分類籤；應期「準」。" },
+    { g: "五行",   k: "wx-火",       n: "火",       u: "分類籤；應期「不準」。" },
+    { g: "五行",   k: "wx-土",       n: "土",       u: "分類籤；應期「部分準」。" },
+    { g: "五行",   k: "wx-金",       n: "金（五行）", u: "分類籤。" },
+    { g: "五行",   k: "wx-水",       n: "水",       u: "分類籤。" },
+  ];
+  /* 按鈕四型。連動時的算式＝規範（動態規範「按下與放開」）＋站上主題的語意。 */
+  const BTN = [
+    { k: "primary", n: "主按鈕", d: "一個畫面最重要的那一個動作（起卦、收下、確定）。硃砂實心、深硃砂側邊。",
+      link: { face: "var(--cinnabar)", border: "var(--cinnabar)", edge: "color-mix(in srgb, var(--cinnabar) 68%, black)", text: "#FFF8F0" } },
+    { k: "second", n: "次按鈕", d: "同一畫面裡第二重要、但仍是「做一件事」的動作。金實心、深金側邊。",
+      link: { face: "var(--gold)", border: "var(--gold)", edge: "color-mix(in srgb, var(--gold) 65%, black)", text: "#FFF8F0" } },
+    { k: "text", n: "文字按鈕", d: "取消、再想想、返回以外的一般選擇。亮一階的紙面，紙邊框與側邊同色連成一體；滑過時框與字轉硃砂。",
+      link: { face: "LIGHTFACE", border: "var(--paper-edge)", edge: "var(--paper-edge)", text: "var(--ink)" } },
+    { k: "danger", n: "危險按鈕", d: "刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。",
+      link: { face: "var(--cinnabar)", border: "var(--cinnabar)", edge: "color-mix(in srgb, var(--cinnabar) 60%, black)", text: "#FFF8F0" } },
+  ];
+  const PARTS = [["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]];
+  const lightFace = (t) => DARK[t] ? "var(--paper-2)" : "color-mix(in srgb, var(--paper) 45%, #fff)";
+  const linkExpr = (b, part, t) => b.link[part] === "LIGHTFACE" ? lightFace(t) : b.link[part];
+
+  const $ = (s, r) => (r || document).querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+
+  /* ── 色的換算：任何 CSS 色 → {r,g,b,a}；再換回 #RRGGBB 或 rgba() ── */
+  const cv = document.createElement("canvas").getContext("2d");
+  function parse(c) {
+    cv.fillStyle = "#000"; cv.fillStyle = c; const s = cv.fillStyle;
+    if (s[0] === "#") return { r: parseInt(s.slice(1,3),16), g: parseInt(s.slice(3,5),16), b: parseInt(s.slice(5,7),16), a: 1 };
+    const m = s.match(/[\d.]+/g).map(Number);
+    // color-mix 算出來的是 color(srgb 0.48 0.17 0.12 / a)：0–1 的比例，不是 0–255
+    if (/^color\(srgb/.test(s)) return { r: Math.round(m[0] * 255), g: Math.round(m[1] * 255), b: Math.round(m[2] * 255), a: m[3] ?? 1 };
+    return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 };
+  }
+  const hex2 = (n) => n.toString(16).padStart(2, "0").toUpperCase();
+  const toHex = (o) => "#" + hex2(o.r) + hex2(o.g) + hex2(o.b);
+  const fmt = (o) => o.a >= 0.999 ? toHex(o) : `rgba(${o.r},${o.g},${o.b},${+o.a.toFixed(2)})`;
+  /* 算式（color-mix、var()）解成實際的色：丟給一顆探針讓瀏覽器算 */
+  function resolve(expr, scope) {
+    const p = document.createElement("i"); p.style.color = expr; p.style.display = "none"; (scope || document.body).appendChild(p);
+    const c = getComputedStyle(p).color; p.remove(); return fmt(parse(c));
+  }
+
+  /* ── 把目前主題的色碼灌到 body：預覽、按鈕、動態規範全吃這一份 ── */
+  function apply() {
+    const T = cur.themes[theme], st = document.body.style;
+    TOKENS.forEach((t) => st.setProperty("--" + t.k, T[t.k]));
+    BTN.forEach((b) => PARTS.forEach(([p]) => {
+      const v = cur.buttons.linked ? linkExpr(b, p, theme) : (cur.buttons.custom[theme]?.[b.k]?.[p] || linkExpr(b, p, theme));
+      st.setProperty(`--b-${b.k}-${p}`, v);
+    }));
+    pushMotion();
+    refreshDirty();
+  }
+
+  /* ── 差異：跟上次存檔比（未存檔），跟站上現值比（待套用） ── */
+  function diffList(a, b) {
+    const out = [];
+    THEMES.forEach(([t, tn]) => TOKENS.forEach((k) => {
+      const x = a.themes[t][k.k], y = b.themes[t][k.k];
+      if (norm(x) !== norm(y)) out.push({ kind: "token", theme: t, tn, key: k.k, name: k.n, from: x, to: y });
+    }));
+    if (!!a.buttons.linked !== !!b.buttons.linked) out.push({ kind: "link", from: a.buttons.linked, to: b.buttons.linked });
+    if (!b.buttons.linked) THEMES.forEach(([t, tn]) => BTN.forEach((bt) => PARTS.forEach(([p, pn]) => {
+      const x = a.buttons.custom?.[t]?.[bt.k]?.[p] || "", y = b.buttons.custom?.[t]?.[bt.k]?.[p] || "";
+      if (norm(x) !== norm(y) && y) out.push({ kind: "btn", theme: t, tn, key: bt.k, name: bt.n + "・" + pn, part: p, from: x || "（連動）", to: y });
+    })));
+    return out;
+  }
+  const norm = (c) => { try { return c ? fmt(parse(c)) : ""; } catch (e) { return c; } };
+  const unsaved = () => diffList(saved, cur);
+  const pending = () => diffList({ themes: STATE.baseline, buttons: { linked: true, custom: {} } }, cur);
+
+  function refreshDirty() {
+    const u = unsaved(), p = pending();
+    const s = $("#state");
+    if (s) {
+      s.className = "state" + (u.length ? " dirty" : p.length ? " pend" : "");
+      s.textContent = u.length ? `${u.length} 項修改未存檔` : p.length ? `已存檔・${p.length} 項待套用` : "與站上一致";
+    }
+    const bar = $("#savebar");
+    if (bar) { bar.hidden = !u.length; $("#savebar-n").textContent = `有 ${u.length} 項修改還沒存檔`; }
+    document.querySelectorAll(".tok").forEach((row) => {
+      const k = row.dataset.k; row.classList.toggle("changed", norm(cur.themes[theme][k]) !== norm(STATE.baseline[theme][k]));
+    });
+  }
+
+  /* ══ 畫 ══ */
+  function render() {
+    const T = cur.themes[theme];
+    $("#root").innerHTML = `
+    <header class="bar"><div class="bar-in">
+      <div class="brand"><b>幾知觀　美術規範</b><small>色碼・按鈕・版面・動態　${esc(STATE.version || "")}</small></div>
+      <div class="themes" role="group" aria-label="主題">${THEMES.map(([k, n]) =>
+        `<button class="th" data-th="${k}" aria-pressed="${k === theme}"><i style="background:${esc(cur.themes[k].paper)};box-shadow:inset -7px 0 0 ${esc(cur.themes[k].cinnabar)}"></i>${n}</button>`).join("")}</div>
+      <span class="state" id="state"></span>
+    </div></header>
+    <div class="wrap">
+      <nav class="nav" aria-label="章節">
+        <a href="#color">色彩</a><a href="#buttons">按鈕</a><a href="#layout">版面與留白</a>
+        <a href="#diff">App 與網頁</a><a href="#motion">動態</a><a href="#pending">待套用</a>
+      </nav>
+      <main>
+        <section class="sec" id="color">
+          <div><div class="sec-k">一　色彩</div><h2>五套主題的色碼</h2></div>
+          <p class="lead">上面切換主題，這裡改的是「${esc(THEMES.find((x) => x[0] === theme)[1])}」這一套。改了以後，右邊預覽裡用到這個色的文字、按鈕、頁籤、膠囊會一起變——站上也是同一個對應，所以預覽長怎樣，存檔套用後站上就長怎樣。</p>
+          <p class="note">每套主題只有這 16 個色碼，元件一律吃它們，不寫死色碼（前端 CLAUDE.md「新元件只吃 token」）。夜觀與硃砂是深底。帶透明度的（細線、影、硃砂淡底）用下面的滑桿調。</p>
+          <div class="color-grid">
+            <div class="panel"><div class="tok-list">${tokRows(T)}</div></div>
+            ${preview()}
+          </div>
+          <div class="tbl"><table class="matrix"><thead><tr><th>色碼</th>${THEMES.map(([, n]) => `<th>${n}</th>`).join("")}</tr></thead>
+            <tbody>${TOKENS.map((t) => `<tr><td><b>${esc(t.n)}</b> <code>--${esc(t.k)}</code></td>${THEMES.map(([k]) =>
+              `<td><span class="mx" style="background:${esc(cur.themes[k][t.k])}"></span><span class="mx-hex">${esc(norm(cur.themes[k][t.k]))}</span></td>`).join("")}</tr>`).join("")}</tbody></table></div>
+        </section>
+
+        <section class="sec" id="buttons">
+          <div><div class="sec-k">二　按鈕</div><h2>一塊有厚度的東西</h2></div>
+          <p class="lead">按鈕是一塊實心的東西：面、框、側邊連成一體，厚度是它自己的側邊，不是線框外面多一條板子。按下時整塊沉下去、吃掉厚度，放開彈回。按住看看。</p>
+          <div class="tbl"><table><tbody>
+            <tr><th>厚度</th><td class="num">3.6px</td><td>側邊高度＝按下去的深度（動態規範的 --d）</td></tr>
+            <tr><th>字</th><td class="num">14px・字距 .14em・500</td><td>小尺寸 13px（工具列）</td></tr>
+            <tr><th>內距</th><td class="num">11 / 22px　手機 15 / 22px</td><td>--btn-pad-y／--btn-pad-x；手機那組在 ≤560px 覆寫</td></tr>
+            <tr><th>圓角</th><td class="num">30px（膠囊）</td><td>--radius-pill</td></tr>
+            <tr><th>落地軟影</th><td class="num">0 7.8px 13px 影</td><td>吃「影」這個色碼，按下時跟厚度一起收</td></tr>
+            <tr><th>按下／放開</th><td class="num">90ms／280ms</td><td>放開用彈簧、過衝一次（動態規範 A）</td></tr>
+          </tbody></table></div>
+          <div class="link-row panel">
+            <label class="switch"><input type="checkbox" id="linked"${cur.buttons.linked ? " checked" : ""}> 按鈕顏色與基礎色碼連動</label>
+            <span class="note">${cur.buttons.linked
+              ? "連動中：按鈕的四個色是上面色碼算出來的，改硃砂、金、紙、紙邊，按鈕跟著變。"
+              : "已斷開：下面每一型的四個色可以單獨設定，只影響「" + esc(THEMES.find((x) => x[0] === theme)[1]) + "」這一套；色碼改了也不會帶動按鈕。"}</span>
+          </div>
+          <div class="btn-types">${BTN.map(btnCard).join("")}</div>
+          <div class="grp-h">不在這四型裡的</div>
+          <div class="btn-types">
+            <div class="panel bt-card"><div class="bt-stage"><button class="topbtn">‹ 返回</button>&nbsp;<button class="topbtn">全部已讀</button></div>
+              <h3>頂列膠囊</h3><p>返回、全部已讀、頂列的小鈕。細線框、淡墨字、<b>沒有厚度</b>——它在頂列是資訊，不是一個要按下去的動作。滑過轉硃砂。</p></div>
+            <div class="panel bt-card"><div class="bt-stage"><span class="lingshi">💎<b>188</b></span></div>
+              <h3>靈石膠囊</h3><p>次一階紙底、紙邊框，數字硃砂。💎 上每個長週期掃一道光（只掃寶石），滑過立刻再掃一次。</p></div>
+            <div class="panel bt-card"><div class="bt-stage" style="background:var(--paper)"><div class="tag-tabs" data-demo style="width:100%"><button class="tag-tab on">全部</button><button class="tag-tab">問卦</button><button class="tag-tab">心得</button></div></div>
+              <h3>通用 TAG 頁籤</h3><p>未選＝次一階紙底＋極淡墨字；選中＝墨底滑過去。篩選也是頁籤。詳見動態規範。</p></div>
+            <div class="panel bt-card"><div class="scene-sample"><button class="pill">履 歷</button><div class="spk">大師兄<small>代理掌門</small></div><div>「這麼晚。」</div><div class="ch">為什麼不蓋？</div><div class="ch go">那就接下吧，師兄。</div></div>
+              <h3>場景層（不隨主題）</h3><p>事件、談心字幕、入場：墨底 <code>#0D0B08</code>、暖白字 <code>#ECE3D3</code>、金 <code>#C9A86A</code>。畫的是一個場景，不是站內的紙，所以五套主題都一樣；場景裡的線框鈕不畫厚度。</p></div>
+          </div>
+        </section>
+
+        <section class="sec" id="layout">
+          <div><div class="sec-k">三　版面與留白</div><h2>手機、App、網頁三組數字</h2></div>
+          <p class="lead">同一組尺寸 token 有桌機值與手機值（≤560px 覆寫）。App 另外整體縮小一級（--ui-scale 0.87），所以畫面上量到的數字＝設定值 × 0.87。</p>
+          <div class="tbl"><table>
+            <thead><tr><th>token</th><th>桌機／網頁</th><th>手機寬 ≤560px</th><th>App 畫面實量（×0.87）</th><th>管什麼</th></tr></thead>
+            <tbody>
+              <tr><td><code>--screen-pad</code></td><td class="num">18px</td><td class="num">20px</td><td class="num">17.4px</td><td><b>頁面左右留白。</b>頂列（日期、信封、靈石）與觀堂、問事、廣場、手帳都貼這一條，全站同一條邊線（b82 統一）。</td></tr>
+              <tr><td><code>--ui-scale</code></td><td class="num">1（大）</td><td class="num">—</td><td class="num">0.87（小）</td><td>整頁縮放，設定頁可換（0.80／0.87／0.93／1）。App 預設「小」、網頁預設「大」。</td></tr>
+              <tr><td><code>--tabbar-h</code></td><td class="num">48px</td><td class="num">53px</td><td class="num">46.1px</td><td>底部導覽列高度（圖示在上、字在下）。</td></tr>
+              <tr><td><code>--topbar-gap</code></td><td class="num">10px</td><td class="num">6px</td><td class="num">5.2px</td><td>頂列項目間距。</td></tr>
+              <tr><td><code>--btn-pad-y / x</code></td><td class="num">11 / 22px</td><td class="num">15 / 22px</td><td class="num">13 / 19px</td><td>按鈕內距。</td></tr>
+              <tr><td><code>--pill-pad-y / x</code></td><td class="num">6 / 12px</td><td class="num">10 / 14px</td><td class="num">8.7 / 12.2px</td><td>頂列膠囊內距。</td></tr>
+              <tr><td><code>--radius-pill</code></td><td class="num" colspan="3">30px</td><td>膠囊圓角。</td></tr>
+              <tr><td><code>--ask-gap</code></td><td class="num">30px</td><td class="num">24px</td><td class="num">20.9px</td><td>問事頁區塊間距。</td></tr>
+              <tr><td>安全區 <code>--sat/sab/sal/sar</code></td><td class="num">0</td><td class="num" colspan="2">瀏海、圓角、底部橫條</td><td>頂列、底部導覽、全屏層都要讓出來；已除以 --ui-scale。</td></tr>
+              <tr><td>對話幕立繪頂部</td><td class="num">150px</td><td class="num">120px</td><td class="num">104px</td><td>談心、事件、入場的立繪上緣讓出的高度（Figma「卦案立繪版面」）。</td></tr>
+              <tr><td>對話框</td><td class="num" colspan="3">下限 220px、上限 76dvh；寬螢幕（≥800）事件對話框收成中間 720px</td><td>高度由內容決定。</td></tr>
+            </tbody></table></div>
+          <div class="phones">
+            <div><div class="phone" style="--pad:17.4px;--tab:46px"><div class="ph-top">9/30　✉ 💎188</div><div class="ph-body"><div class="ph-card"></div><div class="ph-card"></div><div class="ph-card"></div></div><div class="ph-tab"><span>觀堂</span><span>談心</span><span>問</span><span>手帳</span><span>道籍</span></div></div>
+              <div class="ph-cap">App（×0.87）：左右各 17.4px，斜線是留白。頂列與內容同一條線。</div></div>
+            <div><div class="phone" style="--pad:20px;--tab:53px"><div class="ph-top">9/30　✉ 💎188</div><div class="ph-body"><div class="ph-card"></div><div class="ph-card"></div><div class="ph-card"></div></div><div class="ph-tab"><span>觀堂</span><span>談心</span><span>問</span><span>手帳</span><span>道籍</span></div></div>
+              <div class="ph-cap">手機網頁（×1）：左右各 20px。</div></div>
+          </div>
+        </section>
+
+        <section class="sec" id="diff">
+          <div><div class="sec-k">四　App 與網頁</div><h2>兩邊長得不一樣的地方</h2></div>
+          <p class="lead">同一份程式，App 與網頁在這些地方刻意不同。改到這些元件時兩邊都要看。</p>
+          <div class="tbl"><table>
+            <thead><tr><th>位置</th><th><span class="tag app">App</span></th><th><span class="tag web">網頁</span></th></tr></thead>
+            <tbody>
+              <tr><td>整頁縮放</td><td>預設「小」0.87</td><td>預設「大」1</td></tr>
+              <tr><td>頂列</td><td>日期、信封、靈石、簽到、廣場</td><td>簽到與廣場拿掉（觀堂裡已有入口）；桌機寬時眼睛置中、日期退左上</td></tr>
+              <tr><td>頂列眼睛</td><td>—</td><td>眨眼、左右看的動態（7.33 秒一輪）；滑過跳一下</td></tr>
+              <tr><td>卦曆、心跡（手帳）</td><td>撐滿的全頁，左上「‹ 返回觀堂」</td><td>桌機寬時是彈框＋遮罩，右上 ✕，點外面關</td></tr>
+              <tr><td>捲軸</td><td>系統細條（浮在內容上）</td><td>線框膠囊 8px、無軌道底（scrollbar.css）</td></tr>
+              <tr><td>對話幕立繪</td><td>照 Figma 位置</td><td>立繪整體上移 50px</td></tr>
+              <tr><td>事件對話框</td><td>滿寬</td><td>寬螢幕收成中間 720px 一欄</td></tr>
+              <tr><td>談心</td><td>全屏</td><td>桌機寬時是右下浮窗，可放大</td></tr>
+              <tr><td>滑鼠滑過</td><td>—（手指沒有滑過）</td><td>導覽格、信封、眼睛跳一下；靈石掃光；按鈕與膠囊轉硃砂</td></tr>
+              <tr><td>方向</td><td>鎖直屏（含平板）</td><td>不鎖</td></tr>
+              <tr><td>桌面小工具</td><td>Android 小工具「今日行止」</td><td>沒有</td></tr>
+              <tr><td>返回鍵</td><td>實體返回鍵退一層；根層連按兩次退到背景</td><td>瀏覽器上一頁</td></tr>
+            </tbody></table></div>
+          <p class="note">標示規則：只在一邊出現的樣式，前端一律掛在 <code>html.is-web</code> 底下（網頁）或寫在 App 的原生層；不要用螢幕寬度猜是不是 App。</p>
+        </section>
+
+        <section class="sec" id="motion">
+          <div><div class="sec-k">五　動態</div><h2>動態規範</h2></div>
+          <p class="lead">按下與放開、通用 TAG 頁籤、彈框與頁面、待機、強調。下面整份嵌在這裡，並跟著上面選的主題與色碼換色——改了色碼，動態規範裡的按鈕與頁籤一起變。</p>
+          <iframe class="motion-frame" id="motionFrame" title="動態規範"></iframe>
+        </section>
+
+        <section class="sec" id="pending">
+          <div><div class="sec-k">六　待套用</div><h2>已存檔、還沒上站的修改</h2></div>
+          ${pendingHtml()}
+        </section>
+      </main>
+    </div>
+    <div class="savebar" id="savebar" hidden role="status"><span id="savebar-n"></span>
+      <button class="ghost" id="revert">還原到上次存檔</button><button class="solid" id="saveBtn">存檔…</button></div>
+    <div class="dlg" id="dlg" hidden><div class="dlg-card" role="dialog" aria-modal="true" aria-labelledby="dlgT"></div></div>
+    <div class="toast" id="toast" hidden></div>`;
+    bind();
+    apply();
+    tabsInit();
+    motionInit();
+  }
+
+  function tokRows(T) {
+    let g = "", h = "";
+    TOKENS.forEach((t) => {
+      if (t.g !== g) { g = t.g; h += `<div class="grp-h">${esc(g)}</div>`; }
+      const o = parse(T[t.k]);
+      const alpha = o.a < 0.999 || /rgba/.test(T[t.k]);
+      h += `<div class="tok" data-k="${esc(t.k)}">
+        <label class="tok-sw" title="點一下挑色"><span style="background:${esc(T[t.k])}"></span><input type="color" id="c-${esc(t.k)}" value="${toHex(o)}"></label>
+        <div class="tok-name"><b>${esc(t.n)}</b><code>--${esc(t.k)}</code><p>${esc(t.u)}</p></div>
+        <div class="tok-val"><input type="text" id="t-${esc(t.k)}" value="${esc(fmt(o))}" spellcheck="false" aria-label="${esc(t.n)} 色碼">
+          ${alpha ? `<div class="alpha">透明度<input type="range" id="a-${esc(t.k)}" min="0" max="100" value="${Math.round(o.a * 100)}"><span>${Math.round(o.a * 100)}%</span></div>` : ""}
+          <button class="reset1" data-reset="${esc(t.k)}">還原站上現值 ${esc(norm(STATE.baseline[theme][t.k]))}</button></div>
+      </div>`;
+    });
+    return h;
+  }
+
+  function preview() {
+    return `<div class="pv"><div class="pv-page">
+      <div class="pv-top"><span class="pv-date">九月三十日・丙午年</span>
+        <span class="pv-mail"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg><i class="reddot"></i></span>
+        <span class="lingshi">💎<b>188</b></span></div>
+      <div class="pv-h">觀　堂</div>
+      <div class="pv-sub">今日在觀的人・秋分第九日</div>
+      <div class="tag-tabs" data-demo><button class="tag-tab on">全部</button><button class="tag-tab">觀中誌</button><button class="tag-tab">來信</button></div>
+      <div class="pv-card"><small>雲中客・9/22</small><b>觀主又算了一輪柴米</b><span>這回連玉牒一起定下來了。<span class="pv-accent">+50</span> 靈石</span></div>
+      <div class="pv-hair"></div>
+      <div class="pv-row"><button class="b primary">起卦</button><button class="b text">再想想</button></div>
+      <div class="pv-row"><button class="b second sm">收下</button><button class="b danger sm">刪掉</button><button class="topbtn">‹ 返回</button></div>
+      <div class="pv-wx"><span style="color:var(--wx-木)">木・準</span><span style="color:var(--wx-火)">火・不準</span><span style="color:var(--wx-土)">土・部分準</span><span style="color:var(--wx-金)">金</span><span style="color:var(--wx-水)">水</span></div>
+      <div class="pv-faint">極淡墨：日期、提示、圖示。按住上面的按鈕看厚度。</div>
+    </div></div>`;
+  }
+
+  function btnCard(b) {
+    const custom = !cur.buttons.linked;
+    const rows = PARTS.map(([p, pn]) => {
+      const expr = custom ? (cur.buttons.custom[theme]?.[b.k]?.[p] || linkExpr(b, p, theme)) : linkExpr(b, p, theme);
+      const val = resolve(expr);
+      const src = custom ? "" : `<code>${esc(expr.replace(/var\(--([^)]+)\)/g, "$1").replace("color-mix(in srgb, ", "混 ").replace(/\)$/, ""))}</code>`;
+      return `<i style="background:${esc(val)}"></i><span>${pn}　<span class="mono">${esc(val)}</span></span>` +
+        (custom ? `<input type="color" data-bk="${b.k}" data-bp="${p}" value="${toHex(parse(val))}" aria-label="${esc(b.n + pn)}">` : `<span>${src}</span>`);
+    }).join("");
+    return `<div class="panel bt-card"><div class="bt-stage"><button class="b ${b.k}">${b.k === "danger" ? "刪掉" : b.k === "text" ? "再想想" : b.k === "second" ? "收下" : "起卦"}</button></div>
+      <h3>${esc(b.n)}</h3><p>${esc(b.d)}</p><div class="anat">${rows}</div></div>`;
+  }
+
+  function pendingHtml() {
+    const p = pending();
+    if (!p.length) return `<p class="lead">目前的色碼與按鈕跟站上一致，沒有待套用的修改。在上面改了、存檔之後，這裡會列出每一項，並給一段可以直接交給新會議的說明。</p>`;
+    return `<p class="lead">這些修改已存在這份規範裡，站上還沒套用。開新會議時，把下面那段說明整段貼過去即可。</p>
+      <div class="panel pending">${p.map(chgHtml).join("")}</div>
+      <div class="link-row"><button class="ghost" id="copyBrief">複製給新會議的說明</button><span class="note">套用後，新會議會把這份規範的基準更新成站上的新值，這一區就清空。</span></div>
+      <pre class="brief" id="brief">${esc(brief(p))}</pre>`;
+  }
+  function chgHtml(c) {
+    if (c.kind === "link") return `<div class="chg"><b>按鈕</b> ${c.to ? "改回與基礎色碼連動" : "與基礎色碼斷開，改為單獨設定"}</div>`;
+    return `<div class="chg"><span class="tag">${esc(c.tn)}</span><b>${esc(c.name)}</b>${c.kind === "token" ? ` <code>--${esc(c.key)}</code>` : ""}
+      <span class="from"><i style="background:${esc(c.from)}"></i>${esc(norm(c.from) || c.from)}</span>→<span class="to"><i style="background:${esc(c.to)}"></i>${esc(norm(c.to))}</span></div>`;
+  }
+  function brief(p) {
+    const byTheme = {};
+    p.filter((c) => c.kind === "token").forEach((c) => { (byTheme[c.theme] = byTheme[c.theme] || []).push(c); });
+    const sel = { xuan: ":root", night: '[data-theme="night"]', bamboo: '[data-theme="bamboo"]', cinnabar: '[data-theme="cinnabar"]', porcelain: '[data-theme="porcelain"]' };
+    let s = `請依美術規範套用以下修改（規範：後端 dev/design/style/，已存檔的 artifact 為準）。\n`;
+    s += `1. 前端 src/part1.html 的主題色碼改成：\n`;
+    Object.keys(byTheme).forEach((t) => {
+      s += `   ${sel[t]}{ ` + byTheme[t].map((c) => `--${c.key}:${norm(c.to)};`).join(" ") + ` }\n`;
+    });
+    const link = p.find((c) => c.kind === "link");
+    const btn = p.filter((c) => c.kind === "btn");
+    if (link || btn.length) {
+      s += `2. 按鈕：${cur.buttons.linked ? "與基礎色碼連動（照規範算式）" : "與基礎色碼斷開，各主題單獨設定"}。\n`;
+      btn.forEach((c) => { s += `   ${c.tn}・${c.name}：${norm(c.to)}\n`; });
+      s += `   落點：前端 src/styles/motion.css「A 互動回饋」的 .btn 系列。\n`;
+    }
+    s += `3. 套用後，把規範的 baseline 更新成新值（dev/design/style/state.json），並重新發佈規範。\n`;
+    s += `4. 淺色與夜觀各截一張，與規範並排比對後再推送。`;
+    return s;
+  }
+
+  /* ══ 互動 ══ */
+  function setTok(k, v) {
+    cur.themes[theme][k] = v;
+    document.body.style.setProperty("--" + k, v);
+    const row = document.querySelector(`.tok[data-k="${CSS.escape(k)}"]`);
+    if (row) row.querySelector(".tok-sw span").style.background = v;
+    const th = document.querySelector(`.th[data-th="${theme}"] i`);
+    if (th && (k === "paper" || k === "cinnabar")) th.style.cssText = `background:${cur.themes[theme].paper};box-shadow:inset -7px 0 0 ${cur.themes[theme].cinnabar}`;
+    if (cur.buttons.linked) document.querySelectorAll(".btn-types .anat").forEach(() => {});
+    pushMotion(); refreshDirty(); scheduleBtnInfo();
+  }
+  let btnT = 0;
+  function scheduleBtnInfo() {   // 連動時，按鈕卡上的色值跟著重算（輸入停手後再畫，不搶焦點）
+    clearTimeout(btnT);
+    btnT = setTimeout(() => { const box = document.querySelectorAll(".btn-types")[0]; if (box) box.innerHTML = BTN.map(btnCard).join(""); }, 250);
+  }
+
+  function bind() {
+    const root = $("#root");
+    root.querySelectorAll("[data-th]").forEach((b) => b.addEventListener("click", () => {
+      theme = b.dataset.th; try { localStorage.setItem("spec-theme", theme); } catch (e) {}
+      const y = scrollY; render(); scrollTo(0, y);
+    }));
+    root.addEventListener("input", (e) => {
+      const t = e.target, id = t.id || "";
+      if (id.startsWith("c-")) {
+        const k = id.slice(2), a = parse(cur.themes[theme][k]).a, o = parse(t.value); o.a = a;
+        const v = fmt(o); setTok(k, v); const tx = $("#t-" + CSS.escape(k)); if (tx) tx.value = v;
+      } else if (id.startsWith("a-")) {
+        const k = id.slice(2), o = parse(cur.themes[theme][k]); o.a = t.value / 100;
+        const v = fmt(o); setTok(k, v); t.nextElementSibling.textContent = t.value + "%"; const tx = $("#t-" + CSS.escape(k)); if (tx) tx.value = v;
+      } else if (t.dataset.bk) {
+        const tb = (cur.buttons.custom[theme] = cur.buttons.custom[theme] || {}), bb = (tb[t.dataset.bk] = tb[t.dataset.bk] || {});
+        bb[t.dataset.bp] = t.value.toUpperCase();
+        document.body.style.setProperty(`--b-${t.dataset.bk}-${t.dataset.bp}`, bb[t.dataset.bp]);
+        t.previousElementSibling.querySelector(".mono").textContent = bb[t.dataset.bp];
+        t.previousElementSibling.previousElementSibling.style.background = bb[t.dataset.bp];
+        pushMotion(); refreshDirty();
+      }
+    });
+    root.addEventListener("change", (e) => {
+      const t = e.target, id = t.id || "";
+      if (id.startsWith("t-")) {
+        const k = id.slice(2);
+        try { const v = fmt(parse(t.value.trim())); setTok(k, v); t.value = v; $("#c-" + CSS.escape(k)).value = toHex(parse(v)); }
+        catch (err) { toast("看不懂這個色碼：" + t.value); t.value = cur.themes[theme][k]; }
+      } else if (id === "linked") {
+        cur.buttons.linked = t.checked;
+        if (!t.checked) {   // 斷開那一刻：把目前算出來的色抄成各自的起點，畫面不會跳
+          THEMES.forEach(([th]) => { cur.buttons.custom[th] = cur.buttons.custom[th] || {}; });
+          BTN.forEach((b) => { const c = (cur.buttons.custom[theme][b.k] = cur.buttons.custom[theme][b.k] || {});
+            PARTS.forEach(([p]) => { if (!c[p]) c[p] = resolve(linkExpr(b, p, theme)); }); });
+        }
+        const y = scrollY; render(); scrollTo(0, y);
+      }
+    });
+    root.addEventListener("click", (e) => {
+      const r = e.target.closest("[data-reset]");
+      if (r) { const k = r.dataset.reset, v = STATE.baseline[theme][k]; setTok(k, v); const y = scrollY; render(); scrollTo(0, y); return; }
+      if (e.target.id === "saveBtn") return askSave();
+      if (e.target.id === "revert") return askRevert();
+      if (e.target.id === "copyBrief") return copy($("#brief").textContent);
+    });
+    // 按鈕按下：鍵盤也要沉得下去
+    root.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("b")) e.target.classList.add("down"); });
+    root.addEventListener("keyup", (e) => { if (e.target.classList && e.target.classList.contains("b")) e.target.classList.remove("down"); });
+  }
+
+  function dlg(html, onOk, okText) {
+    const d = $("#dlg"), c = d.firstElementChild;
+    c.innerHTML = html + `<div class="dlg-row"><button class="ghost" data-x>取消</button><button class="solid" data-ok>${esc(okText || "確定")}</button></div>`;
+    d.hidden = false;
+    const close = () => { d.hidden = true; };
+    c.querySelector("[data-x]").onclick = close;
+    c.querySelector("[data-ok]").onclick = async () => { close(); await onOk(); };
+    d.onclick = (e) => { if (e.target === d) close(); };
+    c.querySelector("[data-ok]").focus();
+  }
+  function askSave() {
+    const u = unsaved();
+    dlg(`<h3 id="dlgT">存檔這 ${u.length} 項修改？</h3>
+      <p class="note">存檔會把修改寫進這份規範（所有打開這份規範的人都會看到新版）。站上不會馬上變——存檔後在「待套用」拿一段說明，開新會議套用並推送。</p>
+      <div class="pending">${u.map(chgHtml).join("")}</div>`, save, "存檔");
+  }
+  function askRevert() {
+    dlg(`<h3 id="dlgT">還原到上次存檔？</h3><p class="note">這次的 ${unsaved().length} 項修改會丟掉，回到上次存檔的樣子。</p>`,
+      () => { cur = clone(saved); const y = scrollY; render(); scrollTo(0, y); toast("已還原到上次存檔"); }, "還原");
+  }
+
+  /* 存檔：整份頁面連同新狀態重新發佈（artifact 能力）。頁面的靜態部分在載入時就讀好，
+     不去序列化畫面上的 DOM；只換掉狀態那一包。 */
+  const SRC = {
+    title: document.querySelector("title") ? document.querySelector("title").outerHTML : "<title>幾知觀 美術規範</title>",
+    fonts: (document.querySelector('link[href*="fonts.googleapis"]') || {}).outerHTML || "",
+    style: document.getElementById("spec-style").outerHTML,
+    motion: document.getElementById("motionSrc").innerHTML,
+    app: document.getElementById("spec-app").textContent,
+  };
+  const SKEL = '<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>';
+  async function save() {
+    let art = null;
+    try { art = window.claude && window.claude.use ? await window.claude.use("artifact") : null; } catch (e) { art = null; }
+    if (!art) { toast("這個檢視不能存檔（沒有編輯權限，或不在 claude.ai 裡開）"); return; }
+    const next = { ...STATE, themes: cur.themes, buttons: cur.buttons, savedAt: new Date().toISOString(),
+      history: [...(STATE.history || []), { at: new Date().toISOString(), changes: unsaved().map((c) => ({ ...c })) }] };
+    const json = JSON.stringify(next).replace(/</g, "\\u003c");
+    const html = SKEL + SRC.title + "\n" + SRC.fonts + "\n" + SRC.style + '\n<div id="root"></div>\n<template id="motionSrc">' + SRC.motion +
+      '</template>\n<script id="spec-state" type="application/json">' + json + "</scr" + "ipt>\n<script id=\"spec-app\">" + SRC.app + "</scr" + "ipt>\n</body></html>";
+    try { await art.publish(html); toast("已存檔，頁面會重新載入成新版"); }
+    catch (e) {
+      const code = (e && (e.code || e.message)) || "";
+      toast(/conflict/.test(code) ? "有人剛存了新版，頁面會換成那一版，請再改一次" : /not_(granted|writer)/.test(code) ? "你對這份規範只有讀取權限，不能存檔" : "沒存成：" + code);
+    }
+  }
+
+  let tT = 0;
+  function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(tT); tT = setTimeout(() => { t.hidden = true; }, 2600); }
+  function copy(txt) {
+    try { navigator.clipboard.writeText(txt).then(() => toast("已複製"), () => sel()); } catch (e) { sel(); }
+    function sel() { const r = document.createRange(); r.selectNodeContents($("#brief")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast("已選取，按 Ctrl+C 複製"); }
+  }
+
+  /* 通用 TAG 頁籤：墨底滑過去（同前端 ui/motion.js 的 pill） */
+  function tabsInit() {
+    const frame = (p) => ({ width: p.w + "px", height: p.h + "px", transform: `translate(${p.x}px,${p.y}px)` });
+    const pos = (t) => ({ x: t.offsetLeft, y: t.offsetTop, w: t.offsetWidth, h: t.offsetHeight });
+    document.querySelectorAll(".tag-tabs[data-demo]").forEach((g) => {
+      const mk = document.createElement("i"); mk.className = "m-pill"; g.prepend(mk);
+      const place = () => { const on = g.querySelector(".tag-tab.on"); if (on) Object.assign(mk.style, frame(pos(on))); };
+      place(); if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+      g.addEventListener("click", (e) => {
+        const to = e.target.closest(".tag-tab"), from = g.querySelector(".tag-tab.on"); if (!to || to === from) return;
+        const a = pos(from), b = pos(to); from.classList.remove("on"); to.classList.add("on"); Object.assign(mk.style, frame(b));
+        if (matchMedia("(prefers-reduced-motion:reduce)").matches) return;
+        const L = Math.min(a.x, b.x), R = Math.max(a.x + a.w, b.x + b.w);
+        mk.animate([frame(a), { ...frame({ x: L, y: b.y, w: R - L, h: b.h }), offset: .45 }, frame(b)], { duration: 340, easing: "cubic-bezier(.22,1,.36,1)" });
+      });
+    });
+  }
+
+  /* 動態規範：同一份原型嵌在 iframe 裡，色碼由這裡灌進去。
+     它自己的色名與站上不完全同義（它的 --paper-2 是亮紙），所以要對照著換：
+       --ground ← 紙　--paper ← 紙　--paper-2 ← 文字按鈕的面　--paper-edge ← 紙邊 … */
+  function motionInit() {
+    const f = $("#motionFrame"); if (!f) return;
+    f.addEventListener("load", pushMotion);
+    // 原型是照 artifact 的寫法寫的（沒有 doctype）：包一層完整文件，不然 iframe 會進怪異模式
+    f.srcdoc = SRC.motion.trim()
+      ? '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' + SRC.motion + "</body></html>"
+      : "<p style='font:14px sans-serif;padding:20px'>（這一版沒有嵌入動態規範）</p>";
+  }
+  function pushMotion() {
+    const f = $("#motionFrame"); let d; try { d = f && f.contentDocument; } catch (e) { d = null; }
+    if (!d || !d.documentElement) return;
+    const T = cur.themes[theme], st = d.documentElement.style, bs = getComputedStyle(document.body);
+    const face = resolve(bs.getPropertyValue("--b-text-face").trim() || lightFace(theme));
+    const map = { ground: T.paper, paper: T.paper, "paper-2": face, "paper-edge": T["paper-edge"], ink: T.ink, "ink-soft": T["ink-soft"], "ink-faint": T["ink-faint"],
+      cinnabar: resolve(bs.getPropertyValue("--b-primary-face").trim() || T.cinnabar), "cinnabar-edge": resolve(bs.getPropertyValue("--b-primary-edge").trim()),
+      gold: resolve(bs.getPropertyValue("--b-second-face").trim() || T.gold), "gold-edge": resolve(bs.getPropertyValue("--b-second-edge").trim()),
+      hair: T.hair, shade: T.shadow };
+    Object.entries(map).forEach(([k, v]) => { if (v) st.setProperty("--" + k, v); });
+    st.colorScheme = DARK[theme] ? "dark" : "light";
+    if (d.body) d.body.style.background = T.paper;
+  }
+
+  render();
 })();
 </script>
