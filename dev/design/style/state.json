@@ -1,18 +1,18 @@
 {
-  "version": "v1・2026-09-30",
+  "version": "v2・2026-09-30（已套用 14 項）",
   "baseline": {
     "xuan": {
       "paper": "#F2EBDA",
       "paper-2": "#EBE1CC",
       "paper-edge": "#E0D4B8",
-      "ink": "#221E1A",
+      "ink": "#272320",
       "ink-soft": "#5A5045",
       "ink-faint": "#8A7E6C",
       "hair": "rgba(34,30,26,.13)",
       "shadow": "rgba(60,48,30,.18)",
       "cinnabar": "#B5402E",
       "cinnabar-soft": "rgba(181,64,46,.13)",
-      "gold": "#9A7B3F",
+      "gold": "#D59F62",
       "wx-木": "#4f7a4d",
       "wx-火": "#b5402e",
       "wx-土": "#9a7b3f",
@@ -38,12 +38,12 @@
       "wx-水": "#6fa3c4"
     },
     "bamboo": {
-      "paper": "#E4E7D3",
-      "paper-2": "#D3D9BC",
-      "paper-edge": "#AEBB92",
+      "paper": "#E7E9D8",
+      "paper-2": "#C6D8BA",
+      "paper-edge": "#A2B9A3",
       "ink": "#12210F",
-      "ink-soft": "#33691E",
-      "ink-faint": "#6E8455",
+      "ink-soft": "#21321A",
+      "ink-faint": "#3C5D3E",
       "hair": "rgba(18,33,15,.18)",
       "shadow": "rgba(35,55,25,.24)",
       "cinnabar": "#96421F",
@@ -57,13 +57,13 @@
     },
     "cinnabar": {
       "paper": "#220907",
-      "paper-2": "#38100D",
+      "paper-2": "#69120C",
       "paper-edge": "#4E1A15",
       "ink": "#FAE2E0",
       "ink-soft": "#D3A69F",
       "ink-faint": "#A2756E",
-      "hair": "rgba(250,226,224,.14)",
-      "shadow": "rgba(0,0,0,.55)",
+      "hair": "rgba(250,226,224,0.3)",
+      "shadow": "rgba(0,0,0,0.65)",
       "cinnabar": "#E34234",
       "cinnabar-soft": "rgba(227,66,52,.18)",
       "gold": "#E0913F",
@@ -78,13 +78,13 @@
       "paper-2": "#DEE8F5",
       "paper-edge": "#A6BFDF",
       "ink": "#001F52",
-      "ink-soft": "#003DA5",
-      "ink-faint": "#5878A8",
+      "ink-soft": "#2A477A",
+      "ink-faint": "#1456B8",
       "hair": "rgba(0,31,82,.16)",
       "shadow": "rgba(0,40,110,.24)",
-      "cinnabar": "#003DA5",
+      "cinnabar": "#144190",
       "cinnabar-soft": "rgba(0,61,165,.13)",
-      "gold": "#2A6BB8",
+      "gold": "#307FD5",
       "wx-木": "#1f6b5e",
       "wx-火": "#9c3b2f",
       "wx-土": "#8a6f3a",
@@ -97,14 +97,14 @@
       "paper": "#F2EBDA",
       "paper-2": "#EBE1CC",
       "paper-edge": "#E0D4B8",
-      "ink": "#221E1A",
+      "ink": "#272320",
       "ink-soft": "#5A5045",
       "ink-faint": "#8A7E6C",
       "hair": "rgba(34,30,26,.13)",
       "shadow": "rgba(60,48,30,.18)",
       "cinnabar": "#B5402E",
       "cinnabar-soft": "rgba(181,64,46,.13)",
-      "gold": "#9A7B3F",
+      "gold": "#D59F62",
       "wx-木": "#4f7a4d",
       "wx-火": "#b5402e",
       "wx-土": "#9a7b3f",
@@ -130,12 +130,12 @@
       "wx-水": "#6fa3c4"
     },
     "bamboo": {
-      "paper": "#E4E7D3",
-      "paper-2": "#D3D9BC",
-      "paper-edge": "#AEBB92",
+      "paper": "#E7E9D8",
+      "paper-2": "#C6D8BA",
+      "paper-edge": "#A2B9A3",
       "ink": "#12210F",
-      "ink-soft": "#33691E",
-      "ink-faint": "#6E8455",
+      "ink-soft": "#21321A",
+      "ink-faint": "#3C5D3E",
       "hair": "rgba(18,33,15,.18)",
       "shadow": "rgba(35,55,25,.24)",
       "cinnabar": "#96421F",
@@ -149,13 +149,13 @@
     },
     "cinnabar": {
       "paper": "#220907",
-      "paper-2": "#38100D",
+      "paper-2": "#69120C",
       "paper-edge": "#4E1A15",
       "ink": "#FAE2E0",
       "ink-soft": "#D3A69F",
       "ink-faint": "#A2756E",
-      "hair": "rgba(250,226,224,.14)",
-      "shadow": "rgba(0,0,0,.55)",
+      "hair": "rgba(250,226,224,0.3)",
+      "shadow": "rgba(0,0,0,0.65)",
       "cinnabar": "#E34234",
       "cinnabar-soft": "rgba(227,66,52,.18)",
       "gold": "#E0913F",
@@ -170,13 +170,13 @@
       "paper-2": "#DEE8F5",
       "paper-edge": "#A6BFDF",
       "ink": "#001F52",
-      "ink-soft": "#003DA5",
-      "ink-faint": "#5878A8",
+      "ink-soft": "#2A477A",
+      "ink-faint": "#1456B8",
       "hair": "rgba(0,31,82,.16)",
       "shadow": "rgba(0,40,110,.24)",
-      "cinnabar": "#003DA5",
+      "cinnabar": "#144190",
       "cinnabar-soft": "rgba(0,61,165,.13)",
-      "gold": "#2A6BB8",
+      "gold": "#307FD5",
       "wx-木": "#1f6b5e",
       "wx-火": "#9c3b2f",
       "wx-土": "#8a6f3a",
@@ -188,5 +188,157 @@
     "linked": true,
     "custom": {}
   },
-  "history": []
+  "history": [
+    {
+      "at": "2026-09-30T06:22:59.070Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "gold",
+          "name": "金",
+          "from": "#9A7B3F",
+          "to": "#D59F62"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper",
+          "name": "紙",
+          "from": "#E4E7D3",
+          "to": "#E7E9D8"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#D3D9BC",
+          "to": "#C6D8BA"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#AEBB92",
+          "to": "#A2B9A3"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#33691E",
+          "to": "#21321A"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#6E8455",
+          "to": "#3C5D3E"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-30T07:21:31.482Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#38100D",
+          "to": "#69120C"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(250,226,224,.14)",
+          "to": "rgba(250,226,224,0.3)"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "shadow",
+          "name": "影",
+          "from": "rgba(0,0,0,.55)",
+          "to": "rgba(0,0,0,0.65)"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-30T07:23:24.604Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#003DA5",
+          "to": "#2A477A"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#5878A8",
+          "to": "#1456B8"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "cinnabar",
+          "name": "硃砂",
+          "from": "#003DA5",
+          "to": "#144190"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "gold",
+          "name": "金",
+          "from": "#2A6BB8",
+          "to": "#307FD5"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-30T07:40:48.756Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "ink",
+          "name": "墨",
+          "from": "#221E1A",
+          "to": "#272320"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-30T08:00:00Z",
+      "applied": true,
+      "note": "14 項色碼與按鈕規範已套用到前端 main，基準更新"
+    }
+  ]
 }
