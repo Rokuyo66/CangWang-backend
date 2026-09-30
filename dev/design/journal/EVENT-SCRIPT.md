@@ -1,5 +1,10 @@
 # 道緣事件劇本格式（character_events.scenes／choices）
 
+**試演台：網址加 `?preview=editor`**（前端 `src/story/editor.js`）。一幕一張卡，下拉選場景、誰說話、立繪、選項跳到哪；
+按「▶ 試演」用正式事件畫面演（不打後端、不發獎），草稿存在瀏覽器。寫好按「複製 scenes」，
+貼到 Supabase → Table Editor → `character_events` → 那一列（大師兄第一章是 `daoshi_m_c1`）的 `scenes` 欄；
+選項已寫在幕裡，那一列的 `choices` 欄清空。要改現有的章：先把那一列的 `scenes` 內容複製出來，在試演台按「貼上匯入」。
+
 前端播放器：前端 repo `src/story/engine.js`（畫面借談心的對話幕 `src/ui/scene.js`）。
 版面預覽：網址加 `?preview=event`，演 `src/story/sample.js` 那一章（大師兄「掌門師兄」範例，台詞是佔位的）。
 預覽不打後端、不發獎、不記進度。
