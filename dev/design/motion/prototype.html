@@ -136,6 +136,26 @@ td b{font-weight:700}
 .seal-hold.fired{animation:fired calc(520ms * var(--k)) var(--e-spring)}
 @keyframes fired{0%{scale:1}35%{scale:1.14}100%{scale:1}}
 
+/* ══ 通用 TAG 頁籤（前端 .tag-tabs／.tag-tab ＋ motion.js 的 .m-pill，同一組數字） ══ */
+.tg-std{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--paper-2);background:var(--ink);border-radius:999px;padding:3px 10px 3px 9px}
+.tg-std::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cinnabar)}
+.tg-box{background:var(--paper);border:1px solid var(--paper-edge);border-radius:14px;padding:18px 20px 16px;display:flex;flex-direction:column;gap:10px}
+.tg-cap{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-family:var(--sans);font-size:11.5px;color:var(--ink-faint);letter-spacing:.06em}
+.tg-cap b{color:var(--ink-soft);font-weight:500;letter-spacing:.1em}
+.tag-tabs{display:flex;flex-wrap:nowrap;gap:6px;position:relative;isolation:isolate}
+.tag-tab{flex:1 1 0;min-width:0;text-align:center;position:relative;font-family:var(--serif);font-size:13.5px;letter-spacing:.12em;text-indent:.12em;cursor:pointer;padding:7px 0;border:1px solid transparent;border-radius:999px;background:transparent;color:var(--ink-faint);font-weight:400;transition:color var(--t-quick) ease;-webkit-tap-highlight-color:transparent}
+/* 未選的淡底畫在 ::before、墊在底塊下面：底塊滑過時蓋得住它，格子本身不做按壓縮放 */
+.tag-tab::before{content:"";position:absolute;inset:-1px;z-index:-2;border-radius:inherit;background:var(--paper-2)}
+.tag-tab.on{color:var(--paper-2);font-weight:500}
+.tag-tab small{font-size:10.5px;opacity:.6;margin-left:3px}
+.tag-tabs.tag-fit{flex-wrap:wrap}
+.tag-tabs.tag-fit>.tag-tab{flex:none;padding:7px 14px}
+.m-pill{position:absolute;left:0;top:0;z-index:-1;border-radius:999px;background:var(--ink);pointer-events:none}
+.tg-spec{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.tg-spec div{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:10px;padding:10px 12px;font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--ink-soft)}
+.tg-spec b{display:block;font-size:11px;letter-spacing:.12em;color:var(--ink-faint);font-weight:500}
+.tg-sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px;border:1px solid var(--paper-edge)}
+
 /* 切換開關：滑塊擠壓伸展 */
 .toggle{width:60px;height:34px;border-radius:999px;background:#D9CFBC;border:none;position:relative;padding:0;transition:background var(--t-quick) ease;box-shadow:inset 0 2px 3px rgba(40,28,14,.18)}
 .toggle i{position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;background:var(--paper-2);box-shadow:0 2px 0 var(--paper-edge),0 3px 6px var(--shade);transition:translate var(--t-release) var(--e-spring)}
@@ -425,6 +445,54 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ TAG ══ -->
+  <section id="tag">
+    <div class="sec-h">
+      <div class="tag">A 互動回饋 · 通用元件</div>
+      <h2>TAG 頁籤</h2>
+      <p style="margin:2px 0 10px"><span class="tg-std">通用 TAG 頁籤樣式</span></p>
+      <p>全站只有這一套。一排選一個的都用它：分頁（道籍、手帳）與篩選（廣場、站內信、月份）同一個長相。選中的墨底不跳色——從舊格滑到新格，途中拉長蓋住兩格再收回，像墨被拖過去。點下面三排試試，總控列的「速度」「減少動態」同樣管得到它。</p>
+    </div>
+    <div class="body">
+      <div class="tg-box">
+        <div class="tg-cap"><b>固定格數 · 等寬撐滿</b><span>道籍、手帳、站內信類別</span></div>
+        <div class="tag-tabs" data-demo>
+          <button class="tag-tab on" type="button">道緣</button><button class="tag-tab" type="button">頭像</button><button class="tag-tab" type="button">廣場</button><button class="tag-tab" type="button">信箱</button><button class="tag-tab" type="button">靈石</button><button class="tag-tab" type="button">設定</button>
+        </div>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>篩選 · 同一套</b><span>廣場、站內信</span></div>
+        <div class="tag-tabs" data-demo>
+          <button class="tag-tab on" type="button">全部</button><button class="tag-tab" type="button">問卦</button><button class="tag-tab" type="button">心得</button><button class="tag-tab" type="button">對話</button>
+        </div>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>格數不定 · 貼字換行（.tag-fit）</b><span>更新日誌月份</span></div>
+        <div class="tag-tabs tag-fit" data-demo>
+          <button class="tag-tab on" type="button">9 月<small>1</small></button><button class="tag-tab" type="button">8 月<small>7</small></button><button class="tag-tab" type="button">7 月<small>13</small></button><button class="tag-tab" type="button">6 月<small>4</small></button><button class="tag-tab" type="button">5 月<small>9</small></button><button class="tag-tab" type="button">4 月<small>2</small></button><button class="tag-tab" type="button">3 月<small>6</small></button><button class="tag-tab" type="button">2 月<small>3</small></button>
+        </div>
+      </div>
+      <div class="tg-spec">
+        <div><b>未選</b><i class="tg-sw" style="background:var(--paper-2)"></i>--paper-2 底<br>--ink-faint 字、無框</div>
+        <div><b>選中</b><i class="tg-sw" style="background:var(--ink)"></i>--ink 底<br>--paper 字、500 字重</div>
+        <div><b>字與格</b>13.5px · 字距 .12em<br>上下 7px · 間距 6px · 全圓角</div>
+        <div><b>滑動</b>340ms × k<br>cubic-bezier(.22,1,.36,1)</div>
+        <div><b>途中</b>45% 處拉長蓋住<br>新舊兩格，再收回</div>
+        <div><b>按壓</b>格子不縮放<br>回饋交給底塊</div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>情況</th><th>前端寫法</th></tr></thead>
+        <tbody>
+          <tr><td>格數固定（2–6 格）</td><td><code>.tag-tabs</code> ＞ <code>.tag-tab</code>，選中那格加 <code>.on</code></td></tr>
+          <tr><td>格數不定、可能超過一行</td><td><code>.tag-tabs.tag-fit</code></td></tr>
+          <tr><td>點一格＝整排重畫</td><td>那一排加 <code>data-tabs="唯一名"</code>，底塊才記得從哪裡滑過來</td></tr>
+          <tr><td>底塊與動畫</td><td>不用寫：<code>ui/motion.js</code> 看到 <code>.tag-tabs</code> 自動長出 <code>.m-pill</code></td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">不在這條的：底線頁籤（廣場「最新／熱門」這類切分頁的 <code>.ptab</code>）與兩段開關（時序｜月曆的硃砂滑塊）。不要另做硃砂實心、細框膠囊或其他顏色的選中態。</p>
+    </div>
+  </section>
+
   <!-- ══ B ══ -->
   <section>
     <div class="sec-h">
@@ -559,7 +627,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
         <div class="rule"><b>凸起面上的字跟著面走</b><p>有厚度的元件，字要對齊「面」而不是整個元件。厚度畫在元件裡面時（例如開關的滑塊，底下那道硬陰影佔掉高度），面上的字上移，距離＝厚度。</p></div>
         <div class="rule"><b>置中扣掉字距</b><p>letter-spacing 會在最後一個字後面多留一格，字看起來偏左。用同寬的 text-indent 補回去；量字寬來擺滑塊時，也要扣掉那一格。</p></div>
         <div class="rule"><b>選中標記用滑的</b><p>頁籤、開關的選中狀態不跳色：底線、底塊、滑塊從舊位置滑到新位置，途中拉長蓋住兩格（底線、底塊）或擠扁（開關滑塊），到位時收回。有滑動標記的格子本身不做按壓縮放：按下的回饋交給標記，格子一縮會自成一層，把自己的底色疊到標記上面。</p></div>
-        <div class="rule"><b>篩選也是頁籤</b><p>一排選一個的篩選（全部／問卦／心得、月份）跟頁籤同一套：未選＝淡底淡墨、選中＝墨底滑過去。不另做硃砂實心或細框膠囊。格數固定就等寬撐滿；格數不定就貼字、放不下換行，底塊照樣滑。實作見前端 CLAUDE.md「頁籤」。</p></div>
+        <div class="rule"><b>篩選也是頁籤</b><p>（示範見上方「TAG 頁籤」一節）一排選一個的篩選（全部／問卦／心得、月份）跟頁籤同一套：未選＝淡底淡墨、選中＝墨底滑過去。不另做硃砂實心或細框膠囊。格數固定就等寬撐滿；格數不定就貼字、放不下換行，底塊照樣滑。實作見前端 CLAUDE.md「頁籤」。</p></div>
       </div>
     </div>
   </section>
@@ -804,5 +872,28 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     try{navigator.clipboard.writeText(txt).then(done,()=>sel())}catch(e){sel()}
     function sel(){const r=document.createRange();r.selectNodeContents($('code'));const s=getSelection();s.removeAllRanges();s.addRange(r)}
   });
+
+  /* ── TAG 頁籤：選中底塊滑過去（同前端 ui/motion.js 的 pill） ── */
+  (function(){
+    const frame=p=>({width:p.w+'px',height:p.h+'px',transform:`translate(${p.x}px,${p.y}px)`});
+    const pos=t=>({x:t.offsetLeft,y:t.offsetTop,w:t.offsetWidth,h:t.offsetHeight});
+    document.querySelectorAll('.tag-tabs[data-demo]').forEach(g=>{
+      const mk=document.createElement('i');mk.className='m-pill';mk.setAttribute('aria-hidden','true');g.prepend(mk);
+      const place=()=>{const on=g.querySelector('.tag-tab.on');if(on)Object.assign(mk.style,frame(pos(on)))};
+      place();addEventListener('resize',place);
+      if(document.fonts&&document.fonts.ready)document.fonts.ready.then(place);
+      g.addEventListener('click',e=>{
+        const to=e.target.closest('.tag-tab');const from=g.querySelector('.tag-tab.on');
+        if(!to||to===from)return;
+        const a=pos(from),b=pos(to);
+        from.classList.remove('on');to.classList.add('on');
+        Object.assign(mk.style,frame(b));
+        if(root.classList.contains('rm'))return;
+        const L=Math.min(a.x,b.x),R=Math.max(a.x+a.w,b.x+b.w);
+        mk.animate([frame(a),{...frame({x:L,y:b.y,w:R-L,h:b.h}),offset:.45},frame(b)],
+          {duration:340*K(),easing:'cubic-bezier(.22,1,.36,1)'});
+      });
+    });
+  })();
 })();
 </script>
