@@ -87,8 +87,9 @@ export async function widgetState(
 
   let fortune: WidgetState["fortune"] = { done: false, hint: FORTUNE_HINT };
   if (fortuneDone) {
-    // 今日那一卦：撈回盤面重算等第。撈不到（極少見：閘門記了、卦卻沒進庫）
-    // 就回 done 而等第留空，前端顯示「今日已測」並把人帶回 App，不假造一個等第。
+    // 今日那一卦：撈回盤面重算等第。撈不到就回 done 而等第留空，不假造一個等第。
+    // 撈不到多半是那一卦正在批（dailyFortune 先蓋章、批完才入庫），少數才是批失敗的殘局——
+    // 前端顯示「推演中」並回頭再抓，見 dev/web/WIDGET-API.md。
     const { data: cast } = await db.from("casts")
       .select("id, chart")
       .eq("user_id", p.userId).eq("category", FORTUNE_CATEGORY)
