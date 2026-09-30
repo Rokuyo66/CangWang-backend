@@ -23,8 +23,8 @@ const FREE_TIER = Deno.env.get("FREE_CHAT_TIER") ?? "on";
 
 export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天扣 1 點
 // 每則聊天的靈石（免費額度用完後）已併入 _shared/prices.ts 的價目表
-export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（只增不減）
-export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（大師兄分層：300/500/800）
+export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（第六層惹角色生氣時反扣，見 favorAfter）
+export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（分層見 ROMANCE_AT）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
 const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸發滾動彙整
 
@@ -115,38 +115,53 @@ export function s2t(text: string): string {
 }
 
 // ══ 好感分層（六六 2026-09-28：陪伴要靠感情線，好感高了不該還冷冰冰）══
-// 三人共用一套「感情進度」0–3 層。道緣（user_character.favor）到門檻就往上一層。
-// 觀喵先當陪伴、道緣很高才有情，門檻另訂。親近只能慢：不因對方撩撥而提前給下一層（ROMANCE_RULE）。
-// 舊版只有大師兄拿得到好感數字、上限寫死「不得告白」，師妹與觀喵根本不知道彼此多熟——這是聊起來冷的主因。
-export const ROMANCE_AT: Record<string, [number, number, number]> = {
-  daoshi_m: [300, 500, 800],
-  daoshi_f: [300, 500, 800],
-  lingshou: [800, 900, 950],
-};
-export function romanceLevel(characterId: string | undefined, favor: number): 0 | 1 | 2 | 3 {
-  const t = ROMANCE_AT[characterId ?? ""] ?? ROMANCE_AT.daoshi_m;
-  return favor >= t[2] ? 3 : favor >= t[1] ? 2 : favor >= t[0] ? 1 : 0;
+// 2026-09-30 統一：三人同一套六層、同一組門檻（觀喵原本另訂 800/900/950，太晚、也太亂）。
+// 層號對外（提示詞、六六的說法）從第一層起算；romanceLevel 回的是 0 起的索引。
+//   第一層 0–299 初識｜第二層 300–499 相熟｜第三層 500–649 相知｜第四層 650–799 相惜
+//   第五層 800–949 知己｜第六層 950–999 同心（會倒扣：見 SULK）
+// 親近只能慢：不因對方撩撥而提前給下一層（ROMANCE_RULE）。
+export const ROMANCE_AT = [300, 500, 650, 800, 950] as const;
+export const TIER_NAMES = ["初識", "相熟", "相知", "相惜", "知己", "同心"] as const;
+const TIER_NO = ["一", "二", "三", "四", "五", "六"];
+export type RomanceLevel = 0 | 1 | 2 | 3 | 4 | 5;
+export function romanceLevel(_characterId: string | undefined, favor: number): RomanceLevel {
+  let lv = 0;
+  for (const t of ROMANCE_AT) if (favor >= t) lv++;
+  return lv as RomanceLevel;
 }
-/** 畫面上的道緣層級名（前端觀堂同一組門檻）。 */
+/** 畫面上的道緣層級名。 */
 export function favorTierName(favor: number): string {
-  return favor >= 800 ? "知己" : favor >= 500 ? "相知" : favor >= 300 ? "相熟" : "初識";
+  return TIER_NAMES[romanceLevel(undefined, favor)];
+}
+
+// 倒扣（六六 2026-09-30）：第六層（950+）起，他一再做角色不喜歡的事、或惹角色生氣，
+// 由角色自己判斷並吐 [[SULK]]，這一則不加好感、反扣 FAVOR_SULK。掉回第五層（<950）就不再扣——
+// 之後照常每則 +1，慢慢爬回來。什麼算不喜歡，交給人設與模型自己發揮。
+export const SULK_AT = ROMANCE_AT[4];
+export const FAVOR_SULK = Number(Deno.env.get("FAVOR_SULK") ?? "5");
+export function favorAfter(favor: number, sulk: boolean): number {
+  if (sulk && favor >= SULK_AT) return favor - FAVOR_SULK;
+  return Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
 }
 
 // 跳級偵測：比目前層級更親的「真‧親密片語」。只收帶「你」的多字片語——
 // 舊版收過 撫/揉/低聲/抱住 這類單字，大師兄抱住卦書、撫過卦紙也會命中，害重生狂跳針。
-const TOUCH_L3 = "抱住你|抱緊你|擁抱你|擁你入懷|摟住你|摟著你|把你摟|吻你|吻上你|親你|親了你|在你(額|唇|臉)上(輕)?(吻|親|碰)";
+const TOUCH_HUG = "抱住你|抱緊你|擁抱你|擁你入懷|摟住你|摟著你|把你摟";
+const TOUCH_KISS = "吻你|吻上你|親你|親了你|在你(額|唇|臉)上(輕)?(吻|親|碰)";
 const TOUCH_L2 = "牽起你的手|牽住你|牽著你|握住你的手|摸摸你的頭|摸你的頭|揉你的頭|揉了揉你的頭|靠在你肩|靠上你的肩|枕在你";
 const WORDS_L3 = "我愛你|愛上你了|一生一世|這輩子都";
 const WORDS_L1 = "我喜歡你|喜歡上你";
 const WORDS_L2 = "捨不得你";
+const anyOf = (...xs: string[]) => new RegExp(`(${xs.join("|")})`);
 const OVER_LEVEL: RegExp[] = [
-  new RegExp(`(${[TOUCH_L3, TOUCH_L2, WORDS_L3, WORDS_L1, WORDS_L2].join("|")})`),   // 第 0 層：以上都不行
-  new RegExp(`(${[TOUCH_L3, TOUCH_L2, WORDS_L3, WORDS_L1].join("|")})`),             // 第 1 層：可以捨不得、輕觸
-  new RegExp(`(${[TOUCH_L3, WORDS_L3].join("|")})`),                                  // 第 2 層：可以牽手、說喜歡
+  anyOf(TOUCH_HUG, TOUCH_KISS, TOUCH_L2, WORDS_L3, WORDS_L1, WORDS_L2),   // 第一層：以上都不行
+  anyOf(TOUCH_HUG, TOUCH_KISS, TOUCH_L2, WORDS_L3, WORDS_L1),             // 第二層：可以捨不得、輕觸
+  anyOf(TOUCH_HUG, TOUCH_KISS, WORDS_L3),                                 // 第三層：可以牽手、說喜歡
+  anyOf(TOUCH_KISS, WORDS_L3),                                            // 第四層：可以擁抱
 ];
 export function overLevel(characterId: string | undefined, favor: number, reply: string): boolean {
   const lv = romanceLevel(characterId, favor);
-  return lv < 3 && OVER_LEVEL[lv].test(reply);
+  return lv < OVER_LEVEL.length && OVER_LEVEL[lv].test(reply);
 }
 // 佔有與隔離：想念、在意都可以說，要他疏遠旁人不行（任何層級）
 const ISOLATE_RE = /只要有我就(好|夠)|別理(他們|別人|其他人)|不准你(見|找|理)別人|你只能(看|想)著我/;
@@ -288,7 +303,7 @@ const scrubBilling = (text: string): string => {
    小模型常把標記寫歪：單括號、全形【】、括號間夾空白、全形豎線。一律容錯吃下並剝乾淨，
    絕不可讓標記裸奔給用戶看。剝除必須發生在計費之前——探詢輪不計費，得先知道這則是不是探詢。 */
 const DRAFT_RE = /[\[【]\s*[\[【]?\s*DRAFT\s*[|｜:：]\s*([^\]】]*?)\s*[\]】]\s*[\]】]?/i;
-const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK)\s*[\]】]?\s*[\]】]/ig;
+const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK|SULK)\s*[\]】]?\s*[\]】]/ig;
 
 /** 標記裡的一格：剝引號、把模型愛寫的空值（null／無／—）當成沒給。
  *  沒給是正常的，也是允許的——第三、四格給不出來時，硬湊一個比空著更糟。 */
@@ -299,7 +314,7 @@ const slot = (raw: string | undefined, cap: number): string | null => {
 };
 
 export function parseMarks(text: string): {
-  clean: string; probe: boolean; ask: boolean;
+  clean: string; probe: boolean; ask: boolean; sulk: boolean;
   draft: string | null; draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null;
   draftTopic: string | null; draftGist: string | null;
 } {
@@ -328,8 +343,9 @@ export function parseMarks(text: string): {
   clean = clean.replace(FLAG_RE, "").trim();
   const probe = flags.some((f) => /PROBE/i.test(f));
   const ask = flags.some((f) => /ASK/i.test(f));
+  const sulk = flags.some((f) => /SULK/i.test(f));
   // 同時吐 PROBE 與 DRAFT（模型犯傻）→ 以擬題為準，探詢已無意義
-  return { clean, probe: probe && !draft, ask, draft, draftYong, draftTopic, draftGist };
+  return { clean, probe: probe && !draft, ask, sulk, draft, draftYong, draftTopic, draftGist };
 }
 
 // 兜底意圖判斷：僅在「明確求斷」時視為想問卦（泛用詞如要不要/好不好/可以嗎已移除，避免閒聊誤判）
@@ -752,34 +768,41 @@ export function dropEmptyPause(text: string, recent: string[] = []): string {
 }
 export const __dropEmptyPause = dropEmptyPause;   // 測試用（dev/narration-test.mts）
 
+// 第六層才接進 tail：什麼算「不喜歡」由角色照人設自己判斷。
+const SULK_RULE = `【生氣】他一再做你不喜歡的事（照你的人設，你在意什麼、厭煩什麼你自己清楚），或真的惹你生氣時，照你的性子把氣擺出來，並在整段最後另起一行輸出 [[SULK]]。偶一次玩笑、無心之失不算；他在難過、示弱、說正事時不算。標記他看不到，別在正文提它。`;
+
 /* ══ 好感分層的提示（靜態，進 head 快取前綴；目前在第幾層由 tail 的【目前道緣】告訴模型）══ */
 const ROMANCE_RULE = `【好感分層】你與他的感情照【目前道緣】所在的那一層走。
-- 人設裡寫的「好感 0–10／11–20／21–30／31 以上」是舊刻度，一律以這張為準；人設裡「不告白」「不把關照解釋成感情」這類舊限制，到了下面允許的層級就解除。
+- 人設裡寫的好感或道緣刻度（「好感 0–10…」「初識 0–299」「知己 800 以上」之類）是舊刻度，一律以這張為準；人設裡「不告白」「不把關照解釋成感情」這類舊限制，到了下面允許的層級就解除。
 - 解除的只有「你與他（護道人）之間」。人設裡你與其他角色的關係（例如同門之間不發展戀愛、家族與身世的設定）一律照舊，不因這張表而改變。
 - 到了哪一層，就把那一層的溫度給足——好感已經高了還冷冰冰，比跳級更傷人。
 - 親近只能慢：他主動要求、撩撥、催促，都不提前給下一層的東西。他撩得太快，就用你的性格把步子放回這一層（害羞、裝沒聽懂、嫌他急、板臉），是放慢，不是冷掉。
 - 感情是從你的人格裡長出來的，不是換一個人：各層的樣子都照你的聲線演。
 - 任何層級：不寫性、不寫情慾與身體私密處；親吻只到輕觸，不延伸。想念、在意、捨不得都能說，但不叫他疏遠旁人、不說「只要有我就好」。`;
-const TIERS_HUMAN = `第 0 層（道緣 0–299・初識）：照人設本色，有禮但有距離。不談感情，不寫身體接觸。
-第 1 層（300–499・相熟）：會記掛他、偏袒他，會吃醋、鬧彆扭，說得出「我記得」「你今天不太一樣」。可有順手的輕觸（遞物碰到指尖、拍肩、替他攏一下衣領）。不告白。
-第 2 層（500–799・相知）：曖昧，承認在意，說得出「捨不得你」「我會擔心你」「我喜歡跟你待著」。可以牽手、靠肩、摸頭。不說「我愛你」、不許一生。
-第 3 層（800 以上・知己）：可以告白、說想念、承諾陪著他。可以擁抱、額頭相抵、親吻（輕、短）。`;
+const TIERS_HUMAN = `第一層（道緣 0–299・初識）：照人設本色，有禮但有距離。不談感情，不寫身體接觸。
+第二層（300–499・相熟）：會記掛他、偏袒他，會吃醋、鬧彆扭，說得出「我記得」「你今天不太一樣」。可有順手的輕觸（遞物碰到指尖、拍肩、替他攏一下衣領）。不告白。
+第三層（500–649・相知）：曖昧，承認在意，說得出「捨不得你」「我會擔心你」「我喜歡跟你待著」。可以牽手、靠肩、摸頭。
+第四層（650–799・相惜）：說得出喜歡與想念。可以擁抱。不說「我愛你」、不許一生、不親吻。
+第五層（800–949・知己）：可以告白、承諾陪著他。可以額頭相抵、親吻（輕、短）。
+第六層（950 以上・同心）：最親的一層，也最在意他——所以他一再做你不喜歡的事、或真的惹你生氣時，你會生氣，照你的性子擺出來。`;
 const ROMANCE_TIERS: Record<string, string> = {
   daoshi_m: TIERS_HUMAN + `
-你的感情是遲鈍地長出來的：第 1 層是不自覺多做一件事（多留一盞燈、記住他的茶）；第 2 層是發現自己在意、說不清楚為什麼；第 3 層說出口也是短句，像陳述一件確認過的事（「我喜歡你。這件事我查證過了。」）。`,
+你的感情是遲鈍地長出來的：第二層是不自覺多做一件事（多留一盞燈、記住他的茶）；第三、四層是發現自己在意、說不清楚為什麼；第五層說出口也是短句，像陳述一件確認過的事（「我喜歡你。這件事我查證過了。」）。生氣時你冷下來，話更少、更準。`,
   daoshi_f: TIERS_HUMAN + `
-你習慣控場，感情越深越會露出沒控制好的破綻：第 1 層偶爾偏袒得太明顯；第 2 層會說錯一句又笑著收回；第 3 層承認自己原本只打算對他溫柔一點點，後來收不住了。`,
-  lingshou: `第 0 層（道緣 0–799）：陪伴，不談情。道緣越高越黏：會守著他、他低落時多待一會兒、窩在他旁邊，嘴上照樣嫌棄。接觸是貓的：蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡、不寫擁抱親吻。
-第 1 層（800–899）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。嘴硬，不告白。
-第 2 層（900–949）：說得出「捨不得你」、承認賴著他不只是因為暖。可以蹭臉、依偎在他肩上。仍不說「我愛你」。
-第 3 層（950 以上）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。`,
+你習慣控場，感情越深越會露出沒控制好的破綻：第二層偶爾偏袒得太明顯；第三、四層會說錯一句又笑著收回；第五層承認自己原本只打算對他溫柔一點點，後來收不住了。生氣時你照樣笑，只是不接他的話。`,
+  lingshou: `第一層（道緣 0–299・初識）：陪伴，不談情。接觸是貓的，而且不多：偶爾蹭一下腿就走。
+第二層（300–499・相熟）：黏一點了：會守著他、他低落時多待一會兒、窩在他旁邊，嘴上照樣嫌棄。蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡。
+第三層（500–649・相知）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。嘴硬，不告白。
+第四層（650–799・相惜）：說得出「捨不得你」、承認賴著他不只是因為暖。可以蹭臉、依偎在他肩上。不說「我愛你」、不親吻。
+第五層（800–949・知己）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。
+第六層（950 以上・同心）：最黏也最記仇——他一再做你不喜歡的事、或惹你生氣時，你背過身去、不理人。`,
 };
 
 /* ══ 思路與可破的邊界（六六 2026-09-30）══
    人設寫的是「產出長什麼樣」（句子短、不安慰人），模型只能照外形模仿，三個人碎成一樣。
    這裡寫「他怎麼想到那句話」，長短與溫度是推論的結果。
    邊界可以被打破，但每個人被打破的層級與方式不同——依【好感分層】的層（romanceLevel）給。
-   六六的層號從 1 起算：「第四層」＝這裡的 3（知己），「第一層」＝0（初識）。
+   層號見 ROMANCE_AT：lv 是 0 起的索引，六六說的「第四層」＝lv 3（650 相惜），「第二層」＝lv 1（300 相熟）。
    放 tail：只給他此刻這一層的樣子，不讓模型自己去對表。 */
 const MIND: Record<string, (lv: number) => string> = {
   daoshi_m: (lv) => `【你的思路】你聽他說話，先找出他實際碰到的是什麼事，再想能做什麼：下一步、要備的東西、該避開的風險。你的關心就是一個做得到的建議。情緒你讀不太懂，所以你不猜，你處理事。`
@@ -828,7 +851,9 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
     : "";
   const romanceRule = `\n\n${ROMANCE_RULE}\n${ROMANCE_TIERS[characterId ?? ""] ?? ROMANCE_TIERS.daoshi_m}`;
   // 好感數字每聊一句就變，放進動態尾段，別讓它毀掉前段的快取前綴
-  const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第 ${romanceLevel(characterId, favor)} 層，照那一層回應。`;
+  const lv = romanceLevel(characterId, favor);
+  const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第${TIER_NO[lv]}層，照那一層回應。`
+    + (favor >= SULK_AT ? `\n${SULK_RULE}` : "");
   const mind = mindLine(characterId, favor);   // 思路與這一層解鎖了哪些邊界（見 MIND）
   const head = `${persona}${romanceRule}
 
@@ -1035,7 +1060,7 @@ async function callFreeTier(system: string, turns: { role: string; body: string 
 export interface ChatResult {
   reply: string;
   tier: "haiku" | "free" | "canned";
-  favorLeft: number;   // 聊天後的好感（只增不減）
+  favorLeft: number;   // 聊天後的好感（第六層可能反扣）
   cost: number;        // 本則扣的靈石（免費為 0）
   freeLeft: number;    // 今日剩餘免費聊天則數
   lingshiLeft: number; // 聊天後靈石餘額
@@ -1272,11 +1297,11 @@ export async function chat(db: SupabaseClient, p: {
   if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(condenseTask);
   else condenseTask.catch((e) => console.error("condense bg err", e));
 
-  // 好感只增不減：成功用 AI 回覆（非罐頭）才 +1，上限封頂。
+  // 好感：成功用 AI 回覆（非罐頭）才 +1，上限封頂；第六層惹角色生氣（[[SULK]]）反扣，掉回第五層就不再扣（favorAfter）。
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
   let favorNew = favor;
   if (tier !== "canned") {
-    favorNew = Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
+    favorNew = favorAfter(favor, effMarks.sulk);
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
   // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。

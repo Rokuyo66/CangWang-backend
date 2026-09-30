@@ -36,12 +36,13 @@ ok("求結果 tail 含擬題規矩", b.tail.includes("[[DRAFT|理好的問句|�
 ok("記憶附上時態提醒", a.tail.includes("記憶是往事"));
 // 思路與可破的邊界（MIND）：依層給，進 tail 不進 head
 ok("思路在 tail、不在 head", a.tail.includes("【你的思路】") && !a.head.includes("【你的思路】"));
-ok("大師兄未到知己：不接情緒", mindLine("daoshi_m", 700).includes("不接情緒"));
-ok("大師兄知己：笨拙共情", mindLine("daoshi_m", 800).includes("不熟練"));
+ok("大師兄未到第四層：不接情緒", mindLine("daoshi_m", 649).includes("不接情緒"));
+ok("大師兄第四層（650）：笨拙共情", mindLine("daoshi_m", 650).includes("不熟練"));
 ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("擅長共情"));
-ok("觀喵不熟：懶得搭理", mindLine("lingshou", 500).includes("懶得搭理"));
-ok("觀喵 800：安慰、無大道理", mindLine("lingshou", 800).includes("安慰") && !mindLine("lingshou", 800).includes("大道理"));
-ok("觀喵 900：講大道理", mindLine("lingshou", 900).includes("大道理"));
+ok("觀喵第一層：懶得搭理", mindLine("lingshou", 299).includes("懶得搭理"));
+ok("觀喵第二層（300）：安慰、無大道理", mindLine("lingshou", 300).includes("安慰") && !mindLine("lingshou", 300).includes("大道理"));
+ok("觀喵第三層（500）：講大道理", mindLine("lingshou", 500).includes("大道理"));
+ok("第六層才有生氣規則", b.tail.includes("[[SULK]]") === false && sp(persona, "", "", "", "", "lingshou", 960, 0, "", "", "", "", false).tail.includes("[[SULK]]"));
 console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);
 
 console.log(`\n${pass} 過 / ${fail} 敗`);
