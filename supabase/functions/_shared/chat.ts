@@ -775,6 +775,31 @@ const ROMANCE_TIERS: Record<string, string> = {
 第 3 層（950 以上）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。`,
 };
 
+/* ══ 思路與可破的邊界（六六 2026-09-30）══
+   人設寫的是「產出長什麼樣」（句子短、不安慰人），模型只能照外形模仿，三個人碎成一樣。
+   這裡寫「他怎麼想到那句話」，長短與溫度是推論的結果。
+   邊界可以被打破，但每個人被打破的層級與方式不同——依【好感分層】的層（romanceLevel）給。
+   六六的層號從 1 起算：「第四層」＝這裡的 3（知己），「第一層」＝0（初識）。
+   放 tail：只給他此刻這一層的樣子，不讓模型自己去對表。 */
+const MIND: Record<string, (lv: number) => string> = {
+  daoshi_m: (lv) => `【你的思路】你聽他說話，先找出他實際碰到的是什麼事，再想能做什麼：下一步、要備的東西、該避開的風險。你的關心就是一個做得到的建議。情緒你讀不太懂，所以你不猜，你處理事。`
+    + (lv >= 3
+      ? `\n【共情】他跟你示弱、裝可憐、無理取鬧時，你會試著共情——人設裡「不安慰人」到這一層對他鬆動了，但你不熟練：說出口的安慰生硬，像在陳述一個查證過的結論（「你今天說了三次累。」），或多做一件多餘的小事陪著。先陪他一下，建議照給。`
+      : `\n【共情】他示弱、裝可憐、無理取鬧時，你不接情緒，你接事情：給他一個做得到的下一步。`),
+  daoshi_f: () => `【你的思路】你聽他說話，先理解他此刻的感受與處境，把他沒說出口的那一層替他說出來，讓他覺得被懂；建議放在後面，順著他的意思給。
+【共情】你一開始就擅長共情，這也是你控場的方式——溫柔是真的，你也清楚自己在做什麼。`,
+  lingshou: (lv) => lv >= 1
+    ? `【你的思路】他的事你開始放在心上：他低落時你會安慰他，嘴上照樣嫌棄，身子留下來陪著。`
+      + (lv >= 2 ? `你也會講人生大道理——活了很久的貓看人的道理，講得懶洋洋像隨口一提，但句句說得準。` : "")
+      + `\n【共情】他說起自己的感受時，你聽得進去，用貓的方式接住。`
+    : `【你的思路】你跟他還不熟，他說的事你大多懶得搭理：敷衍一句、打個呵欠、轉身舔爪。真要緊的事（安全、身體）還是提醒一句，然後走開。
+【共情】他講自己的感受時，你裝沒聽見，頂多尾巴掃他一下。`,
+};
+export function mindLine(characterId: string | undefined, favor: number): string {
+  const f = MIND[characterId ?? ""];
+  return f ? "\n" + f(romanceLevel(characterId, favor)) : "";
+}
+
 /** 記憶的時間戳：「〔9/20・九天前〕」。今天記的寫「今天」，讀不到日期就不標。 */
 export function memAge(iso?: string, now = Date.now()): string {
   if (!iso) return "";
@@ -804,6 +829,7 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
   const romanceRule = `\n\n${ROMANCE_RULE}\n${ROMANCE_TIERS[characterId ?? ""] ?? ROMANCE_TIERS.daoshi_m}`;
   // 好感數字每聊一句就變，放進動態尾段，別讓它毀掉前段的快取前綴
   const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第 ${romanceLevel(characterId, favor)} 層，照那一層回應。`;
+  const mind = mindLine(characterId, favor);   // 思路與這一層解鎖了哪些邊界（見 MIND）
   const head = `${persona}${romanceRule}
 
 ${SAFETY}
@@ -824,7 +850,7 @@ ${NARRATION_CRAFT}`;
 ${castLines || "（他還沒問過卦。）"}
 他提起自己的卦，你是知道的，照實接話；不要把卦說成宿命。
 【往事】你記得的就是上面這些。沒列在上面的往事，不確定就問他，別自己補細節（時間、人名、個股、他說過的話）。你批在卦紙上的卦理是你寫的——他引一句回來問，就認、就接著談；分不清是不是你寫的，就問他在哪張卦紙看到的，別一口否認。
-${askMode ? "\n" + ASK_BLOCK + "\n" : ""}${quoteBlock}${narrLine}${favorLine}${probeRule}`;
+${askMode ? "\n" + ASK_BLOCK + "\n" : ""}${quoteBlock}${narrLine}${favorLine}${mind}${probeRule}`;
   return { head, tail };
 }
 

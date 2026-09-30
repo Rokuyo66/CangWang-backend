@@ -7,7 +7,7 @@
 // 跑法：node --experimental-strip-types dev/chat-prompt-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { wantsAskBlock, memAge, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
+const { wantsAskBlock, memAge, mindLine, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean) => { if (cond) pass++; else { fail++; console.log("✗", name); } };
@@ -34,6 +34,14 @@ ok("head 以人設開頭", a.head.startsWith(persona));
 ok("閒聊 tail 不含擬題規矩", !a.tail.includes("[[DRAFT"));
 ok("求結果 tail 含擬題規矩", b.tail.includes("[[DRAFT|理好的問句|用神六親|事由|一句話說這件事]]"));
 ok("記憶附上時態提醒", a.tail.includes("記憶是往事"));
+// 思路與可破的邊界（MIND）：依層給，進 tail 不進 head
+ok("思路在 tail、不在 head", a.tail.includes("【你的思路】") && !a.head.includes("【你的思路】"));
+ok("大師兄未到知己：不接情緒", mindLine("daoshi_m", 700).includes("不接情緒"));
+ok("大師兄知己：笨拙共情", mindLine("daoshi_m", 800).includes("不熟練"));
+ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("擅長共情"));
+ok("觀喵不熟：懶得搭理", mindLine("lingshou", 500).includes("懶得搭理"));
+ok("觀喵 800：安慰、無大道理", mindLine("lingshou", 800).includes("安慰") && !mindLine("lingshou", 800).includes("大道理"));
+ok("觀喵 900：講大道理", mindLine("lingshou", 900).includes("大道理"));
 console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);
 
 console.log(`\n${pass} 過 / ${fail} 敗`);
