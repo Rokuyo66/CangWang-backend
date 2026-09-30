@@ -5,6 +5,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
+import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
@@ -66,9 +67,11 @@ const FREE_GUARD = "\n\n【往事】你只記得上面列出的卦與往事。�
 // 多留兩成餘裕：乖乖照人設寫的回覆落在八成、自然收尾永不截斷；小幅超出仍在餘裕內能講完；
 // 只有暴衝才會撞到 ÷0.8 的天花板，交給 trimIncomplete 乾淨收束。天花板只是保險、模型不會去湊滿它，
 // 故抬高上限對「寫短」的回覆不多花一個 token。
+// ⚠ 主力層閒聊的每則上限已改由節奏帳本決定（rhythm.ts 的 capFor）；capOf 只剩 callHaiku 的預設值。
 const REPLY_HEADROOM = 0.8;        // 目標佔硬上限的比例（留兩成收尾餘裕）
 const CHAT_TARGET_TOKENS = 400;    // Claude 主力層（未列於下表的角色用此值）
-// 各角色八成目標：大師兄/觀喵人設就是短句，180 省 token；師妹話多留 280
+// 各角色的輸出均值目標 T。不是每一則的上限：每則能說多長由節奏帳本決定（rhythm.ts），
+// 說長了之後幾則收回來，長期平均落在 T。大師兄/觀喵 180，師妹話多 280。
 const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
   daoshi_m: 180,
   daoshi_f: 280,
@@ -808,7 +811,7 @@ ${SAFETY}
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
 【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，不必照搬那個詞，用你的話接住他的意思：他要開車去看病，你說「別獨自上路，找個人送你去醫館」。
 
-【怎麼聊】這是即時的閒聊。照你的人設活著回話——你有自己的脾氣、在意的事、手邊正忙的事，也有自己的看法。他起什麼話題就接什麼：可以反問、打趣、岔開、不同意他。平常一到三句；他寫得長、情緒濃時可以多一些，但不寫小作文、不分點。繁體中文（台灣用字）。
+【怎麼聊】這是即時的閒聊。照你的人設活著回話——你有自己的脾氣、在意的事、手邊正忙的事，也有自己的看法。他起什麼話題就接什麼：可以反問、打趣、岔開、不同意他。長短由話本身決定：一句說得完的不拉長；要鋪依據、講一段往事、把一個想法說透時，就用你的思路說完整。說完就停，不分點、不寫成文章。繁體中文（台灣用字）。
 - 格式：台詞用「」、第一人稱說；動作神態放＊…＊，旁白裡你自己用他／她／牠，對方永遠稱「你」。結尾停在完整的一句。
 - 分寸：身體接觸照【好感分層】。任何層級不寫性與情慾；他要求也用你自己的方式擋回去（害羞、板臉、嫌煩、笑著帶過），不跳出角色講政策或 AI。
 - 嚴肅的事（健康、家人、官司、變故）先接住，再照你的性子給下一步。不替他做決定，不給投資建議。
@@ -1109,16 +1112,29 @@ export async function chat(db: SupabaseClient, p: {
   const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
   const askMode = wantsAskBlock(p.message, ctx.probeStreak);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine, askMode);
+  // 節奏帳本（rhythm.ts）：這一則能說多長看總帳，不看單則。另查一次——欄位還沒上（0077 未跑）
+  // 也只是當帳為 0，不能連累上面的好感查詢。
+  const target = CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS;
+  let balance = 0;
+  try {
+    const { data: rb, error: rbErr } = await db.from("user_character").select("rhythm_balance, rhythm_at")
+      .eq("user_id", p.userId).eq("character_id", p.characterId).maybeSingle();
+    if (!rbErr) balance = openBalance(rb?.rhythm_balance as number | null, rb?.rhythm_at as string | null);
+  } catch (e) { console.error("rhythm read failed, treat as 0", e); }
+  const serious = askMode || isSerious(p.message);
+  const rMode = modeOf(balance, target);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
-  const maxTok = capOf(CHAT_TARGET_TOKENS_BY_CHAR[p.characterId] ?? CHAT_TARGET_TOKENS); // 主力層硬上限（重生成也用）
+  const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）
+  let outTok = 0;                                 // 採用的那一稿實際輸出，結算節奏帳用
 
   if (withinFree || canPay) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
       const h = await callHaiku(system, ctx.turns, p.message, maxTok);
       reply = h.text;
+      outTok = h.usage.out;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
     } catch (e) {
@@ -1187,7 +1203,7 @@ export async function chat(db: SupabaseClient, p: {
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
         const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
-        if (cand) { reply = cand; effMarks = m2; }
+        if (cand) { reply = cand; effMarks = m2; outTok = h2.usage.out; }
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
@@ -1236,6 +1252,13 @@ export async function chat(db: SupabaseClient, p: {
   if (tier !== "canned") {
     favorNew = Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
+  }
+  // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。
+  if (tier === "haiku" && outTok > 0) {
+    const { error: rwErr } = await db.from("user_character")
+      .update({ rhythm_balance: settle(balance, target, outTok), rhythm_at: new Date().toISOString() })
+      .eq("user_id", p.userId).eq("character_id", p.characterId);
+    if (rwErr) console.error("rhythm write failed", rwErr.message);
   }
   const freeLeft = Math.max(0, chatQuota - used);
   const stateArr = CHAT_STATE[p.characterId]?.[tier] ?? [""];
