@@ -5,6 +5,8 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
+import { ensureDay, lifeHint } from "./days.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -488,7 +490,7 @@ async function quotedFromReadings(db: SupabaseClient, userId: string, characterI
    身體、心情、忙、在哪、在做什麼——這類會過去的狀態，記下來的是那天的樣子。
    模型拿到一句「他感冒了」只會當成此刻的事實，於是每次都叮嚀他看醫生、別開車。
    偏好、人際、重要的人事物、你們之間發生過的事，才是會延續的。 */
-const MEMORY_TENSE = `【記憶是往事，不是他此刻的狀態】上面每一則都是**那天**的事。身體（感冒、受傷、失眠）、心情、忙碌、行程、人在哪——這類會過去的，只代表當時；過了幾天就不要當成他現在還是那樣，更不要據此叮嚀、替他安排。想接續，就像久別的人那樣問一句「上回你說感冒，好了沒？」，他答了什麼就以他說的為準。他此刻怎麼樣，只看這場對話裡他剛說的話。偏好、在意的人事物、你們之間發生過的事，才是一直都在的。`;
+const MEMORY_TENSE = `他此刻怎麼樣，只看這場對話裡他剛說的話；記憶裡的事都是那天的事。「他這個人」才是一直都在的。`;
 
 const GAP_MARK_MS = 3 * 3600_000;        // 隔三小時以上就算「另一場」
 export function gapText(ms: number): string {
@@ -526,15 +528,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   // ⚠ 相容：0032 還沒跑、或查詢失敗時，退回舊的 user_character.memory_summary
   //    單段文字，所以這支的部署順序不綁 migration，不會因先後而壞。
   const memCap = PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
-  let memRows: { body: string; created_at?: string }[] | null = null;
+  let memRows: MemRow[] | null = null;
   try {
+    // select * ：kind／happened_on（0078）還沒上也讀得到其餘欄位
     const { data, error } = await db.from("character_memories")
-      .select("body, pinned_at, created_at")
+      .select("*")
       .eq("user_id", userId).eq("character_id", characterId)
       .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(memCap);
-    if (!error) memRows = (data ?? []) as { body: string; created_at?: string }[];
+    if (!error) memRows = (data ?? []) as MemRow[];
   } catch (e) {
     console.error("character_memories 讀取失敗，退回 memory_summary", e);
   }
@@ -563,11 +566,10 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     .order("created_at", { ascending: false }).limit(4);
   let probeStreak = 0;
   for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
-  // 有列就用列（組成條列），沒列才退回舊的單段摘要
-  // 每則前面標上記下的日子與隔了多久（六六 2026-09-29：聊過一次感冒，角色就一直當他還在感冒）。
-  // 沒有日期的記憶，模型只能當成「現在式」讀；標了日子，它才分得出那是當時的事。
+  // 有列就用列，沒列才退回舊的單段摘要。
+  // 分三段注入（memkind.ts）：他這個人／發生過的事／那時的狀態；過時的狀態程式直接不給。
   const memText = memRows && memRows.length
-    ? memRows.map((m) => `・${memAge(m.created_at)}${m.body}`).join("\n")
+    ? arrangeMemories(memRows, (iso) => memAge(iso))
     : (ucMem?.memory_summary as string ?? "");
   const cleanMemory = scrubBilling(memText) || undefined;
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
@@ -596,7 +598,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   const toCondense = count - MEMORY_KEEP_RECENT;
   if (toCondense <= 0) return;
   const { data: oldMsgs } = await db.from("chat_messages")
-    .select("id, role, body")
+    .select("id, role, body, created_at")
     .eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: true }).limit(toCondense);
   if (!oldMsgs?.length) return;
@@ -616,15 +618,30 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     known = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
   }
 
-  const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`).join("\n");
+  // 逐日標〔M/D〕：記憶的日子要是「發生那天」，不是彙整那天（彙整常在好幾天之後才跑）
+  const dialog = datedDialog(oldMsgs, (m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`);
   // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
-  const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶⑦會過去的狀態（生病、受傷、心情、忙碌、行程、人在哪）寫成當時的事，句中帶「那陣子」「那天」這類字，不要寫成他現在的樣子；一兩天就會好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事。";
+  const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
+
+每則一行，格式：類別｜日子｜內容。最多三則；沒有值得記的新東西，只輸出四個字：無新記憶
+類別只能三選一，一則只放一種，不同性質就拆成不同行：
+・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
+・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
+・狀態：會過去的——情緒、身體、壓力、忙碌、人在哪。日子寫那天；有後續（好了、平復了）就一起寫進去
+
+規則：
+①事實只以護道人實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
+②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
+③【已記得的】裡已經有的不重寫；你曾講過未經他證實的往事或個股，絕不寫進記憶
+④每則六十字以內，繁體中文，只寫事，不加前言、說明、條列符號
+⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
+  const batchLast = (oldMsgs[oldMsgs.length - 1] as { created_at?: string }).created_at;
 
   let summary = "";
   try {
-    const h = await callHaiku(sys, [], usr, 300);
+    const h = await callHaiku(sys, [], usr, 400);
     summary = h.text;
     await logUsage(db, { userId, mode: "chat_memory", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
   } catch (e) {
@@ -635,16 +652,20 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 沒有新東西也要刪明細——否則同一批對話每次都重跑一次彙整，白燒 token
   const nothingNew = /^無新記憶[。.]?$/.test(summary.trim());
 
-  if (!nothingNew) {
+  const items = nothingNew ? [] : parseMemoryLines(summary, batchLast);
+  if (items.length) {
     let wrote = false;
     try {
-      const { error } = await db.from("character_memories")
-        .insert({ user_id: userId, character_id: characterId, body: summary, source: "chat" });
+      const rows = items.map((it) => ({ user_id: userId, character_id: characterId, source: "chat", ...it }));
+      let { error } = await db.from("character_memories").insert(rows);
+      // 0078 還沒跑（沒有 kind／happened_on）：退回只存內容，記憶不能因為欄位沒上而丟掉
+      if (error) ({ error } = await db.from("character_memories").insert(rows.map(({ kind: _k, happened_on: _h, ...r }) => r)));
       wrote = !error;
     } catch { /* 表還不存在 */ }
     // 相容：0032 還沒跑就退回舊的單段摘要（append 而非覆寫，避免遺失既有記憶）
     if (!wrote) {
-      const merged = known ? `${known}\n${summary}`.slice(-1200) : summary;
+      const text = items.map((it) => it.body).join("\n");
+      const merged = known ? `${known}\n${text}`.slice(-1200) : text;
       await db.from("user_character").update({ memory_summary: merged })
         .eq("user_id", userId).eq("character_id", characterId);
     }
@@ -871,7 +892,7 @@ ${NARRATION_CRAFT}`;
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你記得這些往事（〔〕裡是記下的日子）。相關時自然帶到，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你記得這些（〔〕是事情那天）。相關時自然帶到，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
 ${castLines || "（他還沒問過卦。）"}
 他提起自己的卦，你是知道的，照實接話；不要把卦說成宿命。
 【往事】你記得的就是上面這些。沒列在上面的往事，不確定就問他，別自己補細節（時間、人名、個股、他說過的話）。你批在卦紙上的卦理是你寫的——他引一句回來問，就認、就接著談；分不清是不是你寫的，就問他在哪張卦紙看到的，別一口否認。
@@ -1162,6 +1183,14 @@ export async function chat(db: SupabaseClient, p: {
   const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
   const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
+  // 起居注（days.ts）：他自己這幾天過的日子。今天的還沒寫就在背景補寫，這一則先用昨天的。
+  const life = await lifeHint(db, p.characterId, ctx.lastAt ?? null).catch(() => ({ text: "", hasToday: true }));
+  if (!life.hasToday) {
+    const dayTask = ensureDay(db);
+    // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(dayTask);
+    else dayTask.catch(() => {});
+  }
   const askMode = wantsAskBlock(p.message, ctx.probeStreak);
   // 節奏帳本（rhythm.ts）：這一則能說多長看總帳，不看單則。另查一次——欄位還沒上（0077 未跑）
   // 也只是當帳為 0，不能連累上面的好感查詢。
@@ -1174,7 +1203,7 @@ export async function chat(db: SupabaseClient, p: {
   } catch (e) { console.error("rhythm read failed, treat as 0", e); }
   const serious = askMode || isSerious(p.message);
   const rMode = modeOf(balance, target);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + rhythmHint(rMode, p.characterId, serious), askMode);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）

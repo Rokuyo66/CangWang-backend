@@ -32,6 +32,7 @@ import {
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
+import { kindOf, isDormant } from "../_shared/memkind.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -1295,14 +1296,19 @@ async function handle(req: Request): Promise<Response> {
       const plan = await planOf(db, uid);
       const cap = memoryQuotaOf(plan), pinCap = pinQuotaOf(plan);
       const { data, error } = await db.from("character_memories")
-        .select("id, body, source, pinned_at, created_at")
+        .select("*")   // kind／happened_on（0078）還沒上也讀得到其餘欄位
         .eq("user_id", uid).eq("character_id", cid)
         .order("pinned_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
       if (error) return Response.json({ kind: "err", msg: "回憶暫時讀不到" }, { headers: CORS });
       const rows = data ?? [];
       // 前 cap 則＝角色現在記得的；其後＝溢出被鎖（資料還在，補訂閱即回）
-      const items = rows.map((m, i) => ({ ...m, locked: i >= cap }));
+      // kind：其人 trait／事件 event／狀態 state（舊資料沒標的由 kindOf 判）；
+      // happened_on：事情那天；dormant：過時的狀態，角色不再帶進對話（釘選即恢復）
+      const items = rows.map((m, i) => ({
+        id: m.id, body: m.body, source: m.source, pinned_at: m.pinned_at, created_at: m.created_at,
+        kind: kindOf(m), happened_on: m.happened_on ?? null, dormant: isDormant(m), locked: i >= cap,
+      }));
       const pinned = rows.filter((m) => m.pinned_at).length;
       return Response.json({ kind: "ok", items, cap, pinCap, pinned, plan }, { headers: CORS });
     }

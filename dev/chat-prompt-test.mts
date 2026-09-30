@@ -33,7 +33,7 @@ ok("head 對不同用戶逐字相同", a.head === b.head);
 ok("head 以人設開頭", a.head.startsWith(persona));
 ok("閒聊 tail 不含擬題規矩", !a.tail.includes("[[DRAFT"));
 ok("求結果 tail 含擬題規矩", b.tail.includes("[[DRAFT|理好的問句|用神六親|事由|一句話說這件事]]"));
-ok("記憶附上時態提醒", a.tail.includes("記憶是往事"));
+ok("記憶附上時態提醒", a.tail.includes("都是那天的事"));
 // 思路與可破的邊界（MIND）：依層給，進 tail 不進 head
 ok("思路在 tail、不在 head", a.tail.includes("【你的思路】") && !a.head.includes("【你的思路】"));
 ok("大師兄未到第四層：不接情緒", mindLine("daoshi_m", 649).includes("不接情緒"));
