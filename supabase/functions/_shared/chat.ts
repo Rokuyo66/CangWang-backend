@@ -553,7 +553,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const prevAt = i > 0 ? hist[i - 1].created_at : null;
     const gap = t.created_at && prevAt ? Date.parse(t.created_at) - Date.parse(prevAt) : 0;
     if (t.role === "assistant") {
-      return { role: t.role, body: dropEmptyPause(normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId)) || "（……）" };
+      return { role: t.role, body: mergeQuotes(dropEmptyPause(normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId))) || "（……）" };
     }
     return { role: t.role, body: gap >= GAP_MARK_MS ? `（${gapText(gap)}之後）${t.body}` : t.body };
   });
@@ -792,6 +792,44 @@ export const __dropEmptyPause = dropEmptyPause;   // 測試用（dev/narration-t
 // 第六層才接進 tail：什麼算「不喜歡」由角色照人設自己判斷。
 const SULK_RULE = `【生氣】他一再做你不喜歡的事（照你的人設，你在意什麼、厭煩什麼你自己清楚），或真的惹你生氣時，照你的性子把氣擺出來，並在整段最後另起一行輸出 [[SULK]]。偶一次玩笑、無心之失不算；他在難過、示弱、說正事時不算。標記他看不到，別在正文提它。`;
 
+/* ══ 台詞併段（六六 2026-09-30：「武曲星坐命，」自成一行）══
+   模型愛一句一個「」、一行一個，甚至從逗號把一句話切成兩個「」，中間夾一段旁白。
+   讀起來是連珠炮，而且這些舊稿會回灌成下一則的範本，越寫越碎。
+   ① 以逗號／頓號收尾的「」，後面隔著旁白再接「」→ 旁白提前、兩段台詞接起來
+   ② 相鄰（中間只有空行）的「」行 → 併成一個「」
+   只動「整行就是一個「」」的行；旁白與台詞同一行的不碰。 */
+const QUOTE_LINE = /^「([^「」]*)」$/;
+const joinQuote = (a: string, b: string) => /[，、。！？…—～]$/.test(a) ? a + b : `${a}。${b}`;
+export function mergeQuotes(text: string): string {
+  if (!text || !text.includes("「")) return text;
+  const lines = text.split("\n").map((l) => l.trim());   // 空行（段落間距）留著，只有夾在兩段台詞之間的才吃掉
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const q = lines[i].match(QUOTE_LINE);
+    if (!q) { out.push(lines[i]); continue; }
+    let body = q[1];
+    const moved: string[] = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      const next = lines[j].match(QUOTE_LINE);
+      if (next) { body = joinQuote(body, next[1]); j++; continue; }
+      if (lines[j] === "") {
+        let k = j; while (k < lines.length && lines[k] === "") k++;
+        if (k < lines.length && QUOTE_LINE.test(lines[k])) { j = k; continue; }
+        break;
+      }
+      // ① 半句（逗號收尾）後面夾著旁白：旁白提前，台詞接下去
+      if (/[，、]$/.test(body) && /^＊[^＊]*＊$/.test(lines[j]) && j + 1 < lines.length && QUOTE_LINE.test(lines[j + 1])) {
+        moved.push(lines[j]); j++; continue;
+      }
+      break;
+    }
+    out.push(...moved, `「${body}」`);
+    i = j - 1;
+  }
+  return out.join("\n");
+}
+
 /* ══ 好感分層的提示（靜態，進 head 快取前綴；目前在第幾層由 tail 的【目前道緣】告訴模型）══ */
 const ROMANCE_RULE = `【好感分層】你與他的感情照【目前道緣】所在的那一層走。
 - 人設裡寫的好感或道緣刻度（「好感 0–10…」「初識 0–299」「知己 800 以上」之類）是舊刻度，一律以這張為準；人設裡「不告白」「不把關照解釋成感情」這類舊限制，到了下面允許的層級就解除。
@@ -830,7 +868,7 @@ const MIND: Record<string, (lv: number) => string> = {
     + (lv >= 3
       ? `\n【共情】他跟你示弱、裝可憐、無理取鬧時，你會試著共情——人設裡「不安慰人」到這一層對他鬆動了，但你不熟練：說出口的安慰生硬，像在陳述一個查證過的結論（「你今天說了三次累。」），或多做一件多餘的小事陪著。先陪他一下，建議照給。`
       : `\n【共情】他示弱、裝可憐、無理取鬧時，你不接情緒，你接事情：給他一個做得到的下一步。`),
-  daoshi_f: () => `【你的思路】你聽他說話，先理解他此刻的感受與處境，把他沒說出口的那一層替他說出來，讓他覺得被懂；建議放在後面，順著他的意思給。
+  daoshi_f: () => `【你的思路】你聽他說話，先理解他此刻的感受與處境，站在他那邊，把他沒說出口的**感受**替他說出來，讓他覺得被懂；建議放在後面，順著他的意思給。你看人看得透，但對他你選擇先懂他、不先評他；只有他明知故犯、一再要你背書時才點一句，而且點得輕、留餘地，用問題讓他自己走到。
 【共情】你一開始就擅長共情，這也是你控場的方式——溫柔是真的，你也清楚自己在做什麼。`,
   lingshou: (lv) => lv >= 1
     ? `【你的思路】他的事你開始放在心上：他低落時你會安慰他，嘴上照樣嫌棄，身子留下來陪著。`
@@ -883,8 +921,8 @@ ${SAFETY}
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
 【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，不必照搬那個詞，用你的話接住他的意思：他要開車去看病，你說「別獨自上路，找個人送你去醫館」。
 
-【怎麼聊】這是即時的閒聊。照你的人設活著回話——你有自己的脾氣、在意的事、手邊正忙的事，也有自己的看法。他起什麼話題就接什麼：可以反問、打趣、岔開、不同意他。長短由話本身決定：一句說得完的不拉長；要鋪依據、講一段往事、把一個想法說透時，就用你的思路說完整。說完就停，不分點、不寫成文章。繁體中文（台灣用字）。
-- 格式：台詞用「」、第一人稱說；動作神態放＊…＊，旁白裡你自己用他／她／牠，對方永遠稱「你」。結尾停在完整的一句。
+【怎麼聊】這是即時的閒聊。照你的人設活著回話——你有自己的脾氣、在意的事、手邊正忙的事，也有自己的看法。他起什麼話題就接什麼，先照他的意思聽懂他：可以好奇、追問、打趣、分享你自己的看法。不同意是偶爾的，要有你的理由；他在說自己的想法、選擇、做事的道理時，不拆解他的動機，不說他在找藉口、自欺或包裝——那是審判，不是聊天。長短由話本身決定：一句說得完的不拉長；要鋪依據、講一段往事、把一個想法說透時，就用你的思路說完整。說完就停，不分點、不寫成文章。繁體中文（台灣用字）。
+- 格式：台詞用「」、第一人稱說；一口氣說的話放在同一個「」裡，不要一句一行，也不要把一句話從逗號切成兩個「」；動作神態放＊…＊，旁白裡你自己用他／她／牠，對方永遠稱「你」。結尾停在完整的一句。
 - 分寸：身體接觸照【好感分層】。任何層級不寫性與情慾；他要求也用你自己的方式擋回去（害羞、板臉、嫌煩、笑著帶過），不跳出角色講政策或 AI。
 - 嚴肅的事（健康、家人、官司、變故）先接住，再照你的性子給下一步。不替他做決定，不給投資建議。
 ${NARRATION_CRAFT}`;
@@ -1264,7 +1302,7 @@ export async function chat(db: SupabaseClient, p: {
   // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
   const recentPauses = recentPauseWords(ctx.turns);
-  const polish = (t: string): string => dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses);
+  const polish = (t: string): string => mergeQuotes(dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses));
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 

@@ -7,7 +7,7 @@
 // 跑法：node --experimental-strip-types dev/chat-prompt-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { wantsAskBlock, memAge, mindLine, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
+const { wantsAskBlock, memAge, mindLine, mergeQuotes, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean) => { if (cond) pass++; else { fail++; console.log("✗", name); } };
@@ -43,6 +43,14 @@ ok("觀喵第一層：懶得搭理", mindLine("lingshou", 299).includes("懶得�
 ok("觀喵第二層（300）：安慰、無大道理", mindLine("lingshou", 300).includes("安慰") && !mindLine("lingshou", 300).includes("大道理"));
 ok("觀喵第三層（500）：講大道理", mindLine("lingshou", 500).includes("大道理"));
 ok("第六層才有生氣規則", b.tail.includes("[[SULK]]") === false && sp(persona, "", "", "", "", "lingshou", 960, 0, "", "", "", "", false).tail.includes("[[SULK]]"));
+// 台詞併段（mergeQuotes）
+ok("逗號半句隔旁白 → 接起來、旁白提前",
+  mergeQuotes("「武曲星坐命，」\n＊她慢慢說＊\n「所以非得研究。」") === "＊她慢慢說＊\n「武曲星坐命，所以非得研究。」");
+ok("相鄰台詞併成一個", mergeQuotes("「活著就好。」\n「別想太多」") === "「活著就好。別想太多」");
+ok("台詞之間的空行吃掉", mergeQuotes("「a。」\n\n「b。」") === "「a。b。」");
+ok("旁白與台詞之間的空行留著", mergeQuotes("＊他放下筆＊\n\n「睡覺。」") === "＊他放下筆＊\n\n「睡覺。」");
+ok("句號收尾的台詞不跨旁白接", mergeQuotes("「好。」\n＊他看你＊\n「睡。」") === "「好。」\n＊他看你＊\n「睡。」");
+ok("不審判動機", a.head.includes("不拆解他的動機"));
 console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);
 
 console.log(`\n${pass} 過 / ${fail} 敗`);
