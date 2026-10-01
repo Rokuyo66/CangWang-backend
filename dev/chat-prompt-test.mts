@@ -7,7 +7,7 @@
 // 跑法：node --experimental-strip-types dev/chat-prompt-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { wantsAskBlock, memAge, mindLine, mergeQuotes, INSULT_RE, modernSlip, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
+const { wantsAskBlock, memAge, mindLine, mergeQuotes, modernSlip, __systemPrompt: sp } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean) => { if (cond) pass++; else { fail++; console.log("✗", name); } };
@@ -50,9 +50,7 @@ ok("相鄰台詞併成一個", mergeQuotes("「活著就好。」\n「別想太�
 ok("台詞之間的空行吃掉", mergeQuotes("「a。」\n\n「b。」") === "「a。b。」");
 ok("旁白與台詞之間的空行留著", mergeQuotes("＊他放下筆＊\n\n「睡覺。」") === "＊他放下筆＊\n\n「睡覺。」");
 ok("句號收尾的台詞不跨旁白接", mergeQuotes("「好。」\n＊他看你＊\n「睡。」") === "「好。」\n＊他看你＊\n「睡。」");
-// 底線：罵人重生；他先說的今時器物，角色跟著提不算出戲
-ok("下賤 → 重生", INSULT_RE.test("「下賤。」"));
-ok("笨、滾不算", !INSULT_RE.test("「笨。滾開些。」"));
+// 他先說的今時器物，角色跟著提不算出戲
 ok("他說冰箱，角色問冰箱是什麼不算出戲", !modernSlip("「冰箱是什麼？」", "我把湯放冰箱"));
 ok("角色自己冒出冰箱算出戲", modernSlip("「放冰箱。」", "湯要怎麼放"));
 console.log(`head ${a.head.length - persona.length} 字（不含人設）；閒聊 tail ${a.tail.length} 字；問卦 tail ${b.tail.length} 字`);

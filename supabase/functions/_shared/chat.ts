@@ -182,11 +182,6 @@ const OOC_STEER = "剛才那句跳級了——比你們現在這一層（見【�
 // 觀中人活在古風的觀裡，嘴裡與旁白裡不該冒出今時的器物。只收「毫無歧義是今時」的詞，
 // 古今通用的（訊息、車、茶）不收，免得誤判一直重生。
 export const MODERN_RE = /開車|騎車|塞車|停車場|汽車|機車|公車|捷運|高鐵|計程車|搭飛機|飛機|冰箱|沙發|電視|冷氣|暖氣機|電腦|筆電|手機|平板|網路|上網|網購|外送|超商|便利商店|咖啡|奶茶|微波|洗衣機|吹風機|電梯|插座|充電|滑手機|打電話|傳訊息|醫院掛號|掛號|急診室|健保|APP|App|app|wifi|WiFi|Wi-Fi/;
-// 辱罵（六六 2026-10-01：他鬧觀喵「打我啊」，觀喵回「下賤。」）。人設寫的是嘴刁，
-// 模型在古風語域裡撈出了罵人的字。這一道是底線不是人設：角色可以嫌、可以挖苦，不罵他。
-// 只收明確貶低人的字眼；「滾」「笨」這類玩笑裡常見的不收，免得重生狂跳針。
-export const INSULT_RE = /下賤|賤人|賤貨|賤種|賤骨頭|犯賤|婊|畜生|廢物|蠢貨|白痴|白癡|智障|腦殘|去死|找死|不要臉|狗東西|混帳東西/;
-const INSULT_STEER = "剛才那句用了罵人、貶低人的字眼。你可以嫌他、挖苦他、不理他，但不罵他。重講一次，照你的性子，換掉那個字。";
 /** 今時器物：他自己先說了的詞，角色跟著提（「你說的冰箱是什麼」）不算出戲。 */
 export function modernSlip(reply: string, message: string): boolean {
   const re = new RegExp(MODERN_RE.source, "g");
@@ -1323,7 +1318,6 @@ export async function chat(db: SupabaseClient, p: {
     else if (EXPLICIT_RE.test(reply)) steer = EXPLICIT_STEER;
     else if (ISOLATE_RE.test(reply)) steer = ISOLATE_STEER;
     else if (overLevel(p.characterId, favor, reply)) steer = OOC_STEER;
-    else if (INSULT_RE.test(reply)) steer = INSULT_STEER;
     else if (modernSlip(reply, p.message)) steer = MODERN_STEER;
     if (steer) {
       try {
@@ -1335,11 +1329,6 @@ export async function chat(db: SupabaseClient, p: {
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
-      // 重生後還在罵：拿掉含那個字的那一行；整則只剩那一行就留旁白，什麼都不剩才整則換掉
-      if (INSULT_RE.test(reply)) {
-        const kept = reply.split("\n").filter((l) => !INSULT_RE.test(l)).join("\n").trim();
-        reply = /[^\s＊]/.test(kept) ? kept : pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
-      }
     }
   }
   const draft = tier === "canned" ? null : effMarks.draft;   // 罐頭層不擬題
