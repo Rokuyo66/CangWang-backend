@@ -184,3 +184,18 @@ export async function sinceDoings(db: SupabaseClient, uid: string, charId: strin
   }
   return out;
 }
+
+const NAMES: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀喵" };
+
+/** 談心用：此刻觀裡三人各在哪（六六 2026-10-02：觀堂上明明看到觀喵和師妹都在廂房，
+ *  問觀喵「你在陪師妹抄經嗎」，牠說師妹在雜房、小子在藏經閣——角色只知道自己在哪，
+ *  另外兩人的位置是編的）。跟觀堂同一個抽法、同一個種子，所以他看到的就是角色知道的。 */
+export function hereLine(uid: string, charId: string, quests: Quest[], now = Date.now()): string {
+  const all = Object.keys(ROUTINE).map((id) => ({ id, w: pickWhere(uid, id, quests, now) }))
+    .filter((x): x is { id: string; w: Where } => !!x.w);
+  if (!all.length) return "";
+  const me = all.find((x) => x.id === charId);
+  const parts = all.map((x) => `${x.id === charId ? "你" : NAMES[x.id]}在${x.w.placeName}（${x.w.doing}）`);
+  const together = me ? all.filter((x) => x.id !== charId && x.w.place === me.w.place).map((x) => NAMES[x.id]) : [];
+  return `【此刻觀裡】${parts.join("；")}。${together.length ? `你和${together.join("、")}在同一處。` : ""}他在觀堂看得到你們三個各在哪。`;
+}

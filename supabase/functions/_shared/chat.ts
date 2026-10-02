@@ -1,6 +1,6 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
-import { whereNow, whereHint, tryHiddenFound, sinceDoings, type Where } from "./whereabouts.ts";
+import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuests, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
@@ -1223,7 +1223,8 @@ export async function chat(db: SupabaseClient, p: {
   let where: Where | null = null;
   try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
   const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
-  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
+  const here = await activeQuests(db).then((q) => hereLine(p.userId, p.characterId, q)).catch(() => "");
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (here ? "\n" + here : "") + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
   // 起居注（days.ts）：他自己這幾天過的日子。今天的還沒寫就在背景補寫，這一則先用昨天的。
   const life = await lifeHint(db, p.characterId, ctx.lastAt ?? null).catch(() => ({ text: "", hasToday: true }));
