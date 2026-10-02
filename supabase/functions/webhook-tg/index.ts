@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { renderChartTG, mdToTG } from "../_shared/services.ts";
 import { ALL_GUA_NAMES } from "../_shared/core.ts";
 import { syncGuaFromCasts } from "../_shared/collection.ts";
-import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei } from "../_shared/pipeline.ts";
+import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei, reflectAfterReview } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, castFreeLeft, followupFreeLeft, planOf, deleteAccount, DELETE_PHRASE } from "../_shared/services.ts";
@@ -863,6 +863,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     if (!fb) { await send(chatId, "找不到這一卦的應期紀錄。"); return; }
     if (fb.verdict && fb.verdict > 0) { await send(chatId, "你已經印證過這一卦了，多謝。"); return; }
     await db.from("feedback").update({ verdict: v, answered_at: new Date().toISOString() }).eq("cast_id", vCastId);
+    if ([1, 2, 3].includes(v)) reflectAfterReview(db, vCastId);   // 反芻，背景跑（見 _shared/reflect.ts）
     // 回評送道行（修為）給原卦角色
     const { data: cast } = await db.from("casts").select("character_id").eq("id", vCastId).maybeSingle();
     const cid = cast?.character_id ?? ses.character_id;
@@ -1209,8 +1210,9 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
   }
   if (r.kind === "no_followup") { await send(chatId, "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。"); return; }
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
+  // 角色反問了：下一次追問就是回答它，免費（見 billFollowup），按鈕上講明白
   await send(chatId, `<b>追問</b>｜${esc(question)}\n\n${mdToTG(r.answer)}` + (r.paid ? `\n\n<i>（靈石 −${r.paid}）</i>` : ""), {
-    reply_markup: { inline_keyboard: [[{ text: "✍️ 再追問", callback_data: "fu_input" }]] },
+    reply_markup: { inline_keyboard: [[{ text: r.ask ? "✍️ 回答（不耗額度）" : "✍️ 再追問", callback_data: "fu_input" }]] },
   });
   if (r.breakthrough) await send(chatId, "⚡ " + esc(r.breakthrough.message));
 }
