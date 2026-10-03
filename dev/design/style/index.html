@@ -143,6 +143,10 @@ td.num{font-family:var(--f-mono);font-size:12px;white-space:nowrap;font-variant-
 .bt-card h3{margin:0;font-family:var(--f-disp);font-size:15px;letter-spacing:.1em}
 .bt-card p{margin:0;font-size:12.5px;color:var(--c-soft)}
 .anat{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;font-size:12px;align-items:center}
+/* 兩段開關（時序｜月曆）的示範：吃 --b-seg-*，與前端 motion.css 的 --seg-* 一一對應 */
+.seg-demo{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--paper-edge);border-radius:999px;background:var(--b-seg-track);box-shadow:inset 0 2px 3px var(--b-seg-groove)}
+.seg-demo button{border:none;background:transparent;color:var(--b-seg-off);font-size:12.5px;letter-spacing:.1em;padding:5px 14px;border-radius:999px;transition:background .2s,color .2s,transform .2s}
+.seg-demo button.on{background:var(--b-seg-knob);color:var(--b-seg-on);box-shadow:0 2.2px 0 var(--b-seg-knob-edge),0 4px 6px var(--shadow);transform:translateY(-1.1px)}
 .anat i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.14);display:block}
 .anat span{color:var(--c-soft)}
 .anat input[type=color]{width:34px;height:22px;padding:0;border:1px solid var(--c-line);border-radius:5px;background:none}
@@ -250,9 +254,25 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     { k: "danger", n: "危險按鈕", d: "刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。",
       link: { face: "var(--cinnabar)", border: "var(--cinnabar)", edge: "color-mix(in srgb, var(--cinnabar) 60%, black)", text: "#FFF8F0" } },
   ];
+  /* 兩段開關（時序｜月曆）：跟按鈕同一套「連動／單獨設定」，只是零件不同。
+     連動時淺色主題從墨推、深色主題不從墨推——夜觀、硃砂的墨是亮色，用它混出來的凹槽陰影會變成一道高光
+     （六六 2026-10-03）。前端落點：src/styles/motion.css 的 --seg-*（body 一條、深色主題一條）。 */
+  BTN.push({ k: "seg", n: "兩段開關", stage: "seg",
+    d: "時序｜月曆這種二選一的開關。凹下去的軌道＋一塊有厚度的硃砂滑塊，滑動時擠扁再彈回。深色主題的軌道比紙更深、凹槽陰影用黑，不從墨推。",
+    parts: [["track","軌道"],["groove","凹槽陰影"],["knob","滑塊"],["knob-edge","滑塊厚度"],["on","選中的字"],["off","沒選的字"]],
+    link: { track: { l: "color-mix(in srgb, var(--ink) 6%, var(--paper-2))", d: "color-mix(in srgb, black 38%, var(--paper))" },
+            groove: { l: "color-mix(in srgb, var(--ink) 20%, transparent)", d: "rgba(0,0,0,.62)" },
+            knob: "var(--cinnabar)", "knob-edge": "color-mix(in srgb, var(--cinnabar) 68%, black)",
+            on: "#FFF8F0", off: "var(--ink-soft)" } });
   const PARTS = [["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]];
+  const partsOf = (b) => b.parts || PARTS;
   const lightFace = (t) => DARK[t] ? "var(--paper-2)" : "color-mix(in srgb, var(--paper) 45%, #fff)";
-  const linkExpr = (b, part, t) => b.link[part] === "LIGHTFACE" ? lightFace(t) : b.link[part];
+  const linkExpr = (b, part, t) => {
+    const v = b.link[part];
+    if (v === "LIGHTFACE") return lightFace(t);
+    if (v && typeof v === "object") return DARK[t] ? v.d : v.l;   // 淺色／深色主題各一條算式
+    return v;
+  };
 
   const $ = (s, r) => (r || document).querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
@@ -280,7 +300,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
   function apply() {
     const T = cur.themes[theme], st = document.body.style;
     TOKENS.forEach((t) => st.setProperty("--" + t.k, T[t.k]));
-    BTN.forEach((b) => PARTS.forEach(([p]) => {
+    BTN.forEach((b) => partsOf(b).forEach(([p]) => {
       const v = cur.buttons.linked ? linkExpr(b, p, theme) : (cur.buttons.custom[theme]?.[b.k]?.[p] || linkExpr(b, p, theme));
       st.setProperty(`--b-${b.k}-${p}`, v);
     }));
@@ -296,7 +316,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       if (norm(x) !== norm(y)) out.push({ kind: "token", theme: t, tn, key: k.k, name: k.n, from: x, to: y });
     }));
     if (!!a.buttons.linked !== !!b.buttons.linked) out.push({ kind: "link", from: a.buttons.linked, to: b.buttons.linked });
-    if (!b.buttons.linked) THEMES.forEach(([t, tn]) => BTN.forEach((bt) => PARTS.forEach(([p, pn]) => {
+    if (!b.buttons.linked) THEMES.forEach(([t, tn]) => BTN.forEach((bt) => partsOf(bt).forEach(([p, pn]) => {
       const x = a.buttons.custom?.[t]?.[bt.k]?.[p] || "", y = b.buttons.custom?.[t]?.[bt.k]?.[p] || "";
       if (norm(x) !== norm(y) && y) out.push({ kind: "btn", theme: t, tn, key: bt.k, name: bt.n + "・" + pn, part: p, from: x || "（連動）", to: y });
     })));
@@ -367,6 +387,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
               : "已斷開：下面每一型的四個色可以單獨設定，只影響「" + esc(THEMES.find((x) => x[0] === theme)[1]) + "」這一套；色碼改了也不會帶動按鈕。"}</span>
           </div>
           <div class="btn-types">${BTN.map(btnCard).join("")}</div>
+          <p class="note">「兩段開關」跟按鈕共用上面那顆「連動」開關：連動時它的六個色由色碼算出（深色主題另一條算式）；斷開後可以單獨調每一套主題的軌道、凹槽陰影、滑塊、滑塊厚度與字色。</p>
           <div class="grp-h">不在這四型裡的</div>
           <div class="btn-types">
             <div class="panel bt-card"><div class="bt-stage"><button class="topbtn">‹ 返回</button>&nbsp;<button class="topbtn">全部已讀</button></div>
@@ -446,6 +467,9 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     <div class="toast" id="toast" hidden></div>`;
     bind();
     apply();
+    // 按鈕卡上的色值要等 apply() 把色碼灌進 body 才算得出來；上面那一次畫的時候還沒灌，
+    // 每個 var() 都解成同一個預設色（#1E1A16）。灌完再畫一次。
+    { const bx = document.querySelectorAll(".btn-types")[0]; if (bx) bx.innerHTML = BTN.map(btnCard).join(""); }
     tabsInit();
     motionInit();
   }
@@ -486,14 +510,17 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 
   function btnCard(b) {
     const custom = !cur.buttons.linked;
-    const rows = PARTS.map(([p, pn]) => {
+    const rows = partsOf(b).map(([p, pn]) => {
       const expr = custom ? (cur.buttons.custom[theme]?.[b.k]?.[p] || linkExpr(b, p, theme)) : linkExpr(b, p, theme);
       const val = resolve(expr);
       const src = custom ? "" : `<code>${esc(expr.replace(/var\(--([^)]+)\)/g, "$1").replace("color-mix(in srgb, ", "混 ").replace(/\)$/, ""))}</code>`;
       return `<i style="background:${esc(val)}"></i><span>${pn}　<span class="mono">${esc(val)}</span></span>` +
         (custom ? `<input type="color" data-bk="${b.k}" data-bp="${p}" value="${toHex(parse(val))}" aria-label="${esc(b.n + pn)}">` : `<span>${src}</span>`);
     }).join("");
-    return `<div class="panel bt-card"><div class="bt-stage"><button class="b ${b.k}">${b.k === "danger" ? "刪掉" : b.k === "text" ? "再想想" : b.k === "second" ? "收下" : "起卦"}</button></div>
+    const stage = b.stage === "seg"
+      ? `<span class="seg-demo" data-seg-demo><button class="on" type="button">時序</button><button type="button">月曆</button></span>`
+      : `<button class="b ${b.k}">${b.k === "danger" ? "刪掉" : b.k === "text" ? "再想想" : b.k === "second" ? "收下" : "起卦"}</button>`;
+    return `<div class="panel bt-card"><div class="bt-stage">${stage}</div>
       <h3>${esc(b.n)}</h3><p>${esc(b.d)}</p><div class="anat">${rows}</div></div>`;
   }
 
@@ -524,7 +551,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     if (link || btn.length) {
       s += `2. 按鈕：${cur.buttons.linked ? "與基礎色碼連動（照規範算式）" : "與基礎色碼斷開，各主題單獨設定"}。\n`;
       btn.forEach((c) => { s += `   ${c.tn}・${c.name}：${norm(c.to)}\n`; });
-      s += `   落點：前端 src/styles/motion.css「A 互動回饋」的 .btn 系列。\n`;
+      s += `   落點：前端 src/styles/motion.css「A 互動回饋」的 .btn 系列；兩段開關是同檔的 --seg-*（body 一條＝淺色主題、:is(night,cinnabar) 一條＝深色主題；單獨設定的主題寫在 [data-theme="…"] 底下）。\n`;
     }
     s += `3. 套用後，把規範的 baseline 更新成新值（dev/design/style/state.json），並重新發佈規範。\n`;
     s += `4. 淺色與夜觀各截一張，與規範並排比對後再推送。`;
@@ -582,7 +609,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
         if (!t.checked) {   // 斷開那一刻：把目前算出來的色抄成各自的起點，畫面不會跳
           THEMES.forEach(([th]) => { cur.buttons.custom[th] = cur.buttons.custom[th] || {}; });
           BTN.forEach((b) => { const c = (cur.buttons.custom[theme][b.k] = cur.buttons.custom[theme][b.k] || {});
-            PARTS.forEach(([p]) => { if (!c[p]) c[p] = resolve(linkExpr(b, p, theme)); }); });
+            partsOf(b).forEach(([p]) => { if (!c[p]) c[p] = resolve(linkExpr(b, p, theme)); }); });
         }
         const y = scrollY; render(); scrollTo(0, y);
       }
@@ -593,6 +620,11 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       if (e.target.id === "saveBtn") return askSave();
       if (e.target.id === "revert") return askRevert();
       if (e.target.id === "copyBrief") return copy($("#brief").textContent);
+    });
+    // 兩段開關示範：點了換邊
+    root.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-seg-demo] button"); if (!b) return;
+      b.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     });
     // 按鈕按下：鍵盤也要沉得下去
     root.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("b")) e.target.classList.add("down"); });
