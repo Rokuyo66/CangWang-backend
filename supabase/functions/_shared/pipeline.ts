@@ -3,7 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, guaName, pickUsePos } from "./core.ts";
 import { chartTextFull } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
-import { normalizeQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
+import { normalizeQuestion, dueFromQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
@@ -191,6 +191,11 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (ai.due && ai.due < castDay) {
     console.warn(`[due-guard] due before cast date, dropped: due=${ai.due} cast=${castDay}`);
     ai.due = null;
+  }
+  // 問句自帶日期（10/11、明天…）而模型沒給應期：用題目裡那天（規則①的零 AI 保底，見 rules.ts dueFromQuestion）
+  if (!ai.due && ai.category !== FORTUNE_CATEGORY) {
+    const qd = dueFromQuestion(p.question, castDay);
+    if (qd) { console.warn(`[due-guard] model gave no due, took date from question: ${qd}`); ai.due = qd; }
   }
 
   // 5. 入庫
