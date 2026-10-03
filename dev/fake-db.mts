@@ -47,6 +47,7 @@ class Query {
   update(v) { this.op = "update"; this.payload = v; return this; }
   delete() { this.op = "delete"; return this; }
   eq(col, val) { this.filters.push((r) => r[col] === val); return this; }
+  neq(col, val) { this.filters.push((r) => r[col] !== val); return this; }
   // is(col, null) 對到的是「沒有值」——undefined（欄位根本沒寫）也算，真資料庫裡兩者同義
   is(col, val) { this.filters.push((r) => val === null ? (r[col] ?? null) === null : r[col] === val); return this; }
   in(col, vals) { this.filters.push((r) => vals.includes(r[col])); return this; }
@@ -118,6 +119,12 @@ class Query {
         return { data: clone(out).map((r) => this.embed(r)), count: hit.length, error: null };
       }
       case "insert": {
+        // 陣列＝一次插多列（PostgREST 同語意）
+        if (Array.isArray(this.payload)) {
+          const rows = this.payload.map((v) => ({ id: uid(), created_at: iso(), updated_at: iso(), ...jsonb(v) }));
+          this.rows.push(...rows);
+          return { data: clone(rows), error: null };
+        }
         const row = { id: uid(), created_at: iso(), updated_at: iso(), ...jsonb(this.payload) };
         // case_runs_one_active：同一人同一案只准一局未結案
         if (this.table === "case_runs" && !row.ended &&
@@ -180,6 +187,7 @@ const jsonb = (v) => JSON.parse(JSON.stringify(v));
  *  否則測出來的「靈石不足」會是一個已經被扣掉的假餘額。 */
 function rpc(store, name, args) {
   if (name === "hidden_quest_claim") return hiddenQuestClaim(store, args);
+  if (name === "rule_stats") return ruleStats(store);
   if (name !== "apply_lingshi") return Promise.resolve({ data: null, error: { message: "unknown rpc: " + name } });
   const prof = (store.profiles ??= []).find((r) => r.id === args.p_user);
   if (!prof) return Promise.resolve({ data: null, error: { message: "no such user" } });
@@ -188,6 +196,19 @@ function rpc(store, name, args) {
   prof.lingshi = next;
   (store.ledger ??= []).push({ id: uid(), user_id: args.p_user, action: args.p_action, amount: args.p_amount, ref_id: args.p_ref ?? null, created_at: iso() });
   return Promise.resolve({ data: next, error: null });
+}
+
+/** 照 0078 的 rule_stats()：主論據 1、輔論據 0.5；misapplied／unclear 不計 */
+function ruleStats(store) {
+  const agg = new Map();
+  for (const r of store.reflection_rules ?? []) {
+    const a = agg.get(r.rule_key) ?? { rule_key: r.rule_key, held: 0, failed: 0 };
+    const w = r.role === "primary" ? 1 : 0.5;
+    if (r.outcome === "held") a.held += w;
+    if (r.outcome === "failed") a.failed += w;
+    agg.set(r.rule_key, a);
+  }
+  return Promise.resolve({ data: [...agg.values()], error: null });
 }
 
 /** 照 0069 的語意：主鍵 (user_id, quest_id) 擋第二次，寫得進去才寄信（mail 一列，夾 lingshi）。 */

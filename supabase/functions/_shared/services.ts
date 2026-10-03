@@ -6,6 +6,7 @@ import type { Chart } from "./core.ts";
 import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 import { COST } from "./prices.ts";
+import { REFLECT_RULES } from "./reflect.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -131,7 +132,7 @@ const MODEL_FORTUNE = Deno.env.get("INTERPRET_MODEL_FORTUNE") ?? "claude-haiku-4
 const MODEL_MONTHLY = Deno.env.get("INTERPRET_MODEL_MONTHLY") ?? "claude-haiku-4-5-20251001";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
 // 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
-const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600, monthly: 500 };
+const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600, monthly: 500, reflect: 900 };
 
 // 句尾收束字元（含 markdown 粗體收尾）：結尾不在此清單＝疑似斷半句
 const SENT_END = ["。", "！", "？", "…", "」", "』", "）", "】", "＊", "～", "*", "."];
@@ -141,7 +142,12 @@ export function endsComplete(text: string): boolean {
 }
 
 export async function callInterpret(persona: string, chartText: string, opts: {
-  followup?: { prevReading: string; question: string };
+  followup?: {
+    prevReading: string; question: string;
+    history?: string;          // 這一卦之前的追問往來（含反問與修正），舊→新
+    pendingAsk?: string | null; // 上一答末尾向他提的那一問——這一句追問多半就是在回答它
+    askLeft?: number;          // 這一卦還能反問幾次；0 就不准再問
+  };
   deepen?: { briefReading: string };
   comment?: { prevReading: string; prevAuthor?: string };
   yong?: { qin: string; viaShi?: boolean; viaYing?: boolean; pos?: number | null };
@@ -149,19 +155,26 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   monthly?: { ym: string };   // 月誌卷首語：chartText 位置改放該月紀錄摘要（見 xinji.statsDigest）
   prior?: string;           // cast 專用：同一件心事的前情（xinji.threadPrior，已封頂）
   continuePartial?: string; // deepen 專用：上一輪被截斷的半成品，讓模型從斷點續寫（Claude 走多輪、KIMI 走 partial 預填）
+  reflect?: { input: string }; // 回評後反省（reflect.ts）：chartText 不用，盤面已在 input 裡
+  priority?: string;         // 判法輕重（reflect.loadPriorityBlock）；空字串＝沒有偏離常規的判法
+  userNotes?: string;        // 這位問卦人過往印證留下的提醒（reflect.loadUserNotes）
 }) {
-  const mode = opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
+  const mode = opts.reflect ? "reflect" : opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
   const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
-  const ruleText = opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
+  // 反省接在 RULES 後面而不是自成一份：前綴與初解同一份，快取共用，九千字規則只付一成。
+  const ruleText = opts.reflect ? RULES : opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
   // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
   // TTL 用 1 小時而非預設的 5 分鐘：本站流量約每小時個位數次解卦，平均間隔已經
   // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
   // 那樣的快取是在多花錢。1h 寫入雖是 2 倍，但一寫多讀，整體省 7 成上下。
   // 角色聲線放在快取斷點之後：三個角色各有一份，擺進前綴會裂成三份快取。
-  const system = [
+  // 判法輕重擺在聲線之後、同樣不進快取：它每次重算都可能變，擺進前綴會讓整份規則快取失效。
+  const system: { type: string; text: string; cache_control?: { type: string; ttl?: string } }[] = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
-    { type: "text", text: `【角色聲線】\n${persona}` },
+    ...(opts.reflect ? [{ type: "text", text: REFLECT_RULES }] : [{ type: "text", text: `【角色聲線】\n${persona}` }]),
+    ...(opts.priority && !opts.reflect ? [{ type: "text", text: opts.priority }] : []),
   ];
+  const notes = opts.userNotes ? `\n\n${opts.userNotes}` : "";
   // 用神提示：所有 mode 一體適用——追問/深展/評卦沿用首解已取定之用神，避免中途改取自打嘴巴
   // 取應爻為用者另掛一句錨點提醒：這一路最容易在追問／展開時被悄悄改回六親路徑，
   // 一改回去，「那個人」就換成了別人，前後兩段論斷會指向兩個不同對象。
@@ -178,10 +191,17 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         mode === "cast" ? "（此提示連同盤面術語僅供你推斷，初步正文中不得出現任何此類字眼。）" : ""
       }`
     : "";
-  const messages = opts.followup
+  const fu = opts.followup;
+  const messages = opts.reflect
+    ? [{ role: "user", content: opts.reflect.input }]
+    : fu
     ? [{
         role: "user",
-        content: `【盤面】\n${chartText}${yongHint}\n\n【今日】${taipeiToday()}\n\n【你先前的論斷】\n${opts.followup.prevReading}\n\n【追問】\n${opts.followup.question}`,
+        content: `【盤面】\n${chartText}${yongHint}\n\n【今日】${taipeiToday()}\n\n【你先前的論斷】\n${fu.prevReading}` +
+          (fu.history ? `\n\n【這一卦之前的追問往來】\n${fu.history}` : "") +
+          (fu.pendingAsk ? `\n\n【你上一答末尾問了他】${fu.pendingAsk}\n（下面這句追問多半就是他的回答——先判斷他答的內容有沒有動到首解的前提。若動到了主體或用神，上方【用神已取定】在這一答的修正範圍內放寬：依【取象可修正】改取，並在正文明說改了什麼。）` : "") +
+          `\n\n【反問額度】${(fu.askLeft ?? 0) > 0 ? `這一卦還可以反問 ${fu.askLeft} 次` : "這一卦已不能再反問，<ask> 一律填 null"}` +
+          `${notes}\n\n【追問】\n${fu.question}`,
       }]
     : opts.deepen
     ? [{
@@ -208,7 +228,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
           `卦頭：${opts.fortune.qian.allusion}\n\n` +
           `此籤是依上述等第自同等第籤池取出，與卦象同向。請依規則寫今日運勢：只取詩的意境，不得照字面談婚姻／官司／疾病／科舉，不給應期、不預測具體事件，150字內。`,
       }]
-    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}${opts.prior ? `\n\n【這件事之前問過】\n${opts.prior}\n前情只供參照：本卦一律依本卦盤面論斷，不得因前卦結論而改判；正文可自然帶一句與上回的對照（例如上回怎麼說、他回報準不準、這回看法有何不同），不逐卦複述，前情裡的日期可提、卦名與術語同樣不得出現在正文。` : ""}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
+    : [{ role: "user", content: `【盤面】\n${chartText}${yongHint}${notes}${opts.prior ? `\n\n【這件事之前問過】\n${opts.prior}\n前情只供參照：本卦一律依本卦盤面論斷，不得因前卦結論而改判；正文可自然帶一句與上回的對照（例如上回怎麼說、他回報準不準、這回看法有何不同），不逐卦複述，前情裡的日期可提、卦名與術語同樣不得出現在正文。` : ""}\n\n請依規則解此卦。提醒：正文只寫白話結論與建議（外行人能全懂、220字內、無任何卦理術語），看不準的地方引導追問，術語與推演全部留給完整卦理展開層。` }];
 
   // 接續補完：半成品作為模型自己上一輪的輸出放進對話，模型從斷點直接續寫（不重解、不另起新論）。
   // Claude 自 4.6 起不接受 assistant 預填（最後一則是 assistant 會回 400），所以 Claude 走多輪：
@@ -224,7 +244,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     if (isKimiModel(m)) {
       // OpenAI 相容格式：system 併成單一 system message；續寫預填用 Moonshot partial mode
       const kimiMessages = [
-        { role: "system", content: `${ruleText}\n\n【角色聲線】\n${persona}` },
+        { role: "system", content: system.map((b) => b.text).join("\n\n") },
         ...messages.map((msg2) => ({ role: msg2.role, content: msg2.content })),
         ...(partial ? [{ role: "assistant", content: partial, partial: true }] : []),
       ];
@@ -330,7 +350,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
 
   // usage 以 API 實際值為準；缺欄位時以字數估算並標記 estimated
   const estimated = rawIn == null || rawOut == null;
-  const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + ruleText.length + persona.length + (partial?.length ?? 0);
+  const promptChars = messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0) + system.reduce((s, b) => s + b.text.length, 0) + (partial?.length ?? 0);
   const usage = {
     in: rawIn ?? Math.ceil(promptChars * 1.2),
     out: rawOut ?? Math.ceil(text.length * 1.2),
@@ -340,19 +360,33 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 續寫模式保留開頭空白（拼接時不黏段）；其餘照舊 trim
   const reading = opts.continuePartial ? text.replace(/\s+$/, "") : text.trim();
   return {
+    ask: null as string | null, revision: null as string | null,   // 只有追問會填（followupTagged 覆寫）
     ...(opts.followup ? followupTagged(reading)
+      : opts.reflect ? { reading, suggested: [], due: null, category: null, digest: null, yong: null }
       : opts.deepen || opts.fortune || opts.monthly ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
     usage, model: usedModel, mode, estimated, stopReason,
   };
 }
 
-/** 追問只帶一個標籤：<due>（追問在問時間、且給了明確日期時才有）。
- *  剝掉標籤再給人看；日期格式不對或早於今日一律作廢——早於今日的應期無從印證。 */
+/** 追問帶三個標籤：
+ *  <due>    追問在問時間、且給了明確日期時才有。日期格式不對或早於今日一律作廢——早於今日的應期無從印證。
+ *  <ask>    發現他說的與首解的前提不合時，向他反問的那一句（角色聲線、給人看的）。
+ *           正文裡不寫這一問，由 pipeline 接在答覆末尾——這樣存檔與畫面上只會出現一次，
+ *           而且一定與標籤裡那句一字不差（下一次追問帶回去的就是這一句）。
+ *  <revise> 這一答據他對上一問的回答修正了首解的前提時，一句「原前提→新前提；結論怎麼變」。內部用，不給人看。
+ *  三個都剝掉再給人看。 */
 function followupTagged(reading: string) {
-  const m = reading.match(/<due>\s*([^<]*?)\s*<\/due>/);
-  const raw = m ? m[1] : "";
+  const tag = (t: string) => {
+    const m = reading.match(new RegExp(`<${t}>\\s*([\\s\\S]*?)\\s*</${t}>`));
+    const v = m ? m[1].trim() : "";
+    return !v || /^(null|none|無)$/i.test(v) ? null : v;
+  };
+  const raw = tag("due") ?? "";
   const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) && raw >= taipeiToday() ? raw : null;
-  return { reading: reading.replace(/<due>[\s\S]*?<\/due>/g, "").trim(), suggested: [], due, category: null, digest: null, yong: null };
+  const ask = tag("ask")?.slice(0, 200) ?? null;
+  const revision = tag("revise")?.slice(0, 300) ?? null;
+  const body = reading.replace(/<(due|ask|revise)>[\s\S]*?<\/\1>/g, "").trim();
+  return { reading: body, suggested: [], due, category: null, digest: null, yong: null, ask, revision };
 }
 
 export const __followupTagged = followupTagged;   // 測試用（dev/followup-due-test.mts）
@@ -533,10 +567,17 @@ export async function followupFreeLeft(db: SupabaseClient, userId: string, plan:
  *  原本是「每卦免費 2 次」——一天三卦就等於六次免費追問，而追問正是最常用的互動，
  *  成本大宗卡在這裡。改成每日額度後，額度與卦數脫鉤，才控得住。
  *  casts.followup_used 仍照舊累加：那是單卦的追問紀錄，前端與卦曆都在讀。 */
-export async function billFollowup(db: SupabaseClient, userId: string, castId: string, plan = "free") {
+export async function billFollowup(db: SupabaseClient, userId: string, castId: string, plan = "free", waived = false) {
   const { data: c } = await db.from("casts").select("followup_used").eq("id", castId).single();
   if (!c) return { ok: false, paid: 0, reason: "not_found" };
   const bump = () => db.from("casts").update({ followup_used: c.followup_used + 1 }).eq("id", castId);
+
+  // 回答角色反問的那一次不收費、也不吃當日免費額度：是角色要他補資訊，
+  // 讓他為了回答一個不是他問的問題付錢，這筆交易不公平。濫用的上限在 pipeline（每卦反問次數封頂）。
+  if (waived) {
+    await bump();
+    return { ok: true, paid: 0, waived: true };
+  }
 
   const { key, today, used } = await followupFreeUsed(db, userId);
   if (used < (PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY)) {

@@ -9,6 +9,7 @@ import { collectedGua, recordGua } from "./collection.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
 import { threadPrior } from "./xinji.ts";
+import { loadPriorityBlock, loadUserNotes, reflectCast, inBackground } from "./reflect.ts";
 
 const TZ_OFFSET = 8; // 台北時區，占期以 UTC+8 計
 const DAILY_GLOBAL_CAP = Number(Deno.env.get("DAILY_GLOBAL_CAP") ?? "200"); // 全站日呼叫熔斷
@@ -166,9 +167,12 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   // 心跡：這一卦掛在某件心事上，解卦的人要記得這件事之前問過什麼、準不準（已封頂，見 threadPrior）。
   // 前情讀不到不擋解卦——那是加分項。
   const prior = threadId ? await threadPrior(db, p.userId, threadId).catch((e) => { console.error("threadPrior failed", e); return ""; }) : "";
+  // 反芻的兩層產出：判法輕重（全站）與這個人的提醒（個人）。讀不到都不擋解卦，見 reflect.ts。
+  const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
   const ai = await callInterpret(ch!.persona_prompt, ctext, {
     ...(askedQin ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } } : {}),
     ...(prior ? { prior } : {}),
+    priority, userNotes,
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
 
@@ -288,17 +292,36 @@ export async function followupInterpret(db: SupabaseClient, p: {
   }
   if (await rateLimited(db, p.userId)) return { kind: "rate_limited" as const };
 
-  const bill = await billFollowup(db, p.userId, p.castId, await planOf(db, p.userId));
+  // 之前的追問往來：上一答若向他反問了，這一句多半就是回答，而且這一次不收費（見 billFollowup）。
+  const prev = await followupHistory(db, p.castId);
+  const bill = await billFollowup(db, p.userId, p.castId, await planOf(db, p.userId), !!prev.pendingAsk);
   if (!bill.ok) return { kind: bill.reason === "lingshi" ? "paywall" as const : "not_found" as const };
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
+  const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
+  const yo = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
   const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
-    followup: { prevReading: cast.reading ?? "", question: p.question },
-    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
+    followup: {
+      prevReading: cast.reading ?? "", question: p.question,
+      history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
+    },
+    ...yo, priority, userNotes,
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
-  await db.from("followups").insert({ cast_id: p.castId, question: p.question, answer: ai.reading, paid_lingshi: bill.paid });
+  // 額度用完還硬問的，程式這一層再擋一次：模型不一定守得住【反問額度】
+  const ask = prev.asks < MAX_ASKS_PER_CAST ? (ai.ask ?? null) : null;
+  // 修正只認「回答了反問」的那一次：沒有反問在先就冒出來的修正，是模型自己翻案，不收。
+  const revision = prev.pendingAsk ? (ai.revision ?? null) : null;
+  // 反問接在答覆末尾、一起存進 answer：重溫時（舊前端只畫 answer）也看得到那一問
+  const answer = ask ? `${ai.reading}\n\n${ask}` : ai.reading;
+  const fuRow = { cast_id: p.castId, question: p.question, answer, paid_lingshi: bill.paid };
+  const { error: fuErr } = await db.from("followups").insert({ ...fuRow, ask, revision, waived: !!prev.pendingAsk });
+  if (fuErr) {
+    // 舊 schema（0078 未跑）兜底：少了反問欄位也要把這一答存下來
+    console.error("followup insert with ask failed, retry without", fuErr.message);
+    await db.from("followups").insert(fuRow);
+  }
   const breakthrough = await addCultivation(db, p.userId, cast.character_id, 10, 2);
 
   // 追問補應期（六六 2026-09-28）：首解沒給應期、他追問「大概什麼時候」而這一答給出了日期，
@@ -316,7 +339,49 @@ export async function followupInterpret(db: SupabaseClient, p: {
     } else console.error("followup due update failed", upErr.message);
   }
   // 附語同首解：只加在回傳的答覆上，不寫進 followups（重溫時不重複）
-  return { kind: "ok" as const, answer: ai.reading + appendix, paid: bill.paid, breakthrough, due };
+  // ask 另外回一份：前端可以把那一問畫成不同樣式，並把下一次追問標成「回答免費」
+  return {
+    kind: "ok" as const, answer: answer + appendix, paid: bill.paid, breakthrough, due,
+    ask, revised: !!revision, waived: !!prev.pendingAsk,
+  };
+}
+
+/** 一卦最多反問幾次。回答反問不收費，所以這是那條免費路的上限；
+ *  也是在逼模型只在真的前提衝突時才問——額度只有兩次，客套式的反問會把它浪費掉。 */
+export const MAX_ASKS_PER_CAST = 2;
+const HISTORY_TURNS = 4;     // 帶進提示的追問往來最多幾輪（舊的修正仍會留在較近的答覆裡被延續）
+
+/** 這一卦之前的追問往來。pendingAsk＝最後一答末尾的反問（還沒被回答）。 */
+export async function followupHistory(db: SupabaseClient, castId: string): Promise<{ history: string; pendingAsk: string | null; asks: number }> {
+  const q = (cols: string) => db.from("followups").select(cols).eq("cast_id", castId).order("created_at", { ascending: true });
+  let { data, error } = await q("question, answer, ask, revision, created_at");
+  if (error) ({ data } = await q("question, answer, created_at"));   // 舊 schema 兜底：沒有反問欄位就只帶問答
+  const rows = (data ?? []) as unknown as { question: string; answer: string; ask?: string | null; revision?: string | null }[];
+  const asks = rows.filter((r) => r.ask).length;
+  const last = rows[rows.length - 1];
+  const recent = rows.slice(-HISTORY_TURNS);
+  const history = recent.map((r) =>
+    `問：${r.question}\n答：${r.answer}` + (r.revision ? `\n（這一答做了修正：${r.revision}）` : "")).join("\n\n");
+  return {
+    history: (rows.length > recent.length ? `（更早還有 ${rows.length - recent.length} 輪，略）\n\n` : "") + history,
+    pendingAsk: last?.ask ?? null,
+    asks,
+  };
+}
+
+/** 回評之後的反芻：背景跑，不拖慢回評的回應。網頁與 TG 兩條回評路共用這一支。
+ *  反省用 Sonnet（MODEL_LITE）：要讀懂整份規則與盤面才判得出靠哪條判法，Haiku 判不穩。 */
+export function reflectAfterReview(db: SupabaseClient, castId: string) {
+  inBackground(reflectCast(db, castId, {
+    chartText: (chart, q) => chartTextFull(chart as Chart, q),
+    ask: async (input) => {
+      const ai = await callInterpret("", "", { reflect: { input } });
+      return {
+        text: ai.reading,
+        log: () => logUsage(db, { userId: null, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated }),
+      };
+    },
+  }));
 }
 
 /** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
@@ -377,6 +442,7 @@ export async function commentCast(db: SupabaseClient, p: {
   const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
+    priority: await loadPriorityBlock(db),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
   return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
@@ -407,14 +473,15 @@ export async function deepenCast(db: SupabaseClient, p: {
   const ctext = chartTextFull(chart, cast.question ?? "");
   const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
   try {
-    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong });
+    const priority = await loadPriorityBlock(db);
+    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong, priority });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
     let deep = ai.reading;
     let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
     if (incomplete) {
       // 一次接續補完：半成品交回模型，從斷點續寫剩餘段落（不重解卦；做法見 services.ts continuePartial）
       const cont = await callInterpret(ch!.persona_prompt, ctext, {
-        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong,
+        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong, priority,
       });
       await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated });
       deep = deep.replace(/\s+$/, "") + cont.reading;
