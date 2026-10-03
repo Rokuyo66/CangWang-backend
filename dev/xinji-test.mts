@@ -12,7 +12,7 @@ import { fakeDb } from "./fake-db.mts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, brewNotes, monthlyStats, monthlyReview, monthlyIndex,
-  threadQuotaOf, statsDigest, monthlyRefresh, REFRESH_MIN, REFRESH_MAX,
+  threadQuotaOf, statsDigest, monthlyRefresh, REFRESH_MIN, REFRESH_MAX, hallMention,
 } from "../supabase/functions/_shared/xinji.ts";
 import { buildChart } from "../supabase/functions/_shared/core.ts";
 
@@ -474,6 +474,31 @@ await t("重錄：每月最多 REFRESH_MAX 次，用完就擋；免費不能重�
   E(await monthlyRefresh(db, U, "zhiji", YM(), gen));
   eq(called, before, "用完硬按不該花錢");
   E(await monthlyRefresh(db, U, "free", YM(), gen));
+});
+
+console.log("\n觀堂置頂：心事與閒聊比新舊\n");
+
+await t("回傳心事最後動的時間，與三位角色裡最近一則閒聊", async () => {
+  const db = fakeDb() as any;
+  await db.from("threads").insert({ id: "th1", user_id: U, title: "大園新房", status: "open",
+    opened_at: "2026-09-20T00:00:00Z", last_cast_at: "2026-09-28T00:00:00Z" });
+  await db.from("chat_messages").insert([
+    { id: 1, user_id: U, character_id: "daoshi_f", role: "assistant", body: "「好」", created_at: "2026-10-02T00:00:00Z" },
+    { id: 2, user_id: U, character_id: "guanzhu", role: "assistant", body: "公告", created_at: "2026-10-03T00:00:00Z" },
+    { id: 3, user_id: V, character_id: "lingshou", role: "assistant", body: "別人的", created_at: "2026-10-03T00:00:00Z" },
+  ]);
+  const r = P(await hallMention(db, U));
+  eq(r.mention.at, "2026-09-28T00:00:00Z", "心事的時間該是最後一卦");
+  eq(r.chat?.character_id, "daoshi_f", "閒聊只看三位角色、只看自己的");
+  eq(r.chat?.at, "2026-10-02T00:00:00Z", "閒聊時間");
+});
+
+await t("沒閒聊過：chat 是 null；心事沒起過卦就用開立時間", async () => {
+  const db = fakeDb() as any;
+  await db.from("threads").insert({ id: "th1", user_id: U, title: "搬家", status: "open", opened_at: "2026-09-20T00:00:00Z" });
+  const r = P(await hallMention(db, U));
+  eq(r.chat, null, "沒閒聊");
+  eq(r.mention.at, "2026-09-20T00:00:00Z", "退回開立時間");
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);

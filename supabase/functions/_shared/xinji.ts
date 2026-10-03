@@ -652,7 +652,13 @@ export async function afterCast(
  *   3 都沒有 → null，前端退回閒聊最後一句
  * 說話的是那件心事最後一卦的解卦人；心事還沒起過卦，就是好感最高的那位。
  * 句子以「心事＋日期」為種子挑：同一天打開幾次都是同一句，隔天換一句。
+ *
+ * 新舊比（六六 2026-10-03）：心事不是永遠壓過閒聊。回傳帶兩個時間——
+ *   mention.at＝這件心事最後一次有動靜（留言熬出來的時間；或最後一卦／開立的時間）
+ *   chat＝三位角色裡最近一則閒聊的時間與對象
+ * 前端比新舊：閒聊比心事新，就把那位拉上來、放他上次說的話。
  */
+const CAST_IDS = ["daoshi_m", "daoshi_f", "lingshou"];
 const ONGOING_POOL: Record<string, { plain: string[]; prior: string[] }> = {
   daoshi_m: {
     plain: ["「{title}，我還記著。有下文就說。」", "「{title}。不急，但別擱著不看。」"],
@@ -668,27 +674,40 @@ const ONGOING_POOL: Record<string, { plain: string[]; prior: string[] }> = {
   },
 };
 
+async function lastChat(db: SupabaseClient, uid: string): Promise<{ character_id: string; at: string } | null> {
+  const { data } = await db.from("chat_messages").select("character_id, created_at")
+    .eq("user_id", uid).in("character_id", CAST_IDS)
+    .order("id", { ascending: false }).limit(1);
+  const r = (data ?? [])[0] as { character_id: string; created_at: string } | undefined;
+  return r ? { character_id: r.character_id, at: r.created_at } : null;
+}
+
 export async function hallMention(db: SupabaseClient, uid: string): Promise<XinjiResult> {
+  const [m, chat] = await Promise.all([hallMentionOnly(db, uid), lastChat(db, uid)]);
+  return m.ok ? ok({ ...m.payload, chat }) : m;
+}
+
+async function hallMentionOnly(db: SupabaseClient, uid: string): Promise<XinjiResult> {
   await brewNotes(db, uid);
 
   // 1 待說的留言（from_chat 是那段閒聊的總結，不是角色說的話，不拿來當開口）
   const { data: ns } = await db.from("thread_notes")
-    .select("id, thread_id, character_id, kind, body, threads(title)")
+    .select("id, thread_id, character_id, kind, body, created_at, threads(title)")
     .eq("user_id", uid).is("replied_at", null).neq("kind", "from_chat")
     .order("created_at", { ascending: false }).limit(1);
-  const n = (ns ?? [])[0] as { id: string; thread_id: string; character_id: string; kind: string; body: string; threads: unknown } | undefined;
+  const n = (ns ?? [])[0] as { id: string; thread_id: string; character_id: string; kind: string; body: string; created_at: string; threads: unknown } | undefined;
   if (n) {
     const th = (Array.isArray(n.threads) ? n.threads[0] : n.threads) as { title: string } | null;
     return ok({ mention: { kind: n.kind, note_id: n.id, thread_id: n.thread_id, character_id: n.character_id,
-      title: th?.title ?? "", body: n.body } });
+      title: th?.title ?? "", body: n.body, at: n.created_at } });
   }
 
   // 2 在記的心事，挑最近動過的那件
-  const { data: ts } = await db.from("threads").select("id, title, subject")
+  const { data: ts } = await db.from("threads").select("id, title, subject, last_cast_at, opened_at")
     .eq("user_id", uid).eq("status", "open")
     .order("last_cast_at", { ascending: false, nullsFirst: false })
     .order("opened_at", { ascending: false }).limit(1);
-  const t = (ts ?? [])[0] as { id: string; title: string; subject: string | null } | undefined;
+  const t = (ts ?? [])[0] as { id: string; title: string; subject: string | null; last_cast_at: string | null; opened_at: string | null } | undefined;
   if (!t) return ok({ mention: null });
 
   const { data: cs } = await db.from("casts").select("character_id, digest")
@@ -705,7 +724,8 @@ export async function hallMention(db: SupabaseClient, uid: string): Promise<Xinj
   const pool = digest ? ONGOING_POOL[who].prior : ONGOING_POOL[who].plain;
   const body = fillLine(pickLine(pool, `ongoing:${t.id}:${taipeiToday()}`),
     { title: t.title, subject: t.subject ?? t.title, digest });
-  return ok({ mention: { kind: "ongoing", note_id: null, thread_id: t.id, character_id: who, title: t.title, body } });
+  return ok({ mention: { kind: "ongoing", note_id: null, thread_id: t.id, character_id: who, title: t.title, body,
+    at: t.last_cast_at ?? t.opened_at } });
 }
 
 /* ═══════════════ 角色把心事放在心上（六六 2026-09-24）═══════════════
