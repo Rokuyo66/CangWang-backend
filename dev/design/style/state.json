@@ -1,5 +1,5 @@
 {
-  "version": "v2・2026-09-30（已套用 14 項）",
+  "version": "v3・2026-10-03（已套用 12 項）",
   "baseline": {
     "xuan": {
       "paper": "#F2EBDA",
@@ -21,39 +21,39 @@
     },
     "night": {
       "paper": "#15120E",
-      "paper-2": "#1D1914",
-      "paper-edge": "#2A2218",
+      "paper-2": "#2F2923",
+      "paper-edge": "#0D0A08",
       "ink": "#ECE3D1",
       "ink-soft": "#B3A78F",
       "ink-faint": "#857B68",
-      "hair": "rgba(236,227,209,.13)",
+      "hair": "rgba(236,227,209,0.25)",
       "shadow": "rgba(0,0,0,.5)",
       "cinnabar": "#D86A52",
       "cinnabar-soft": "rgba(216,106,82,.16)",
-      "gold": "#C9A45C",
+      "gold": "#C4A164",
       "wx-木": "#7fae6e",
       "wx-火": "#d86a52",
-      "wx-土": "#c9a45c",
-      "wx-金": "#cabfa0",
+      "wx-土": "#CE9764",
+      "wx-金": "#FFE380",
       "wx-水": "#6fa3c4"
     },
     "bamboo": {
       "paper": "#E7E9D8",
-      "paper-2": "#C6D8BA",
-      "paper-edge": "#A2B9A3",
+      "paper-2": "#D9E1C1",
+      "paper-edge": "#A9B096",
       "ink": "#12210F",
       "ink-soft": "#21321A",
       "ink-faint": "#3C5D3E",
       "hair": "rgba(18,33,15,.18)",
       "shadow": "rgba(35,55,25,.24)",
-      "cinnabar": "#96421F",
+      "cinnabar": "#916B36",
       "cinnabar-soft": "rgba(150,66,31,.15)",
       "gold": "#5C8A2E",
       "wx-木": "#33691E",
       "wx-火": "#a8452a",
-      "wx-土": "#8a7434",
-      "wx-金": "#7f8c62",
-      "wx-水": "#2f6470"
+      "wx-土": "#895A34",
+      "wx-金": "#766C2E",
+      "wx-水": "#2B7F91"
     },
     "cinnabar": {
       "paper": "#220907",
@@ -113,39 +113,39 @@
     },
     "night": {
       "paper": "#15120E",
-      "paper-2": "#1D1914",
-      "paper-edge": "#2A2218",
+      "paper-2": "#2F2923",
+      "paper-edge": "#0D0A08",
       "ink": "#ECE3D1",
       "ink-soft": "#B3A78F",
       "ink-faint": "#857B68",
-      "hair": "rgba(236,227,209,.13)",
+      "hair": "rgba(236,227,209,0.25)",
       "shadow": "rgba(0,0,0,.5)",
       "cinnabar": "#D86A52",
       "cinnabar-soft": "rgba(216,106,82,.16)",
-      "gold": "#C9A45C",
+      "gold": "#C4A164",
       "wx-木": "#7fae6e",
       "wx-火": "#d86a52",
-      "wx-土": "#c9a45c",
-      "wx-金": "#cabfa0",
+      "wx-土": "#CE9764",
+      "wx-金": "#FFE380",
       "wx-水": "#6fa3c4"
     },
     "bamboo": {
       "paper": "#E7E9D8",
-      "paper-2": "#C6D8BA",
-      "paper-edge": "#A2B9A3",
+      "paper-2": "#D9E1C1",
+      "paper-edge": "#A9B096",
       "ink": "#12210F",
       "ink-soft": "#21321A",
       "ink-faint": "#3C5D3E",
       "hair": "rgba(18,33,15,.18)",
       "shadow": "rgba(35,55,25,.24)",
-      "cinnabar": "#96421F",
+      "cinnabar": "#916B36",
       "cinnabar-soft": "rgba(150,66,31,.15)",
       "gold": "#5C8A2E",
       "wx-木": "#33691E",
       "wx-火": "#a8452a",
-      "wx-土": "#8a7434",
-      "wx-金": "#7f8c62",
-      "wx-水": "#2f6470"
+      "wx-土": "#895A34",
+      "wx-金": "#766C2E",
+      "wx-水": "#2B7F91"
     },
     "cinnabar": {
       "paper": "#220907",
@@ -339,6 +339,130 @@
       "at": "2026-09-30T08:00:00Z",
       "applied": true,
       "note": "14 項色碼與按鈕規範已套用到前端 main，基準更新"
+    },
+    {
+      "at": "2026-10-03T06:54:10.929Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#1D1914",
+          "to": "#2F2923"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#2A2218",
+          "to": "#0D0A08"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(236,227,209,.13)",
+          "to": "rgba(236,227,209,0.25)"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "gold",
+          "name": "金",
+          "from": "#C9A45C",
+          "to": "#C4A164"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "wx-土",
+          "name": "土",
+          "from": "#c9a45c",
+          "to": "#CE9764"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "wx-金",
+          "name": "金（五行）",
+          "from": "#cabfa0",
+          "to": "#FFE380"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-03T06:56:31.359Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#C6D8BA",
+          "to": "#D9E1C1"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#A2B9A3",
+          "to": "#A9B096"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "cinnabar",
+          "name": "硃砂",
+          "from": "#96421F",
+          "to": "#916B36"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "wx-土",
+          "name": "土",
+          "from": "#8a7434",
+          "to": "#895A34"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "wx-金",
+          "name": "金（五行）",
+          "from": "#7f8c62",
+          "to": "#766C2E"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "wx-水",
+          "name": "水",
+          "from": "#2f6470",
+          "to": "#2B7F91"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-03T08:00:00Z",
+      "applied": true,
+      "note": "12 項色碼（夜觀 6、竹簡 6）已套用到前端 main（web #87），基準更新"
     }
-  ]
+  ],
+  "savedAt": "2026-10-03T06:56:31.359Z"
 }
