@@ -213,7 +213,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 (function(){
   "use strict";
   /* ══ 狀態 ══
-     baseline：站上現在的色碼（前端 src/part1.html 的 :root 與五套 [data-theme]）——比對「改了什麼」的基準。
+     baseline：站上現在的色碼＝dev/design/tokens.json（build 時灌進來）——比對「改了什麼」的基準。
      themes：目前的色碼（編輯中）。buttons：按鈕是否跟基礎色碼連動，斷開時每套主題各自的四色。
      saved：上一次存檔時的樣子，用來判斷「有沒有還沒存的修改」。存檔＝把整份頁面連同這包狀態重新發佈。 */
   const STATE = JSON.parse(document.getElementById("spec-state").textContent);
@@ -223,48 +223,15 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
   let theme = "xuan";
   try { const t = localStorage.getItem("spec-theme"); if (STATE.themes[t]) theme = t; } catch (e) {}
 
-  const THEMES = [["xuan","宣紙"],["night","夜觀"],["bamboo","竹簡"],["cinnabar","硃砂"],["porcelain","青花"]];
-  const DARK = { night: true, cinnabar: true };
-  const TOKENS = [
-    { g: "紙與墨", k: "paper",       n: "紙",       u: "頁面底色。全站最大的一塊顏色。" },
-    { g: "紙與墨", k: "paper-2",     n: "次一階紙", u: "卡片、頁籤未選、輸入框、靈石膠囊的底。淺色主題比紙深一階，深色主題比紙亮一階。" },
-    { g: "紙與墨", k: "paper-edge",  n: "紙邊",     u: "卡片框、文字按鈕的框與側邊（厚度）。" },
-    { g: "紙與墨", k: "ink",         n: "墨",       u: "主要文字、標題、頁籤選中的底。" },
-    { g: "紙與墨", k: "ink-soft",    n: "淡墨",     u: "次要文字、說明、頂列膠囊的字。" },
-    { g: "紙與墨", k: "ink-faint",   n: "極淡墨",   u: "日期、圖示、頁籤未選的字、提示。" },
-    { g: "紙與墨", k: "hair",        n: "細線",     u: "分隔線、頂列膠囊與圖示鈕的框。帶透明度。" },
-    { g: "紙與墨", k: "shadow",      n: "影",       u: "按鈕落地的軟影、浮起的卡片。帶透明度。" },
-    { g: "強調",   k: "cinnabar",    n: "硃砂",     u: "行動色：主按鈕、刪除、數字強調、紅點、滑過。只給「這裡有一件事要你處理」的東西。" },
-    { g: "強調",   k: "cinnabar-soft", n: "硃砂淡底", u: "硃砂的淡底（選中列、提示底）。帶透明度。" },
-    { g: "強調",   k: "gold",        n: "金",       u: "小標、日期、節氣、稱號；次按鈕的面。" },
-    { g: "五行",   k: "wx-木",       n: "木",       u: "分類籤；應期「準」。" },
-    { g: "五行",   k: "wx-火",       n: "火",       u: "分類籤；應期「不準」。" },
-    { g: "五行",   k: "wx-土",       n: "土",       u: "分類籤；應期「部分準」。" },
-    { g: "五行",   k: "wx-金",       n: "金（五行）", u: "分類籤。" },
-    { g: "五行",   k: "wx-水",       n: "水",       u: "分類籤。" },
-  ];
-  /* 按鈕四型。連動時的算式＝規範（動態規範「按下與放開」）＋站上主題的語意。 */
-  const BTN = [
-    { k: "primary", n: "主按鈕", d: "一個畫面最重要的那一個動作（起卦、收下、確定）。硃砂實心、深硃砂側邊。",
-      link: { face: "var(--cinnabar)", border: "var(--cinnabar)", edge: "color-mix(in srgb, var(--cinnabar) 68%, black)", text: "#FFF8F0" } },
-    { k: "second", n: "次按鈕", d: "同一畫面裡第二重要、但仍是「做一件事」的動作。金實心、深金側邊。",
-      link: { face: "var(--gold)", border: "var(--gold)", edge: "color-mix(in srgb, var(--gold) 65%, black)", text: "#FFF8F0" } },
-    { k: "text", n: "文字按鈕", d: "取消、再想想、返回以外的一般選擇。亮一階的紙面，紙邊框與側邊同色連成一體；滑過時框與字轉硃砂。",
-      link: { face: "LIGHTFACE", border: "var(--paper-edge)", edge: "var(--paper-edge)", text: "var(--ink)" } },
-    { k: "danger", n: "危險按鈕", d: "刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。",
-      link: { face: "var(--cinnabar)", border: "var(--cinnabar)", edge: "color-mix(in srgb, var(--cinnabar) 60%, black)", text: "#FFF8F0" } },
-  ];
-  /* 兩段開關（時序｜月曆）：跟按鈕同一套「連動／單獨設定」，只是零件不同。
-     連動時淺色主題從墨推、深色主題不從墨推——夜觀、硃砂的墨是亮色，用它混出來的凹槽陰影會變成一道高光
-     （六六 2026-10-03）。前端落點：src/styles/motion.css 的 --seg-*（body 一條、深色主題一條）。 */
-  BTN.push({ k: "seg", n: "兩段開關", stage: "seg",
-    d: "時序｜月曆這種二選一的開關。凹下去的軌道＋一塊有厚度的硃砂滑塊，滑動時擠扁再彈回。深色主題的軌道比紙更深、凹槽陰影用黑，不從墨推。",
-    parts: [["track","軌道"],["groove","凹槽陰影"],["knob","滑塊"],["knob-edge","滑塊厚度"],["on","選中的字"],["off","沒選的字"]],
-    link: { track: { l: "color-mix(in srgb, var(--ink) 6%, var(--paper-2))", d: "color-mix(in srgb, black 38%, var(--paper))" },
-            groove: { l: "color-mix(in srgb, var(--ink) 20%, transparent)", d: "rgba(0,0,0,.62)" },
-            knob: "var(--cinnabar)", "knob-edge": "color-mix(in srgb, var(--cinnabar) 68%, black)",
-            on: "#FFF8F0", off: "var(--ink-soft)" } });
-  const PARTS = [["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]];
+  /* 主題清單、色碼說明、按鈕四型與算式：全部來自 dev/design/tokens.json（唯一真相），不在這裡另寫一份。 */
+  // @design:begin spec-design v=1b9d1b52 #fbbfe93b（由後端 dev/design/tokens.json 產生，不要手改）
+  const DESIGN = {"version":"v4・2026-10-05（統一 token 檔）","themes":{"order":["xuan","night","bamboo","cinnabar","porcelain"],"meta":{"xuan":{"name":"宣紙","key":"paper","css":":root","dark":false},"night":{"name":"夜觀","key":"night","css":"[data-theme=\"night\"]","dark":true},"bamboo":{"name":"竹簡","key":"bamboo","css":"[data-theme=\"bamboo\"]","dark":false},"cinnabar":{"name":"硃砂","key":"cinnabar","css":"[data-theme=\"cinnabar\"]","dark":true},"porcelain":{"name":"青花","key":"porcelain","css":"[data-theme=\"porcelain\"]","dark":false}},"tokens":[{"g":"紙與墨","k":"paper","n":"紙","u":"頁面底色。全站最大的一塊顏色。"},{"g":"紙與墨","k":"paper-2","n":"次一階紙","u":"卡片、頁籤未選、輸入框、靈石膠囊的底。淺色主題比紙深一階，深色主題比紙亮一階。"},{"g":"紙與墨","k":"paper-edge","n":"紙邊","u":"卡片框、文字按鈕的框與側邊（厚度）。"},{"g":"紙與墨","k":"ink","n":"墨","u":"主要文字、標題、頁籤選中的底。"},{"g":"紙與墨","k":"ink-soft","n":"淡墨","u":"次要文字、說明、頂列膠囊的字。"},{"g":"紙與墨","k":"ink-faint","n":"極淡墨","u":"日期、圖示、頁籤未選的字、提示。"},{"g":"紙與墨","k":"hair","n":"細線","u":"分隔線、頂列膠囊與圖示鈕的框。帶透明度。"},{"g":"紙與墨","k":"shadow","n":"影","u":"按鈕落地的軟影、浮起的卡片。帶透明度。"},{"g":"強調","k":"cinnabar","n":"硃砂","u":"行動色：主按鈕、刪除、數字強調、紅點、滑過。只給「這裡有一件事要你處理」的東西。"},{"g":"強調","k":"cinnabar-soft","n":"硃砂淡底","u":"硃砂的淡底（選中列、提示底）。帶透明度。"},{"g":"強調","k":"gold","n":"金","u":"小標、日期、節氣、稱號；次按鈕的面。"},{"g":"五行","k":"wx-木","n":"木","u":"分類籤；應期「準」。"},{"g":"五行","k":"wx-火","n":"火","u":"分類籤；應期「不準」。"},{"g":"五行","k":"wx-土","n":"土","u":"分類籤；應期「部分準」。"},{"g":"五行","k":"wx-金","n":"金（五行）","u":"分類籤。"},{"g":"五行","k":"wx-水","n":"水","u":"分類籤。"}],"values":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#272320","ink-soft":"#5A5045","ink-faint":"#8A7E6C","hair":"rgba(34,30,26,.13)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#2F2923","paper-edge":"#0D0A08","ink":"#ECE3D1","ink-soft":"#B3A78F","ink-faint":"#857B68","hair":"rgba(236,227,209,.25)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#E7E9D8","paper-2":"#D9E1C1","paper-edge":"#A9B096","ink":"#12210F","ink-soft":"#21321A","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#220907","paper-2":"#69120C","paper-edge":"#4E1A15","ink":"#FAE2E0","ink-soft":"#D3A69F","ink-faint":"#A2756E","hair":"rgba(250,226,224,0.3)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#001F52","ink-soft":"#2A477A","ink-faint":"#1456B8","hair":"rgba(0,31,82,.16)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}}},"buttons":{"_說明":"按鈕四型與兩段開關。linked＝照下面算式從主題色碼推；false 時 custom[主題][元件][零件] 單獨設值。face 的 LIGHTFACE＝淺色主題用亮一階的紙、深色主題用 --paper-2。值是物件 {l,d} 時淺色／深色主題各一條。","linked":true,"custom":{},"types":[{"k":"primary","n":"主按鈕","web":".btn.primary","d":"一個畫面最重要的那一個動作（起卦、收下、確定）。硃砂實心、深硃砂側邊。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","text":"#FFF8F0"}},{"k":"second","n":"次按鈕","web":".btn.second","d":"同一畫面裡第二重要、但仍是「做一件事」的動作。金實心、深金側邊。","link":{"face":"var(--gold)","border":"var(--gold)","edge":"color-mix(in srgb, var(--gold) 65%, black)","text":"#FFF8F0"}},{"k":"text","n":"文字按鈕","web":".btn","d":"取消、再想想、返回以外的一般選擇。亮一階的紙面，紙邊框與側邊同色連成一體；滑過時框與字轉硃砂。","link":{"face":"LIGHTFACE","border":"var(--paper-edge)","edge":"var(--paper-edge)","text":"var(--ink)"},"hover":{"border":"var(--cinnabar)","text":"var(--cinnabar)"}},{"k":"danger","n":"危險按鈕","web":".btn.fill","d":"刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 60%, black)","text":"#FFF8F0"}},{"k":"seg","n":"兩段開關","stage":"seg","web":"--seg-","d":"時序｜月曆這種二選一的開關。凹下去的軌道＋一塊有厚度的硃砂滑塊，滑動時擠扁再彈回。深色主題的軌道比紙更深、凹槽陰影用黑，不從墨推。","parts":[["track","軌道"],["groove","凹槽陰影"],["knob","滑塊"],["knob-edge","滑塊厚度"],["on","選中的字"],["off","沒選的字"]],"link":{"track":{"l":"color-mix(in srgb, var(--ink) 6%, var(--paper-2))","d":"color-mix(in srgb, black 38%, var(--paper))"},"groove":{"l":"color-mix(in srgb, var(--ink) 20%, transparent)","d":"rgba(0,0,0,.62)"},"knob":"var(--cinnabar)","knob-edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","on":"#FFF8F0","off":"var(--ink-soft)"}}],"parts":[["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]]}};
+  // @design:end spec-design
+  const THEMES = DESIGN.themes.order.map((t) => [t, DESIGN.themes.meta[t].name]);
+  const DARK = Object.fromEntries(DESIGN.themes.order.map((t) => [t, !!DESIGN.themes.meta[t].dark]));
+  const TOKENS = DESIGN.themes.tokens;
+  const BTN = DESIGN.buttons.types;
+  const PARTS = DESIGN.buttons.parts;
   const partsOf = (b) => b.parts || PARTS;
   const lightFace = (t) => DARK[t] ? "var(--paper-2)" : "color-mix(in srgb, var(--paper) 45%, #fff)";
   const linkExpr = (b, part, t) => {
@@ -541,20 +508,21 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     const byTheme = {};
     p.filter((c) => c.kind === "token").forEach((c) => { (byTheme[c.theme] = byTheme[c.theme] || []).push(c); });
     const sel = { xuan: ":root", night: '[data-theme="night"]', bamboo: '[data-theme="bamboo"]', cinnabar: '[data-theme="cinnabar"]', porcelain: '[data-theme="porcelain"]' };
-    let s = `請依美術規範套用以下修改（規範：後端 dev/design/style/，已存檔的 artifact 為準）。\n`;
-    s += `1. 前端 src/part1.html 的主題色碼改成：\n`;
+    let s = `請依美術規範套用以下修改（規範：後端 dev/design/，已存檔的 artifact 為準）。\n`;
+    s += `只改一個檔：後端 dev/design/tokens.json（全站美術與動態的唯一數字來源），其餘落點由生成器一起寫，不要手改。\n`;
+    s += `1. tokens.json 的 themes.values 改成：\n`;
     Object.keys(byTheme).forEach((t) => {
-      s += `   ${sel[t]}{ ` + byTheme[t].map((c) => `--${c.key}:${norm(c.to)};`).join(" ") + ` }\n`;
+      s += `   ${t}：` + byTheme[t].map((c) => `"${c.key}": "${norm(c.to)}"`).join("、") + `\n`;
     });
     const link = p.find((c) => c.kind === "link");
     const btn = p.filter((c) => c.kind === "btn");
     if (link || btn.length) {
-      s += `2. 按鈕：${cur.buttons.linked ? "與基礎色碼連動（照規範算式）" : "與基礎色碼斷開，各主題單獨設定"}。\n`;
+      s += `2. tokens.json 的 buttons：linked＝${cur.buttons.linked ? "true（照規範算式從色碼推）" : "false（各主題單獨設定，寫進 custom[主題][元件][零件]）"}。\n`;
       btn.forEach((c) => { s += `   ${c.tn}・${c.name}：${norm(c.to)}\n`; });
-      s += `   落點：前端 src/styles/motion.css「A 互動回饋」的 .btn 系列；兩段開關是同檔的 --seg-*（body 一條＝淺色主題、:is(night,cinnabar) 一條＝深色主題；單獨設定的主題寫在 [data-theme="…"] 底下）。\n`;
     }
-    s += `3. 套用後，把規範的 baseline 更新成新值（dev/design/style/state.json），並重新發佈規範。\n`;
-    s += `4. 淺色與夜觀各截一張，與規範並排比對後再推送。`;
+    s += `3. 跑 node dev/design/tokens/build.mjs --web <前端 repo>：前端主題色碼、按鈕、兩段開關、動態 token、小工具 Palette.java、規範頁、動態原型一起改。\n`;
+    s += `   再把 dev/design/style/state.json 的 themes／buttons 設成跟 tokens.json 一樣（沒有待套用），跑 node dev/design/style/build.mjs，重新發佈規範。\n`;
+    s += `4. 前端 npm run build（生成區被手改過會直接失敗），淺色與夜觀各截一張，與規範並排比對後再推送。`;
     return s;
   }
 

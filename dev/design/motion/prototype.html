@@ -15,23 +15,24 @@
   color-scheme:light;
 
   /* ══ 動態 token：整份規範唯一的數字來源 ══ */
+  /* @design:begin proto-motion v=1b9d1b52 #a9935a22（由後端 dev/design/tokens.json 產生，不要手改） */
   --k:1;          /* 速度倍率：所有時長 × k */
   --a:1;          /* 待機幅度倍率 */
   --d:3.6px;      /* 按壓深度（元件厚度）；元件用 --dk 取比例，不直接覆寫 --d */
   --ov:1.56;      /* 回彈過衝量 */
   --tilt:6deg;    /* 按壓傾斜上限 */
 
-  --t-press:  calc(90ms  * var(--k));
-  --t-release:calc(280ms * var(--k));
-  --t-quick:  calc(160ms * var(--k));
-  --t-exit:   calc(220ms * var(--k));
-  --t-enter:  calc(360ms * var(--k));
-  --t-page:   calc(460ms * var(--k));
-  --t-hold:   calc(700ms * var(--k));
-  --stagger:  calc(45ms  * var(--k));
-  --idle-s:   calc(2.4s  * var(--k));
-  --idle-m:   calc(3.7s  * var(--k));
-  --idle-l:   calc(6.1s  * var(--k));
+  --t-press:  calc(90ms   * var(--k));
+  --t-release:calc(280ms  * var(--k));
+  --t-quick:  calc(160ms  * var(--k));
+  --t-exit:   calc(220ms  * var(--k));
+  --t-enter:  calc(360ms  * var(--k));
+  --t-page:   calc(460ms  * var(--k));
+  --t-hold:   calc(700ms  * var(--k));
+  --stagger:  calc(45ms   * var(--k));
+  --idle-s:   calc(2.4s   * var(--k));
+  --idle-m:   calc(3.7s   * var(--k));
+  --idle-l:   calc(6.1s   * var(--k));
 
   --e-out:   cubic-bezier(.22,1,.36,1);
   --e-in:    cubic-bezier(.5,0,.75,0);
@@ -39,8 +40,9 @@
   --e-breath:cubic-bezier(.45,0,.55,1);
 
   --amp-move: calc(3px  * var(--a));
-  --amp-scale:calc(.03  * var(--a));
+  --amp-scale:calc(0.05 * var(--a));
   --amp-rot:  calc(4deg * var(--a));
+  /* @design:end proto-motion */
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -662,8 +664,13 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   const $=id=>document.getElementById(id);
   const K=()=>parseFloat(getComputedStyle(root).getPropertyValue('--k'))||1;
 
+  /* ── 動態 token：來自 dev/design/tokens.json（唯一真相）；總控預設值、token 表、範例碼都讀這一份 ── */
+  // @design:begin proto-motion-js v=1b9d1b52 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
+  const MOTION = {"_說明":"時長的 ms 都會乘上速度倍率 k。spec＝規範與原型用的變數名；web＝前端 styles/motion.css 用的變數名（前端加 m- 前綴；press 的時長叫 --m-press-t，因為 --m-press 是按壓進度）。","base":{"k":1,"a":1,"d":3.6,"ov":1.56,"tilt":6},"durations":[{"k":"press","ms":90,"spec":"--t-press","web":"--m-press-t","u":"按下"},{"k":"release","ms":280,"spec":"--t-release","web":"--m-release","u":"放開、切換滑塊"},{"k":"quick","ms":160,"spec":"--t-quick","web":"--m-quick","u":"小狀態變化"},{"k":"exit","ms":220,"spec":"--t-exit","web":"--m-exit","u":"彈框、提示離場；內容溶解（切頁籤）"},{"k":"enter","ms":360,"spec":"--t-enter","web":"--m-enter","u":"彈框、提示入場；進一層／退一層"},{"k":"page","ms":460,"spec":"--t-page","web":"--m-page","u":"頁面切換"},{"k":"hold","ms":700,"spec":"--t-hold","web":"--m-hold","u":"長按蓄力"},{"k":"stagger","ms":45,"spec":"--stagger","web":"--m-stagger","u":"內容逐項間隔"},{"k":"idleS","ms":2400,"spec":"--idle-s","web":"--m-idle-s","u":"待機短週期"},{"k":"idleM","ms":3700,"spec":"--idle-m","web":"--m-idle-m","u":"待機中週期"},{"k":"idleL","ms":6100,"spec":"--idle-l","web":"--m-idle-l","u":"待機長週期（靈石掠光的間隔）"}],"easings":[{"k":"out","v":"cubic-bezier(.22,1,.36,1)","spec":"--e-out","web":"--m-e-out","u":"入場、按下"},{"k":"in","v":"cubic-bezier(.5,0,.75,0)","spec":"--e-in","web":"--m-e-in","u":"離場"},{"k":"spring","v":"cubic-bezier(.34,OV,.64,1)","spec":"--e-spring","web":"--m-e-spring","u":"放開、彈出（唯一允許過衝）"},{"k":"breath","v":"cubic-bezier(.45,0,.55,1)","spec":"--e-breath","web":"--m-e-breath","u":"待機循環"}],"amp":{"_說明":"待機幅度上限，會乘上幅度倍率 a。scale 0.05＝放大 5%（六六 2026-09-29：3% 存在感太低）","move":3,"scale":0.05,"rot":4}};
+  // @design:end proto-motion-js
   /* ── 總控 ── */
-  const DEF={k:1,a:1,d:3.6,ov:1.56};
+  const DEF={k:MOTION.base.k,a:MOTION.base.a,d:MOTION.base.d,ov:MOTION.base.ov};
+  for(const key in DEF){ $(key).value=DEF[key]; }
   const fmt={k:v=>'×'+(+v).toFixed(2),a:v=>'×'+(+v).toFixed(2),d:v=>v+'px',ov:v=>(+v).toFixed(2)};
   function setVar(key,v){
     root.style.setProperty('--'+key,key==='d'?v+'px':v);
@@ -677,49 +684,33 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   try{if(matchMedia('(prefers-reduced-motion: reduce)').matches){$('rm').checked=true;root.classList.add('rm')}}catch(e){}
 
   /* ── Token 表 ── */
-  const TOK=[
-    ['--t-press',90,'按下'],['--t-release',280,'放開、切換滑塊'],['--t-quick',160,'小狀態變化'],
-    ['--t-exit',220,'彈框、提示離場'],['--t-enter',360,'彈框、提示入場'],['--t-page',460,'頁面切換'],
-    ['--t-hold',700,'長按蓄力'],['--stagger',45,'內容逐項間隔'],
-    ['--idle-s',2400,'待機短週期'],['--idle-m',3700,'待機中週期'],['--idle-l',6100,'待機長週期'],
-  ];
-  const EASE=[['--e-out','cubic-bezier(.22,1,.36,1)','入場、按下'],['--e-in','cubic-bezier(.5,0,.75,0)','離場'],['--e-spring',null,'放開、彈出（唯一允許過衝）'],['--e-breath','cubic-bezier(.45,0,.55,1)','待機循環']];
+  const TOK=MOTION.durations.map(d=>[d.spec,d.ms,d.u]);
+  const EASE=MOTION.easings.map(e=>[e.spec,e.v.includes('OV')?null:e.v,e.u]);
   function renderTokens(){
     const k=K(),a=+$('a').value,d=+$('d').value,ov=(+$('ov').value).toFixed(2);
     const ms=v=>v>=1000?(v*k/1000).toFixed(2)+'s':Math.round(v*k)+'ms';
     let h=TOK.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${ms(v)}</td><td>${u}</td></tr>`).join('');
     h+=EASE.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${v||`cubic-bezier(.34,${ov},.64,1)`}</td><td>${u}</td></tr>`).join('');
     h+=`<tr><td class="v">--d</td><td class="v">${d}px</td><td>按壓深度＝元件厚度；卡片 ×.75、標籤 ×.5</td></tr>`;
-    h+=`<tr><td class="v">--tilt</td><td class="v">6deg</td><td>按壓傾斜上限</td></tr>`;
-    h+=`<tr><td class="v">--amp-move / scale / rot</td><td class="v">${(3*a).toFixed(1)}px / ${(3*a).toFixed(1)}% / ${(4*a).toFixed(1)}°</td><td>待機幅度上限</td></tr>`;
+    h+=`<tr><td class="v">--tilt</td><td class="v">${MOTION.base.tilt}deg</td><td>按壓傾斜上限</td></tr>`;
+    h+=`<tr><td class="v">--amp-move / scale / rot</td><td class="v">${(MOTION.amp.move*a).toFixed(1)}px / ${(MOTION.amp.scale*100*a).toFixed(1)}% / ${(MOTION.amp.rot*a).toFixed(1)}°</td><td>待機幅度上限</td></tr>`;
     $('tok').innerHTML=h;
+    const dur=MOTION.durations.map(x=>`  ${(x.spec+':').padEnd(12)}calc(${(x.ms>=1000?(x.ms/1000)+'s':x.ms+'ms').padEnd(6)} * var(--k));`).join('\n');
+    const eas=MOTION.easings.map(e=>`  ${(e.spec+':').padEnd(11)}${e.v.replace('OV','var(--ov)')};`).join('\n');
     $('code').textContent=`:root{
   /* 倍率：只改這四個 */
-  --k:${k};  --a:${a};  --d:${d}px;  --ov:${ov};  --tilt:6deg;
+  --k:${k};  --a:${a};  --d:${d}px;  --ov:${ov};  --tilt:${MOTION.base.tilt}deg;
 
   /* 時長 */
-  --t-press:  calc(90ms  * var(--k));
-  --t-release:calc(280ms * var(--k));
-  --t-quick:  calc(160ms * var(--k));
-  --t-exit:   calc(220ms * var(--k));
-  --t-enter:  calc(360ms * var(--k));
-  --t-page:   calc(460ms * var(--k));
-  --t-hold:   calc(700ms * var(--k));
-  --stagger:  calc(45ms  * var(--k));
-  --idle-s:   calc(2.4s  * var(--k));
-  --idle-m:   calc(3.7s  * var(--k));
-  --idle-l:   calc(6.1s  * var(--k));
+${dur}
 
   /* 曲線 */
-  --e-out:   cubic-bezier(.22,1,.36,1);
-  --e-in:    cubic-bezier(.5,0,.75,0);
-  --e-spring:cubic-bezier(.34,var(--ov),.64,1);
-  --e-breath:cubic-bezier(.45,0,.55,1);
+${eas}
 
   /* 待機幅度上限 */
-  --amp-move: calc(3px  * var(--a));
-  --amp-scale:calc(.03  * var(--a));
-  --amp-rot:  calc(4deg * var(--a));
+  --amp-move: calc(${MOTION.amp.move}px  * var(--a));
+  --amp-scale:calc(${MOTION.amp.scale} * var(--a));
+  --amp-rot:  calc(${MOTION.amp.rot}deg * var(--a));
 }`;
   }
   renderTokens();

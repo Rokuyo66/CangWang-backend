@@ -25,7 +25,7 @@ export function normYong(s: string | null | undefined): { qin: string; viaShi?: 
 }
 
 /* ---------- 本地預檢（零延遲零成本；命中才值得呼叫模型） ----------
-   ⚠ 前端 part2.html 有同一套規則的 JS 版（needsRefine），改這裡務必同步改那裡。
+   ⚠ 前端 src/main/02-ask.js 有同一套規則的 JS 版（needsRefine），改這裡務必同步改那裡。
    缺時限「不」列入觸發條件——多數人本來就不寫時限，每卦都攔會變成嘮叨；改寫時再幫他補上。 */
 export function preflight(qRaw: string): { need: boolean; issues: string[] } {
   const q = String(qRaw ?? "").trim();
