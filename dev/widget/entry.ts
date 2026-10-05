@@ -19,7 +19,7 @@ import type { QianTier } from "../../supabase/functions/_shared/qian60.ts";
 import { stanceOf, themeList } from "../../supabase/functions/_shared/widget.ts";
 
 /* ---------- 配色 ----------
-   五套：內建二（宣紙、夜觀）＋ 付費三（竹簡、硃砂、青瓷）。
+   五套：內建二（宣紙、夜觀）＋ 付費三（竹簡、硃砂、青花）。
    每套七個色 ＋ 一層可選材質。材質不是裝飾——竹簡沒有那道直紋就只是一張黃紙，
    而配色要賣得掉，靠的正是「一眼看得出是哪一套」。 */
 interface Palette {
@@ -29,24 +29,27 @@ interface Palette {
   texture?: string;   // 疊在卡片上的一層 background
 }
 
+/* App 同一組的六個色（card／line／ink／dim／gold／seal）來自 dev/design/tokens.json，跟 App、Palette.java 是同一份。
+   背板（paper）與材質（texture）是這個原型自己的，只在這裡。 */
+// @design:begin widget-colors v=1b9d1b52 #4abb725f（由後端 dev/design/tokens.json 產生，不要手改）
+const APP_COLORS: Record<string, { mode: "light" | "dark"; card: string; line: string; ink: string; dim: string; gold: string; seal: string }> = {
+  xuan: { mode: "light", card: "#F2EBDA", line: "#E0D4B8", ink: "#272320", dim: "#8A7E6C", gold: "#D59F62", seal: "#B5402E" },   // 宣紙
+  night: { mode: "dark", card: "#15120E", line: "#0D0A08", ink: "#ECE3D1", dim: "#857B68", gold: "#C4A164", seal: "#D86A52" },   // 夜觀
+  bamboo: { mode: "light", card: "#E7E9D8", line: "#A9B096", ink: "#12210F", dim: "#3C5D3E", gold: "#5C8A2E", seal: "#916B36" },   // 竹簡
+  cinnabar: { mode: "dark", card: "#220907", line: "#4E1A15", ink: "#FAE2E0", dim: "#A2756E", gold: "#E0913F", seal: "#E34234" },   // 硃砂
+  porcelain: { mode: "light", card: "#F5F8FC", line: "#A6BFDF", ink: "#001F52", dim: "#1456B8", gold: "#307FD5", seal: "#144190" },   // 青花
+};
+// @design:end widget-colors
 const PALETTES: Record<string, Palette> = {
-  // 主站那一組（前端 src/base/00-tokens-themes.css 的 :root），心跡同系
-  xuan: { mode: "light", paper: "#F2EBDA", card: "#FFFDF8", line: "#E0D5BF",
-    ink: "#221E1A", dim: "#8A7C68", gold: "#9A7B3F", seal: "#B5402E" },
-  // 卦案那一組墨底（dev/play/shell.html）
-  night: { mode: "dark", paper: "#12100E", card: "#1A1714", line: "#332C25",
-    ink: "#E8E0D4", dim: "#8B8073", gold: "#C8A86B", seal: "#A8623F" },
-  // 竹簡：竹片黃底、墨綠字，直紋是簡與簡之間的縫
-  bamboo: { mode: "light", paper: "#3E432F", card: "#CDB884", line: "#A38F5D",
-    ink: "#2C3120", dim: "#6B6444", gold: "#7A6428", seal: "#9C4A2E",
+  xuan: { ...APP_COLORS.xuan, paper: "#F2EBDA" },
+  night: { ...APP_COLORS.night, paper: "#12100E" },
+  // 竹簡：直紋是簡與簡之間的縫
+  bamboo: { ...APP_COLORS.bamboo, paper: "#3E432F",
     texture: "repeating-linear-gradient(90deg, rgba(60,48,20,.16) 0 1.5px, rgba(0,0,0,0) 1.5px 27px)" },
-  // 硃砂：赭底、砂紅印記；金字只給數字與重點
-  cinnabar: { mode: "dark", paper: "#20100D", card: "#361A15", line: "#5A2B22",
-    ink: "#F2DED4", dim: "#B08A7C", gold: "#D8A05A", seal: "#C0483A",
+  cinnabar: { ...APP_COLORS.cinnabar, paper: "#20100D",
     texture: "radial-gradient(120% 90% at 80% 0%, rgba(192,72,58,.20), rgba(0,0,0,0) 60%)" },
-  // 青瓷：釉色、冰裂
-  porcelain: { mode: "light", paper: "#C9D6CE", card: "#EDF3EF", line: "#C3D2CA",
-    ink: "#22302B", dim: "#6E8079", gold: "#5F8474", seal: "#B5402E",
+  // 青花：釉色、冰裂
+  porcelain: { ...APP_COLORS.porcelain, paper: "#C9D6CE",
     texture: "repeating-linear-gradient(63deg, rgba(34,48,43,.055) 0 1px, rgba(0,0,0,0) 1px 46px), repeating-linear-gradient(-51deg, rgba(34,48,43,.045) 0 1px, rgba(0,0,0,0) 1px 63px)" },
 };
 
