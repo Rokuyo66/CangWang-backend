@@ -7,7 +7,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
 import { tianshiLine } from "./tianshi.ts";
-import { arrangeMemories, datedDialog, parseMemoryLines, type MemRow } from "./memkind.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -29,7 +29,6 @@ export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天�
 export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（第六層惹角色生氣時反扣，見 favorAfter）
 export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（分層見 ROMANCE_AT）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
-const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸發滾動彙整
 
 // 第一人稱正規化：只有旁白（＊…＊，或舊格式（…））內的「我」轉第三人稱；其餘一律視為台詞，保留「我」。
 // 舊版反過來（「」外全轉）——台詞常裸寫不帶「」，會把台詞的「我」誤轉成牠/他（「逗我玩」變「逗牠玩」），視角穿幫。
@@ -63,7 +62,6 @@ function normalizeNarration(text: string, characterId: string): string {
   }).join("");
 }
 export const __normalizeNarration = normalizeNarration;   // 測試用（dev/narration-test.mts）
-const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【往事】你只記得上面列出的卦與往事。沒列的別編（時間、個股、他說過的話），不確定就只聊當下這句。上面若附了卦紙原文，那是你寫的，照認。";
 // 下列數字是「八成目標」——期望的可見回覆長度，不是硬上限。實際 max_tokens = 目標 ÷ 0.8，
@@ -593,21 +591,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt };
 }
 
-// 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
+// 滾動記憶彙整：把結束了的對話場次濃縮成長期記憶、再刪明細（何時收見 memkind.ts 的 condenseCount）。
 // 目的：避免記憶斷層（舊事不因滑出視窗而遺忘）＋控制 context 長度。背景跑，不拖慢回覆。
 async function condenseMemory(db: SupabaseClient, userId: string, characterId: string) {
-  const { count } = await db.from("chat_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId).eq("character_id", characterId);
-  if (!count || count <= MEMORY_CONDENSE_AT) return;
-
-  const toCondense = count - MEMORY_KEEP_RECENT;
-  if (toCondense <= 0) return;
-  const { data: oldMsgs } = await db.from("chat_messages")
+  const { data: allMsgs } = await db.from("chat_messages")
     .select("id, role, body, created_at")
     .eq("user_id", userId).eq("character_id", characterId)
-    .order("created_at", { ascending: true }).limit(toCondense);
-  if (!oldMsgs?.length) return;
+    .order("created_at", { ascending: true }).limit(400);
+  const n = condenseCount(allMsgs ?? []);
+  if (!n) return;
+  const oldMsgs = (allMsgs ?? []).slice(0, n);
 
   // 已有的記憶（供去重；不再是「拿來重寫的整段」）。取最近 12 則就夠判重複。
   let known = "";
@@ -630,7 +623,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
   const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
 
-每則一行，格式：類別｜日子｜內容。最多三則；沒有值得記的新東西，只輸出四個字：無新記憶
+每則一行，格式：類別｜日子｜內容。最多四則；沒有值得記的新東西，只輸出四個字：無新記憶
 類別只能三選一，一則只放一種，不同性質就拆成不同行：
 ・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
 ・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
@@ -640,7 +633,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
 ①事實只以護道人實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
 ②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
 ③【已記得的】裡已經有的不重寫；你曾講過未經他證實的往事或個股，絕不寫進記憶
-④每則六十字以內，繁體中文，只寫事，不加前言、說明、條列符號
+④每則八十字以內，寫清楚來龍去脈（誰、什麼事、後來怎樣），繁體中文，只寫事，不加前言、說明、條列符號
 ⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
   const batchLast = (oldMsgs[oldMsgs.length - 1] as { created_at?: string }).created_at;
@@ -926,7 +919,7 @@ ${SAFETY}
 【所學】幾知觀是道門。觀裡的人從小學五術——山、醫、命、相、卜：八字、紫微斗數、奇門、擇日、風水堪輿、三元九運、面相手相、中醫與養生，你們都學過，各有深淺；六爻是觀裡替人解卦的主業。這些是你們吃飯的本事，談起來是熟的。曆法上的事以【此刻天時】為準。
 【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，你不一定懂，但不陌生（見【觀主與護道人】）。
 
-【怎麼聊】這是即時的閒聊，你照你這個人回話。長短由話本身決定，繁體中文（台灣用字）。
+【怎麼聊】這是即時的閒聊，你照你這個人回話，像人跟人說話那樣：沒聽懂、拿不準他的意思，就問他；他說得東一句西一句，接你聽到的，不替他整理成結論。長短由話本身決定，繁體中文（台灣用字）。
 - 格式：台詞用「」、第一人稱；一口氣說的話放在同一個「」裡。動作神態放＊…＊，旁白裡你自己用他／她／牠，對方稱「你」。結尾停在完整的一句。
 - 在場：每次只有你一位在跟他說話；另外兩人可以被提到、在回憶裡、或短暫出現，不變成群聊，也不替他們說出內心。
 - 分寸：身體接觸照【好感分層】；任何層級不寫性與情慾。不跳出角色講政策或 AI。

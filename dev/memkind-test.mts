@@ -6,7 +6,7 @@
 // 跑法：node dev/memkind-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { kindOf, isDormant, arrangeMemories, parseMemoryLines, datedDialog } = await import("../supabase/functions/_shared/memkind.ts");
+const { kindOf, isDormant, arrangeMemories, parseMemoryLines, datedDialog, condenseCount } = await import("../supabase/functions/_shared/memkind.ts");
 const { parseDay, twDay } = await import("../supabase/functions/_shared/days.ts");
 
 let pass = 0, fail = 0;
@@ -23,7 +23,7 @@ ok("其人不綁日子", out[2].kind === "trait" && out[2].happened_on === null)
 ok("跨年：12/31 在 1/2 的批次裡是去年", parseMemoryLines("事件|12/31|跨年", "2027-01-02T04:00:00Z")[0].happened_on === "2026-12-31");
 ok("認不出格式照存", parseMemoryLines("他說他養了一隻貓", "2026-09-30T10:00:00Z")[0].kind === null);
 ok("無新記憶 → 空", parseMemoryLines("無新記憶", "2026-09-30T10:00:00Z").length === 0);
-ok("最多三則", parseMemoryLines("事件|1/1|a\n事件|1/2|b\n事件|1/3|c\n事件|1/4|d", "2026-09-30T10:00:00Z").length === 3);
+ok("最多四則", parseMemoryLines("事件|1/1|a\n事件|1/2|b\n事件|1/3|c\n事件|1/4|d\n事件|1/5|e", "2026-09-30T10:00:00Z").length === 4);
 
 // 舊資料判類：截圖那一則會被當狀態
 const old = { body: "護道人最近因為台股大跌三千承受巨大壓力，情緒波動大，後來股票漲回來了才平復", created_at: "2026-09-30T08:00:00Z" };
@@ -53,6 +53,21 @@ const dlg = datedDialog([
   { role: "user", body: "b", created_at: "2026-09-27T17:00:00Z" },   // 台北 9/28 01:00
 ], (m) => m.body);
 ok("逐日標台北日期", dlg === "〔9/27〕\na\n〔9/28〕\nb");
+
+// 何時形成回憶：以一場對話為單位
+const T0 = Date.parse("2026-10-01T10:00:00+08:00");
+const series = (n: number, start: number, stepMin = 2) => Array.from({ length: n }, (_, i) => ({ created_at: new Date(start + i * stepMin * 60_000).toISOString() }));
+const live = series(60, T0);                                   // 一場還在聊的 60 則
+ok("一場還在聊、沒超過上限：不收", condenseCount(live, T0 + 60 * 2 * 60_000) === 0);
+const twoSessions = [...series(30, T0), ...series(10, T0 + 6 * 3600_000)];   // 上一場 30 則，這一場 10 則
+ok("上一場結束，但扣掉最近 32 則只剩 8 則：先不收，免得又是一則短回憶", condenseCount(twoSessions, T0 + 6 * 3600_000 + 20 * 60_000) === 0);
+const bigOld = [...series(50, T0), ...series(10, T0 + 6 * 3600_000)];
+ok("上一場 50 則：收到只剩最近 32 則", condenseCount(bigOld, T0 + 6 * 3600_000 + 20 * 60_000) === 28);
+const ended = series(70, T0);
+ok("最後一場也結束了：一併收", condenseCount(ended, T0 + 70 * 2 * 60_000 + 4 * 3600_000) === 38);
+const small = [...series(10, T0), ...series(30, T0 + 8 * 86400_000)];
+ok("零星幾句放了一週：照收", condenseCount(small, T0 + 8 * 86400_000 + 70 * 60_000) === 8);
+ok("一場聊太長（過 112 則）：先收舊的", condenseCount(series(120, T0), T0 + 120 * 2 * 60_000) === 88);
 
 // 起居注解析
 const day = parseDay("【大師兄】\n・後院的木樁裂了，他削了一根新的\n・師傅又踩了卦紙\n【師妹】\n・醃了一罈蘿蔔\n【觀貓】\n・在屋脊上睡了一下午");
