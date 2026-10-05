@@ -238,6 +238,7 @@ async function wallResponse(): Promise<Response> {
 // 觀前廣場列表（免認證唯讀）：作者暱稱/頭像兩段式查 profiles（不巢狀嵌入，同石牆做法）
 // 討論區形式：列表只回標題列所需（標題/作者/頭像/讚/回文數/有無盤面），全文由 post_detail 取
 const POST_PAGE = 10;                        // 每頁貼文數（前端數字分頁一頁 10 篇）
+const HISTORY_MAX = 2000;   // history 一次最多回幾卦（三個月窗口的保險上限）
 const POST_TYPES = ["cast", "thread", "chat_story"];
 type PostRow = {
   id: string; user_id: string; type: string; title: string;
@@ -1391,11 +1392,16 @@ async function handle(req: Request): Promise<Response> {
 
     // 卦曆列表
     if (body.mode === "history") {
+      // 卦曆、心跡、斷線復原共用：最近三個月的卦（六六 2026-10-05：原本固定撈最近 60 卦，
+      // 起卦多的人月曆往前翻就空了）。HISTORY_MAX 是保險，一天問二十卦連問三個月也裝得下。
+      // 三個月與 cleanup_expired_casts 的 90 天對齊：再舊的未印證卦本來就會被清。
+      const since = new Date(); since.setMonth(since.getMonth() - 3);
       const { data: casts } = await db.from("casts")
         // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
         .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)")
-        .eq("user_id", uid).order("created_at", { ascending: false }).limit(60);
-      return Response.json({ kind: "ok", casts: casts ?? [] }, { headers: CORS });
+        .eq("user_id", uid).gte("created_at", since.toISOString())
+        .order("created_at", { ascending: false }).limit(HISTORY_MAX);
+      return Response.json({ kind: "ok", casts: casts ?? [], since: since.toISOString() }, { headers: CORS });
     }
 
     // 重溫單卦（含追問串）
