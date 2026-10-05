@@ -87,7 +87,7 @@ const AH_KEYS = ["a","b","c","d","e","f","g","h"];
 // 【2026-09-02 改】原本是「註冊 5 張，7／14／21 各解一張」，最後一張要累計 21 次。
 // 觀主的設計意圖是「14 次就該全開」，所以改成註冊 6 張、7 與 14 各解一張。
 // 這裡算的一直是 signin_total（累計），不是 sign_streak——斷簽補簽都不影響頭像進度。
-// 前端 part2.html 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
+// 前端 src/main/10-avatars.js 的 AH_FREE／AH_PER／ahNeedFor 是這條式子的鏡像，改這裡要一起改。
 const AH_FREE = 6;
 const AH_PER = 7;
 /** 本月還剩幾次免費朗讀。只有最高階有，其餘階恆為 0——

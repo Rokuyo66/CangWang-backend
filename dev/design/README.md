@@ -26,5 +26,5 @@
 開新會議套用時：
 
 1. 讀那份 artifact（Artifact 工具的 `read`），頁面「待套用」一區有逐項清單與一段說明；狀態在 `<script id="spec-state">` 那包 JSON。
-2. 照說明改前端（主題色碼在 `src/part1.html`，按鈕在 `src/styles/motion.css`）。
+2. 照說明改前端（主題色碼在 `src/base/00-tokens-themes.css`，按鈕在 `src/styles/motion.css`；2026-10-05 前是 `src/part1.html`）。
 3. 把 artifact 的狀態寫回 `style/state.json`，並把 `baseline` 設成新值（套用完就沒有待套用），重跑 build、重新發佈同一個網址。

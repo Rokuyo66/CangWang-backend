@@ -30,7 +30,7 @@ interface Palette {
 }
 
 const PALETTES: Record<string, Palette> = {
-  // 主站那一組（src/part1.html 的 :root），心跡同系
+  // 主站那一組（前端 src/base/00-tokens-themes.css 的 :root），心跡同系
   xuan: { mode: "light", paper: "#F2EBDA", card: "#FFFDF8", line: "#E0D5BF",
     ink: "#221E1A", dim: "#8A7C68", gold: "#9A7B3F", seal: "#B5402E" },
   // 卦案那一組墨底（dev/play/shell.html）

@@ -209,7 +209,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 (function(){
   "use strict";
   /* ══ 狀態 ══
-     baseline：站上現在的色碼（前端 src/part1.html 的 :root 與五套 [data-theme]）——比對「改了什麼」的基準。
+     baseline：站上現在的色碼（前端 src/base/00-tokens-themes.css 的 :root 與五套 [data-theme]）——比對「改了什麼」的基準。
      themes：目前的色碼（編輯中）。buttons：按鈕是否跟基礎色碼連動，斷開時每套主題各自的四色。
      saved：上一次存檔時的樣子，用來判斷「有沒有還沒存的修改」。存檔＝把整份頁面連同這包狀態重新發佈。 */
   const STATE = JSON.parse(document.getElementById("spec-state").textContent);
@@ -515,7 +515,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     p.filter((c) => c.kind === "token").forEach((c) => { (byTheme[c.theme] = byTheme[c.theme] || []).push(c); });
     const sel = { xuan: ":root", night: '[data-theme="night"]', bamboo: '[data-theme="bamboo"]', cinnabar: '[data-theme="cinnabar"]', porcelain: '[data-theme="porcelain"]' };
     let s = `請依美術規範套用以下修改（規範：後端 dev/design/style/，已存檔的 artifact 為準）。\n`;
-    s += `1. 前端 src/part1.html 的主題色碼改成：\n`;
+    s += `1. 前端 src/base/00-tokens-themes.css 的主題色碼改成：\n`;
     Object.keys(byTheme).forEach((t) => {
       s += `   ${sel[t]}{ ` + byTheme[t].map((c) => `--${c.key}:${norm(c.to)};`).join(" ") + ` }\n`;
     });
