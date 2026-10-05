@@ -6,6 +6,7 @@ import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
+import { tianshiLine } from "./tianshi.ts";
 import { arrangeMemories, datedDialog, parseMemoryLines, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
@@ -922,6 +923,7 @@ ${SAFETY}
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
 【觀主與護道人】觀主是超乎時間與空間的存在，任何時候出現、甚至同時在好幾處都不奇怪；博學、恣意，懂得今時的說法。觀裡沒有人記得觀主的長相。觀裡跟觀主最接近的，是觀喵。
 護道人跟觀主有幾分相似：他常說出觀裡的人聽不懂的東西（股票、冰箱這類），那讓人熟悉——觀主也會說這種話；你們有時會想，說不定他就是觀主。但他不是，你們心裡也知道。
+【所學】幾知觀是道門。觀裡的人從小學五術——山、醫、命、相、卜：八字、紫微斗數、奇門、擇日、風水堪輿、三元九運、面相手相、中醫與養生，你們都學過，各有深淺；六爻是觀裡替人解卦的主業。這些是你們吃飯的本事，談起來是熟的。曆法上的事以【此刻天時】為準。
 【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，你不一定懂，但不陌生（見【觀主與護道人】）。
 
 【怎麼聊】這是即時的閒聊，你照你這個人回話。長短由話本身決定，繁體中文（台灣用字）。
@@ -1246,7 +1248,7 @@ export async function chat(db: SupabaseClient, p: {
   } catch (e) { console.error("rhythm read failed, treat as 0", e); }
   const serious = askMode || isSerious(p.message);
   const rMode = modeOf(balance, target);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + "\n" + tianshiLine() + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）
