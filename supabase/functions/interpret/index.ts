@@ -3,7 +3,7 @@
 //  · TG/Mini App 後端內部呼叫：x-internal-key（沿用，向後相容）
 import { whereaboutsAll } from "../_shared/whereabouts.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { castAndInterpret, followupInterpret, deepenCast, commentCast } from "../_shared/pipeline.ts";
+import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAfterReview } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetState } from "../_shared/widget-state.ts";
@@ -1404,9 +1404,14 @@ async function handle(req: Request): Promise<Response> {
         .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, feedback(verdict, note)")
         .eq("id", body.cast_id).eq("user_id", uid).maybeSingle();
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
-      const { data: fus } = await db.from("followups").select("question, answer, created_at")
+      // ask：那一答末尾的反問（已含在 answer 裡，另給一份讓前端畫樣式）；revised：那一答做了修正
+      const fuq = (cols: string) => db.from("followups").select(cols)
         .eq("cast_id", body.cast_id).order("created_at", { ascending: true });
-      return Response.json({ kind: "ok", cast: c, followups: fus ?? [] }, { headers: CORS });
+      let { data: fuRaw, error: fusErr } = await fuq("question, answer, created_at, ask, revision");
+      if (fusErr) ({ data: fuRaw } = await fuq("question, answer, created_at"));   // 0078 未跑的兜底
+      const fus = ((fuRaw ?? []) as unknown as Record<string, unknown>[])
+        .map(({ revision, ...f }) => ({ ...f, ask: f.ask ?? null, revised: !!revision }));
+      return Response.json({ kind: "ok", cast: c, followups: fus }, { headers: CORS });
     }
 
     // 應期回評：1準 2部分 3不準（回評後修為+50，紅點消）＋選填評語（可匿名公開到觀前石牆）
@@ -1418,9 +1423,12 @@ async function handle(req: Request): Promise<Response> {
       const note = String(body.note ?? "").trim().slice(0, 120);
       const isPublic = body.is_public === true && note.length > 0;
       // 只有「首次回評」才發修為與靈石（防重複送出刷獎）；後續仍可改寫評語但不再發獎
-      const { data: prevFb } = await db.from("feedback").select("verdict").eq("cast_id", body.cast_id).maybeSingle();
+      const { data: prevFb } = await db.from("feedback").select("verdict, note").eq("cast_id", body.cast_id).maybeSingle();
       const firstTime = !(prevFb && prevFb.verdict && prevFb.verdict > 0);
       await db.from("feedback").upsert({ cast_id: body.cast_id, user_id: uid, verdict: v, note: note || null, is_public: isPublic, answered_at: new Date().toISOString() }, { onConflict: "cast_id" });
+      // 反芻：回評一成立就背景去想這卦錯在哪（見 _shared/reflect.ts）。
+      // 只在準不準或心得真的變了才重跑——只改「公開與否」不值得再花一次模型。
+      if (firstTime || prevFb?.verdict !== v || (prevFb?.note ?? "") !== note) reflectAfterReview(db, body.cast_id);
       let lingshi = 0;
       if (firstTime) {
         const { data: uc } = await db.from("user_character").select("cultivation").eq("user_id", uid).eq("character_id", c.character_id).maybeSingle();
