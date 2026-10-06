@@ -38,7 +38,7 @@ ok("記憶附上時態提醒", a.tail.includes("都是那天的事"));
 ok("你這個人在 tail、不在 head", a.tail.includes("【你這個人】") && !a.head.includes("【你這個人】"));
 ok("大師兄未到第四層：不接情緒", !mindLine("daoshi_m", 649).includes("笨拙"));
 ok("大師兄第四層（650）：笨拙共情", mindLine("daoshi_m", 650).includes("笨拙"));
-ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("懂人的感受"));
+ok("師妹初識就共情", mindLine("daoshi_f", 0).includes("懂人的感受") && mindLine("daoshi_f", 0).includes("外人") && mindLine("daoshi_f", 900).includes("高級的酸"));
 ok("觀喵第一層：懶得搭理", mindLine("lingshou", 299).includes("不熟"));
 ok("觀喵第二層（300）：安慰、無大道理", mindLine("lingshou", 300).includes("安慰") && !mindLine("lingshou", 300).includes("道理"));
 ok("觀喵第三層（500）：講大道理", mindLine("lingshou", 500).includes("道理"));
