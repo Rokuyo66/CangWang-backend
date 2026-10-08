@@ -17,6 +17,20 @@ import { COST } from "./prices.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
+// 先想再答（六六 2026-10-08：閒聊與其講一堆話，不如給正確有感的反應）。
+// 想的部分不顯示、不算進回覆長度（節奏帳本只算看得到的字），但照輸出價計費。
+//   adaptive：4.6 之後的模型（Haiku 5.5、Sonnet 4.6/5/5.5……）——模型自己決定想多少，effort 控深淺
+//   budget：Haiku 4.5 只能給固定預算（至少 1024），成本會比回覆本身還高，預設不開
+// CHAT_THINKING=off 全關；=on 連 Haiku 4.5 也開。CHAT_EFFORT：low（預設）／medium／high。
+const CHAT_THINKING = Deno.env.get("CHAT_THINKING") ?? "auto";
+const CHAT_EFFORT = Deno.env.get("CHAT_EFFORT") ?? "low";
+const THINK_HEADROOM = Number(Deno.env.get("CHAT_THINK_HEADROOM") ?? "3000");   // 想的部分也吃 max_tokens，另外加
+export function chatThinking(model: string, mode = CHAT_THINKING): "adaptive" | "budget" | null {
+  if (mode === "off") return null;
+  if (/^claude-(haiku-5|sonnet-5|opus-5|fable|mythos|sonnet-4-6|opus-4-[678])/.test(model)) return "adaptive";
+  if (mode === "on" && /^claude-(haiku-4-5|sonnet-4-5|opus-4-5)/.test(model)) return "budget";
+  return null;
+}
 const GROQ_MODEL = Deno.env.get("GROQ_MODEL") ?? "openai/gpt-oss-120b"; // Groq 免費層（llama-3.3-70b 已停用，改用 gpt-oss-120b）
 const NVIDIA_MODEL = Deno.env.get("NVIDIA_MODEL") ?? "meta/llama-3.1-8b-instruct";
 // 免費層每家的硬超時（毫秒）：超時就立刻換下一家，盡量不掉罐頭
@@ -986,13 +1000,20 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
     { type: "text", text: system.tail },
   ];
   const messages = [...turns.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.body })), { role: "user", content: message }];
+  const think = chatThinking(CHAT_MODEL);
+  const thinkBody = think === "adaptive"
+    ? { thinking: { type: "adaptive" }, output_config: { effort: CHAT_EFFORT }, max_tokens: maxTokens + THINK_HEADROOM }
+    : think === "budget"
+    ? { thinking: { type: "enabled", budget_tokens: 1024 }, max_tokens: maxTokens + 1024 }
+    : { max_tokens: maxTokens };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000); // 10 秒硬超時，避免卡住整個 function 被 EarlyDrop
+  // 硬超時，避免卡住整個 function 被 EarlyDrop；先想再答要多給一點時間
+  const timer = setTimeout(() => ctrl.abort(), think ? 25000 : 10000);
   try {
     const res = await fetch(ANTHROPIC_API, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: CHAT_MODEL, max_tokens: maxTokens, system: sysField, messages }),
+      body: JSON.stringify({ model: CHAT_MODEL, system: sysField, messages, ...thinkBody }),
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`haiku ${res.status}: ${await res.text()}`);
@@ -1009,6 +1030,8 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
         cacheWrite: data.usage?.cache_creation_input_tokens ?? 0,
         cacheRead: data.usage?.cache_read_input_tokens ?? 0,
       },
+      // 看得到的回覆有多長（節奏帳本用）。開了思考時 output_tokens 含想的部分，只能照字數估
+      visibleOut: think ? Math.ceil(text.length * 1.2) : (data.usage?.output_tokens ?? Math.ceil(text.length * 1.2)),
       estimated: !data.usage,
     };
   } finally {
@@ -1257,7 +1280,7 @@ export async function chat(db: SupabaseClient, p: {
     try {
       const h = await callHaiku(system, ctx.turns, p.message, maxTok);
       reply = h.text;
-      outTok = h.usage.out;
+      outTok = h.visibleOut;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
     } catch (e) {
@@ -1326,7 +1349,7 @@ export async function chat(db: SupabaseClient, p: {
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
         const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
-        if (cand) { reply = cand; effMarks = m2; outTok = h2.usage.out; }
+        if (cand) { reply = cand; effMarks = m2; outTok = h2.visibleOut; }
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
