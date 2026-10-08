@@ -4,9 +4,11 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { QUESTION_CRAFT } from "./rules.ts";
 import { s2t } from "./chat.ts";
 import { logUsage } from "./services.ts";
+import { noThinking } from "./model-params.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-const REFINE_MODEL = Deno.env.get("REFINE_MODEL") ?? "claude-haiku-4-5-20251001";
+// Haiku 5.5：單價是 4.5 的十分之一；擬題不需要想，思考由 noThinking 關掉（不關的話預設會想、吃掉 400 的額度）
+const REFINE_MODEL = Deno.env.get("REFINE_MODEL") ?? "claude-haiku-5-5";
 const REFINE_TIMEOUT_MS = Number(Deno.env.get("REFINE_TIMEOUT_MS") ?? "6000");
 export const REFINE_PER_DAY = Number(Deno.env.get("REFINE_PER_DAY") ?? "20"); // 每人每日預檢上限（防刷；超過靜默放行）
 
@@ -112,7 +114,8 @@ export async function refineQuestion(db: SupabaseClient, p: { userId: string; qu
       },
       body: JSON.stringify({
         model: REFINE_MODEL,
-        max_tokens: 400,
+        max_tokens: 400 + noThinking(REFINE_MODEL).headroom,
+        ...noThinking(REFINE_MODEL).body,
         system: [{ type: "text", text: REFINE_SYS, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: `【護道人的原話】\n${q}\n\n【本地預檢認為的毛病（僅供參考，你可推翻）】\n${pre.issues.join("；")}` }],
       }),

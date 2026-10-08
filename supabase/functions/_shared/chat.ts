@@ -14,9 +14,11 @@ import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rh
 import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 import { COST } from "./prices.ts";
+import { noThinking } from "./model-params.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
+// 2026-10 起預設 Haiku 5.5（$0.10/$0.50，4.5 的十分之一），先想再答見 chatThinking
+const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-5-5";
 // 先想再答（六六 2026-10-08：閒聊與其講一堆話，不如給正確有感的反應）。
 // 想的部分不顯示、不算進回覆長度（節奏帳本只算看得到的字），但照輸出價計費。
 //   adaptive：4.6 之後的模型（Haiku 5.5、Sonnet 4.6/5/5.5……）——模型自己決定想多少，effort 控深淺
@@ -94,7 +96,8 @@ const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
 };
 const capOf = (t: number) => Math.round(t / REPLY_HEADROOM);   // 八成目標 → 硬上限
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
-export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
+// 2026-10-08 由 8 → 15：Haiku 5.5 一則約 NT$0.01，多 7 句一個月不到 NT$3，換的是上鉤的力道
+export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
 // 閒聊依方案分級。改成本表之前，免費層每日 15 句約佔免費成本的四成四，
 // 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
 // 2026-09-22：觀微 20→12、知幾 50→30。閒聊單價低（NT$0.07／則）但額度大，
@@ -154,10 +157,16 @@ export function favorTierName(favor: number): string {
 // 之後照常每則 +1，慢慢爬回來。什麼算不喜歡，交給人設與模型自己發揮。
 export const SULK_AT = ROMANCE_AT[4];
 export const FAVOR_SULK = Number(Deno.env.get("FAVOR_SULK") ?? "5");
-export function favorAfter(favor: number, sulk: boolean): number {
+export function favorAfter(favor: number, sulk: boolean, cap = FAVOR_CAP): number {
   if (sulk && favor >= SULK_AT) return favor - FAVOR_SULK;
-  return Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
+  return Math.max(favor, Math.min(cap, favor + FAVOR_PER_CHAT));   // 封頂只擋往上長，不會把已經過頂的扣回來
 }
+/* 無牒的閒聊好感封頂在第一層門檻前（六六 2026-10-08）。
+   閒聊換 Haiku 5.5 之後一則約 NT$0.01，句數已經不是成本問題，不必用句數卡人；
+   要卡的是感情線：聊天能把人帶到「快要相熟」，看得到他變溫柔，再往上要靠問卦（起卦 +3、追問 +2，
+   pipeline.ts addCultivation）或持牒。無牒用靈石買的閒聊也算在內——否則簽到石就能繞過這道頂。 */
+export const FREE_CHAT_FAVOR_CAP = Number(Deno.env.get("FREE_CHAT_FAVOR_CAP") ?? String(ROMANCE_AT[0] - 1));
+export const chatFavorCap = (plan: string) => plan === "free" ? FREE_CHAT_FAVOR_CAP : FAVOR_CAP;
 
 // 跳級偵測：比目前層級更親的「真‧親密片語」。只收帶「你」的多字片語——
 // 舊版收過 撫/揉/低聲/抱住 這類單字，大師兄抱住卦書、撫過卦紙也會命中，害重生狂跳針。
@@ -1005,7 +1014,8 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
     ? { thinking: { type: "adaptive" }, output_config: { effort: CHAT_EFFORT }, max_tokens: maxTokens + THINK_HEADROOM }
     : think === "budget"
     ? { thinking: { type: "enabled", budget_tokens: 1024 }, max_tokens: maxTokens + 1024 }
-    : { max_tokens: maxTokens };
+    // 不想（CHAT_THINKING=off，或模型不支援）：新一代不帶參數也會想，要明確關掉，否則吃掉回覆額度
+    : { ...noThinking(CHAT_MODEL).body, max_tokens: maxTokens + noThinking(CHAT_MODEL).headroom };
   const ctrl = new AbortController();
   // 硬超時，避免卡住整個 function 被 EarlyDrop；先想再答要多給一點時間
   const timer = setTimeout(() => ctrl.abort(), think ? 25000 : 10000);
@@ -1147,6 +1157,7 @@ export interface ChatResult {
   reply: string;
   tier: "haiku" | "free" | "canned";
   favorLeft: number;   // 聊天後的好感（第六層可能反扣）
+  favorCapped: boolean; // 無牒、閒聊好感已到頂（FREE_CHAT_FAVOR_CAP）：前端提示「再往上靠問卦或持牒」
   cost: number;        // 本則扣的靈石（免費為 0）
   freeLeft: number;    // 今日剩餘免費聊天則數
   lingshiLeft: number; // 聊天後靈石餘額
@@ -1212,7 +1223,7 @@ export async function chat(db: SupabaseClient, p: {
   if (crisis) {
     logCrisis("chat", p.userId, crisis);
     return {
-      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor,
+      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor, favorCapped: false,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
@@ -1226,7 +1237,7 @@ export async function chat(db: SupabaseClient, p: {
       lingshou: "＊觀貓把爪子壓在你手背上＊\n\n吵。一分鐘轟這麼多句，本喵要順毛，等等再說。",
     };
     return {
-      reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
+      reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor, favorCapped: false,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
@@ -1396,7 +1407,7 @@ export async function chat(db: SupabaseClient, p: {
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
   let favorNew = favor;
   if (tier !== "canned") {
-    favorNew = favorAfter(favor, effMarks.sulk);
+    favorNew = favorAfter(favor, effMarks.sulk, chatFavorCap(p.plan ?? "free"));
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
   // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。
@@ -1439,7 +1450,7 @@ export async function chat(db: SupabaseClient, p: {
   }
 
   return {
-    reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
+    reply, tier, favorLeft: favorNew, favorCapped: (p.plan ?? "free") === "free" && favorNew >= FREE_CHAT_FAVOR_CAP, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
     probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId, found,
   };
 }

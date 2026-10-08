@@ -1455,7 +1455,7 @@ async function handle(req: Request): Promise<Response> {
     if (body.mode === "chat") {
       const r = await chat(db, { userId: uid, characterId: body.character_id, message: String(body.message ?? ""), plan: await planOf(db, uid), where: body.where });
       return Response.json({
-        kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, cost: r.cost,
+        kind: "ok", reply: r.reply, tier: r.tier, favorLeft: r.favorLeft, favorCapped: r.favorCapped, cost: r.cost,
         freeLeft: r.freeLeft, lingshiLeft: r.lingshiLeft, wantCast: r.wantCast,
         probe: r.probe,                                    // 探詢輪：前端不出起卦鈕
         draft: r.draft, draftYong: r.draftYong,            // 擬題：前端出確認卡，用神可直通

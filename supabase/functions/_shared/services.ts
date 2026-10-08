@@ -7,6 +7,7 @@ import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES
 import type { Qian } from "./qian60.ts";
 import { COST } from "./prices.ts";
 import { REFLECT_RULES } from "./reflect.ts";
+import { isNewTokenizer, noThinking } from "./model-params.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -108,28 +109,26 @@ const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
 // 主打 KIMI（如 FORCE 測試中）時備援自動反向回 Sonnet。
 const FALLBACK_KIMI = Deno.env.get("INTERPRET_FALLBACK_MODEL") ?? "kimi-k2.6";
 const FALLBACK_CLAUDE = Deno.env.get("INTERPRET_FALLBACK_CLAUDE") ?? "claude-sonnet-4-6";
-// 4.7 以後的世代（Opus 4.7/4.8/5、Sonnet 5、Fable）換了 tokenizer，同一段文字約多出三成 token。
-// MODE_LIMITS 是照舊 tokenizer 調出來的長度，不放大就會多出一批斷半句的回覆。
+// 新 tokenizer 的世代（isNewTokenizer，model-params.ts）同一段文字約多出三成 token，MODE_LIMITS 要放大。
 // 係數是官方給的英文概估，中文實際比例以 ai_usage 實測為準，可用 TOKENIZER_SCALE 調。
-const isNewTokenizer = (m: string) => /^claude-(opus-4-[78]|opus-5|sonnet-5|fable|mythos)/.test(m);
 const TOKENIZER_SCALE = Number(Deno.env.get("TOKENIZER_SCALE") ?? "1.3");
-// Sonnet 5／Opus 5 不帶 thinking 參數時預設開啟思考，思考 token 計入 max_tokens，
-// 會把只有幾百到幾千的正文額度吃掉。解卦不需要外顯推理 → 明確關閉。
-// Opus 5.5 以後關不掉（帶 disabled 回 400），不在此列；那一代要改用 effort 控制，換之前須另行處理。
-const thinkingOnByDefault = (m: string) => /^claude-(sonnet|opus)-5(?!-\d)/.test(m);
+// 解卦不需要外顯推理：每一代關掉思考的寫法不同（寫錯是 400），統一由 model-params.ts 的 noThinking 給。
 // 模型分流：初解（cast）與完整卦理（deepen）用 Sonnet——首解定用神生剋吉凶、是全卦之錨。
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
 // 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
 // INTERPRET_FORCE_MODEL：管理者測試用，設了則所有 interpret 呼叫強制用該模型。
+// 換 Sonnet 5.5（$2/$10，現行 4.6 是 $3/$15）：先用 dev/model-ab.mts 對同一批盤面並排比過，
+// 再設 INTERPRET_MODEL_CAST／LITE／DEEP=claude-sonnet-5-5，不必改程式（關思考的參數 noThinking 已備好）。
 const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-sonnet-4-6";
 const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
 const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
 // 日運卦用 Haiku：等第與取籤都由程式算定，模型只負責把等第與籤意寫成角色聲線的短文，
 // 不承擔任何卦理判斷。這是免費且每人每日一次的功能，成本必須壓住。
-const MODEL_FORTUNE = Deno.env.get("INTERPRET_MODEL_FORTUNE") ?? "claude-haiku-4-5-20251001";
+// 2026-10：Haiku 5.5 單價是 4.5 的十分之一（$0.10/$0.50），思考由 noThinking 關掉。
+const MODEL_FORTUNE = Deno.env.get("INTERPRET_MODEL_FORTUNE") ?? "claude-haiku-5-5";
 // 月誌卷首語：短輸出、不碰卦理、每人每月一次。用 haiku 是刻意的——
 // 它是心跡唯一的 AI 開銷，換成 sonnet 就會讓「訂閱不賣 AI 次數」這條線失守。
-const MODEL_MONTHLY = Deno.env.get("INTERPRET_MODEL_MONTHLY") ?? "claude-haiku-4-5-20251001";
+const MODEL_MONTHLY = Deno.env.get("INTERPRET_MODEL_MONTHLY") ?? "claude-haiku-5-5";
 const FORCE_MODEL = Deno.env.get("INTERPRET_FORCE_MODEL");
 // 各 mode 輸出 token 上限：精簡層絕不給長篇額度，完整卦理才給大額度
 const MODE_LIMITS: Record<string, number> = { cast: 1000, followup: 800, comment: 600, deepen: 4000, deepen_cont: 1600, fortune: 600, monthly: 500, reflect: 900 };
@@ -158,9 +157,10 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   reflect?: { input: string }; // 回評後反省（reflect.ts）：chartText 不用，盤面已在 input 裡
   priority?: string;         // 判法輕重（reflect.loadPriorityBlock）；空字串＝沒有偏離常規的判法
   userNotes?: string;        // 這位問卦人過往印證留下的提醒（reflect.loadUserNotes）
+  model?: string;            // 只給 dev/model-ab.mts 用：同一盤面指定模型並排比；線上呼叫端不帶
 }) {
   const mode = opts.reflect ? "reflect" : opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
-  const model = FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
+  const model = opts.model || FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
   // 反省接在 RULES 後面而不是自成一份：前綴與初解同一份，快取共用，九千字規則只付一成。
   const ruleText = opts.reflect ? RULES : opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
   // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
@@ -285,7 +285,8 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         rawOut: data.usage?.completion_tokens,
       };
     }
-    const maxTokens = isNewTokenizer(m) ? Math.ceil(baseMaxTokens * TOKENIZER_SCALE) : baseMaxTokens;
+    const think = noThinking(m);
+    const maxTokens = (isNewTokenizer(m) ? Math.ceil(baseMaxTokens * TOKENIZER_SCALE) : baseMaxTokens) + think.headroom;
     const claudeMessages = partial
       ? [...messages, { role: "assistant", content: partial }, { role: "user", content: CONTINUE_ASK }]
       : messages;
@@ -297,8 +298,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: m, max_tokens: maxTokens, system: sys, messages: claudeMessages,
-        ...(thinkingOnByDefault(m) ? { thinking: { type: "disabled" } } : {}),
+        model: m, max_tokens: maxTokens, system: sys, messages: claudeMessages, ...think.body,
       }),
     });
     let res = await post(system);
