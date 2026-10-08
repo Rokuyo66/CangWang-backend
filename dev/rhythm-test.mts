@@ -71,5 +71,7 @@ t("平常模式不加提示；收斂帶角色口吻", () => {
   if (!rhythmHint("tight", "lingshou").includes("看他一眼")) throw new Error("觀喵收斂沒帶口吻");
 });
 
+t("充裕時不提示（說多長由角色決定）", () => { eq(rhythmHint("free", "daoshi_m"), ""); });
+
 console.log(`\n${pass} 過、${fail} 敗`);
 if (fail) process.exit(1);

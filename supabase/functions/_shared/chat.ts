@@ -401,10 +401,11 @@ async function titleVoiceHint(db: SupabaseClient, userId: string, characterId: s
   const { data: uc } = await db.from("user_character").select("title_tag")
     .eq("user_id", userId).eq("character_id", characterId).maybeSingle();
   const id = uc?.title_tag;
-  if (!id) return "";                                   // 沒選＝用預設，不多注一句
+  // 沒選＝前端顯示的預設身分（seq 0，大師兄是「代理掌門」）。以前這裡直接不注，
+  // 結果畫面上掛著代理掌門，模型卻不知道，代理與掌門分不出來（六六 2026-10-08）。
   // 綁 character_id 一起查：別人的身分套不到這個角色身上（前端傳什麼都一樣）
-  const { data: t } = await db.from("character_titles").select("label, voice_hint")
-    .eq("id", id).eq("character_id", characterId).maybeSingle();
+  const q = db.from("character_titles").select("label, voice_hint").eq("character_id", characterId);
+  const { data: t } = await (id ? q.eq("id", id) : q.order("seq", { ascending: true }).limit(1)).maybeSingle();
   if (!t) return "";
   return `【你此刻的身分】${t.label}${t.voice_hint ? `——${t.voice_hint}` : ""}`;
 }
