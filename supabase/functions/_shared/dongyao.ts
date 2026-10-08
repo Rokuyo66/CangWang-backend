@@ -26,6 +26,7 @@
 //   故作用鏈中另列一行。日辰入卦時，該爻與日辰本體同源，勿重複計次。
 
 import { ZHI, YAO_NAMES, chartText, type Chart } from "./core.ts";
+import { yingqiText } from "./yingqi.ts";
 
 /* ═══════════════ 卦理常數（與 core.ts 同源；derive 自 ZHI，見 selfCheck） ═══════════════ */
 
@@ -326,6 +327,8 @@ export function selfCheck(): string[] {
 /** 送進模型的完整盤面＝core.ts 的排盤文字 ＋ 本檔的動爻區塊。
  *  所有解卦路徑（首解、追問、評卦、展開、日運）一律走這裡，不再直接用 chartText，
  *  免得又出現「某條路徑看得到動爻判定、某條看不到」的分歧。 */
-export function chartTextFull(c: Chart, question: string): string {
-  return `${chartText(c, question)}\n\n${dongyaoText(c)}`;
+export function chartTextFull(c: Chart, question: string, opts: { today?: { y: number; m: number; d: number }; calendar?: boolean } = {}): string {
+  // 應期日曆（yingqi.ts）：干支換西曆由程式查表，模型照抄。日運不給應期，傳 calendar:false 省掉這段。
+  const cal = opts.calendar === false ? "" : yingqiText(c.date, opts.today);
+  return `${chartText(c, question)}\n\n${dongyaoText(c)}${cal ? `\n\n${cal}` : ""}`;
 }

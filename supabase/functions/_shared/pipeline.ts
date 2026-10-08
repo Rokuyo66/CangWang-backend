@@ -306,7 +306,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
   const yo = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
-  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
+  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }), {
     followup: {
       prevReading: cast.reading ?? "", question: p.question,
       history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
@@ -444,7 +444,7 @@ export async function commentCast(db: SupabaseClient, p: {
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.newCharacterId).single();
   const chart = cast.chart as Chart;
-  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? ""), {
+  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
     priority: await loadPriorityBlock(db),
@@ -475,7 +475,7 @@ export async function deepenCast(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
-  const ctext = chartTextFull(chart, cast.question ?? "");
+  const ctext = chartTextFull(chart, cast.question ?? "", { today: nowTaipei() });
   const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
   try {
     const priority = await loadPriorityBlock(db);

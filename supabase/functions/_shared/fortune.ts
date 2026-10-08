@@ -165,7 +165,7 @@ export async function dailyFortune(db: SupabaseClient, p: {
     const jieqi = jieqiOf(y, m, d);
 
     const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
-    const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, FORTUNE_QUESTION), {
+    const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, FORTUNE_QUESTION, { calendar: false }), {
       fortune: { tierLabel, qian, jieqiLine: jieqi.line },
     });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
