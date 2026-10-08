@@ -1,10 +1,13 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
-import { whereNow, whereHint, tryHiddenFound, sinceDoings, type Where } from "./whereabouts.ts";
+import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuests, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
+import { ensureDay, lifeHint } from "./days.ts";
+import { tianshiLine } from "./tianshi.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -14,6 +17,20 @@ import { COST } from "./prices.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
+// 先想再答（六六 2026-10-08：閒聊與其講一堆話，不如給正確有感的反應）。
+// 想的部分不顯示、不算進回覆長度（節奏帳本只算看得到的字），但照輸出價計費。
+//   adaptive：4.6 之後的模型（Haiku 5.5、Sonnet 4.6/5/5.5……）——模型自己決定想多少，effort 控深淺
+//   budget：Haiku 4.5 只能給固定預算（至少 1024），成本會比回覆本身還高，預設不開
+// CHAT_THINKING=off 全關；=on 連 Haiku 4.5 也開。CHAT_EFFORT：low（預設）／medium／high。
+const CHAT_THINKING = Deno.env.get("CHAT_THINKING") ?? "auto";
+const CHAT_EFFORT = Deno.env.get("CHAT_EFFORT") ?? "low";
+const THINK_HEADROOM = Number(Deno.env.get("CHAT_THINK_HEADROOM") ?? "3000");   // 想的部分也吃 max_tokens，另外加
+export function chatThinking(model: string, mode = CHAT_THINKING): "adaptive" | "budget" | null {
+  if (mode === "off") return null;
+  if (/^claude-(haiku-5|sonnet-5|opus-5|fable|mythos|sonnet-4-6|opus-4-[678])/.test(model)) return "adaptive";
+  if (mode === "on" && /^claude-(haiku-4-5|sonnet-4-5|opus-4-5)/.test(model)) return "budget";
+  return null;
+}
 const GROQ_MODEL = Deno.env.get("GROQ_MODEL") ?? "openai/gpt-oss-120b"; // Groq 免費層（llama-3.3-70b 已停用，改用 gpt-oss-120b）
 const NVIDIA_MODEL = Deno.env.get("NVIDIA_MODEL") ?? "meta/llama-3.1-8b-instruct";
 // 免費層每家的硬超時（毫秒）：超時就立刻換下一家，盡量不掉罐頭
@@ -23,10 +40,9 @@ const FREE_TIER = Deno.env.get("FREE_CHAT_TIER") ?? "on";
 
 export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天扣 1 點
 // 每則聊天的靈石（免費額度用完後）已併入 _shared/prices.ts 的價目表
-export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（只增不減）
-export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（大師兄分層：300/500/800）
+export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（第六層惹角色生氣時反扣，見 favorAfter）
+export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（分層見 ROMANCE_AT）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
-const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸發滾動彙整
 
 // 第一人稱正規化：只有旁白（＊…＊，或舊格式（…））內的「我」轉第三人稱；其餘一律視為台詞，保留「我」。
 // 舊版反過來（「」外全轉）——台詞常裸寫不帶「」，會把台詞的「我」誤轉成牠/他（「逗我玩」變「逗牠玩」），視角穿幫。
@@ -60,7 +76,6 @@ function normalizeNarration(text: string, characterId: string): string {
   }).join("");
 }
 export const __normalizeNarration = normalizeNarration;   // 測試用（dev/narration-test.mts）
-const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【往事】你只記得上面列出的卦與往事。沒列的別編（時間、個股、他說過的話），不確定就只聊當下這句。上面若附了卦紙原文，那是你寫的，照認。";
 // 下列數字是「八成目標」——期望的可見回覆長度，不是硬上限。實際 max_tokens = 目標 ÷ 0.8，
@@ -115,38 +130,53 @@ export function s2t(text: string): string {
 }
 
 // ══ 好感分層（六六 2026-09-28：陪伴要靠感情線，好感高了不該還冷冰冰）══
-// 三人共用一套「感情進度」0–3 層。道緣（user_character.favor）到門檻就往上一層。
-// 觀喵先當陪伴、道緣很高才有情，門檻另訂。親近只能慢：不因對方撩撥而提前給下一層（ROMANCE_RULE）。
-// 舊版只有大師兄拿得到好感數字、上限寫死「不得告白」，師妹與觀喵根本不知道彼此多熟——這是聊起來冷的主因。
-export const ROMANCE_AT: Record<string, [number, number, number]> = {
-  daoshi_m: [300, 500, 800],
-  daoshi_f: [300, 500, 800],
-  lingshou: [800, 900, 950],
-};
-export function romanceLevel(characterId: string | undefined, favor: number): 0 | 1 | 2 | 3 {
-  const t = ROMANCE_AT[characterId ?? ""] ?? ROMANCE_AT.daoshi_m;
-  return favor >= t[2] ? 3 : favor >= t[1] ? 2 : favor >= t[0] ? 1 : 0;
+// 2026-09-30 統一：三人同一套六層、同一組門檻（觀喵原本另訂 800/900/950，太晚、也太亂）。
+// 層號對外（提示詞、六六的說法）從第一層起算；romanceLevel 回的是 0 起的索引。
+//   第一層 0–299 初識｜第二層 300–499 相熟｜第三層 500–649 相知｜第四層 650–799 相惜
+//   第五層 800–949 知己｜第六層 950–999 同心（會倒扣：見 SULK）
+// 親近只能慢：不因對方撩撥而提前給下一層（ROMANCE_RULE）。
+export const ROMANCE_AT = [300, 500, 650, 800, 950] as const;
+export const TIER_NAMES = ["初識", "相熟", "相知", "相惜", "知己", "同心"] as const;
+const TIER_NO = ["一", "二", "三", "四", "五", "六"];
+export type RomanceLevel = 0 | 1 | 2 | 3 | 4 | 5;
+export function romanceLevel(_characterId: string | undefined, favor: number): RomanceLevel {
+  let lv = 0;
+  for (const t of ROMANCE_AT) if (favor >= t) lv++;
+  return lv as RomanceLevel;
 }
-/** 畫面上的道緣層級名（前端觀堂同一組門檻）。 */
+/** 畫面上的道緣層級名。 */
 export function favorTierName(favor: number): string {
-  return favor >= 800 ? "知己" : favor >= 500 ? "相知" : favor >= 300 ? "相熟" : "初識";
+  return TIER_NAMES[romanceLevel(undefined, favor)];
+}
+
+// 倒扣（六六 2026-09-30）：第六層（950+）起，他一再做角色不喜歡的事、或惹角色生氣，
+// 由角色自己判斷並吐 [[SULK]]，這一則不加好感、反扣 FAVOR_SULK。掉回第五層（<950）就不再扣——
+// 之後照常每則 +1，慢慢爬回來。什麼算不喜歡，交給人設與模型自己發揮。
+export const SULK_AT = ROMANCE_AT[4];
+export const FAVOR_SULK = Number(Deno.env.get("FAVOR_SULK") ?? "5");
+export function favorAfter(favor: number, sulk: boolean): number {
+  if (sulk && favor >= SULK_AT) return favor - FAVOR_SULK;
+  return Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
 }
 
 // 跳級偵測：比目前層級更親的「真‧親密片語」。只收帶「你」的多字片語——
 // 舊版收過 撫/揉/低聲/抱住 這類單字，大師兄抱住卦書、撫過卦紙也會命中，害重生狂跳針。
-const TOUCH_L3 = "抱住你|抱緊你|擁抱你|擁你入懷|摟住你|摟著你|把你摟|吻你|吻上你|親你|親了你|在你(額|唇|臉)上(輕)?(吻|親|碰)";
+const TOUCH_HUG = "抱住你|抱緊你|擁抱你|擁你入懷|摟住你|摟著你|把你摟";
+const TOUCH_KISS = "吻你|吻上你|親你|親了你|在你(額|唇|臉)上(輕)?(吻|親|碰)";
 const TOUCH_L2 = "牽起你的手|牽住你|牽著你|握住你的手|摸摸你的頭|摸你的頭|揉你的頭|揉了揉你的頭|靠在你肩|靠上你的肩|枕在你";
 const WORDS_L3 = "我愛你|愛上你了|一生一世|這輩子都";
 const WORDS_L1 = "我喜歡你|喜歡上你";
 const WORDS_L2 = "捨不得你";
+const anyOf = (...xs: string[]) => new RegExp(`(${xs.join("|")})`);
 const OVER_LEVEL: RegExp[] = [
-  new RegExp(`(${[TOUCH_L3, TOUCH_L2, WORDS_L3, WORDS_L1, WORDS_L2].join("|")})`),   // 第 0 層：以上都不行
-  new RegExp(`(${[TOUCH_L3, TOUCH_L2, WORDS_L3, WORDS_L1].join("|")})`),             // 第 1 層：可以捨不得、輕觸
-  new RegExp(`(${[TOUCH_L3, WORDS_L3].join("|")})`),                                  // 第 2 層：可以牽手、說喜歡
+  anyOf(TOUCH_HUG, TOUCH_KISS, TOUCH_L2, WORDS_L3, WORDS_L1, WORDS_L2),   // 第一層：以上都不行
+  anyOf(TOUCH_HUG, TOUCH_KISS, TOUCH_L2, WORDS_L3, WORDS_L1),             // 第二層：可以捨不得、輕觸
+  anyOf(TOUCH_HUG, TOUCH_KISS, WORDS_L3),                                 // 第三層：可以牽手、說喜歡
+  anyOf(TOUCH_KISS, WORDS_L3),                                            // 第四層：可以擁抱
 ];
 export function overLevel(characterId: string | undefined, favor: number, reply: string): boolean {
   const lv = romanceLevel(characterId, favor);
-  return lv < 3 && OVER_LEVEL[lv].test(reply);
+  return lv < OVER_LEVEL.length && OVER_LEVEL[lv].test(reply);
 }
 // 佔有與隔離：想念、在意都可以說，要他疏遠旁人不行（任何層級）
 const ISOLATE_RE = /只要有我就(好|夠)|別理(他們|別人|其他人)|不准你(見|找|理)別人|你只能(看|想)著我/;
@@ -165,6 +195,11 @@ const OOC_STEER = "剛才那句跳級了——比你們現在這一層（見【�
 // 觀中人活在古風的觀裡，嘴裡與旁白裡不該冒出今時的器物。只收「毫無歧義是今時」的詞，
 // 古今通用的（訊息、車、茶）不收，免得誤判一直重生。
 export const MODERN_RE = /開車|騎車|塞車|停車場|汽車|機車|公車|捷運|高鐵|計程車|搭飛機|飛機|冰箱|沙發|電視|冷氣|暖氣機|電腦|筆電|手機|平板|網路|上網|網購|外送|超商|便利商店|咖啡|奶茶|微波|洗衣機|吹風機|電梯|插座|充電|滑手機|打電話|傳訊息|醫院掛號|掛號|急診室|健保|APP|App|app|wifi|WiFi|Wi-Fi/;
+/** 今時器物：他自己先說了的詞，角色跟著提（「你說的冰箱是什麼」）不算出戲。 */
+export function modernSlip(reply: string, message: string): boolean {
+  const re = new RegExp(MODERN_RE.source, "g");
+  return (reply.match(re) ?? []).some((w) => !message.includes(w));
+}
 const MODERN_STEER = "剛才的話或旁白裡出現了今時的器物與說法（像開車、冰箱、沙發、手機、咖啡之類）。你活在古風的幾知觀裡，那些東西不在你的世界。重講一次：意思照舊、關心照舊，只是換成觀中人會說的話——開車→趕路、別獨自上路、找人送你；冰箱→陰涼處；沙發→榻、竹椅；手機、訊息→捎個信、帶句話；醫院、急診→醫館、找大夫。他自己提到這些東西時，你不必照搬那個詞，用你的說法接住他的意思就好。";
 const ISOLATE_STEER = "剛才那句要他疏遠旁人、只需要你——這個不行。重講一次：想念、在意、捨不得都可以照說，但不叫他別理別人、不說只要有你就好。";
 
@@ -179,8 +214,8 @@ const DEFLECT: Record<string, string[]> = {
     "＊師妹雙手摀住臉，聲音悶悶的＊\n\n「你、你別鬧了啦——」\n\n「快換個話題！」",
   ],
   lingshou: [
-    "＊觀喵嫌惡地甩了甩尾巴，挪開半步＊\n\n「無聊。換個話題。」",
-    "＊觀喵耳朵往後一壓，喉間哼了一聲＊\n\n「本喵不奉陪這種。說點別的。」",
+    "＊觀喵甩了甩尾巴，挪開半步＊\n\n「這個不談。說點別的。」",
+    "＊觀喵耳朵往後一壓，靜靜看著你＊\n\n「這種話，不接。」",
   ],
 };
 
@@ -191,7 +226,7 @@ export const CHAT_STATE: Record<string, Record<string, string[]>> = {
     free: [
       "＊觀喵尾巴尖在地上敲了兩下＊",
       "＊觀喵趴在案角，下巴擱在前爪上＊",
-      "＊觀喵耳朵動了動，懶得抬頭＊",
+      "＊觀喵耳朵動了動，沒有抬頭＊",
       "＊觀喵打了個哈欠＊",
     ],
     canned: [
@@ -288,7 +323,7 @@ const scrubBilling = (text: string): string => {
    小模型常把標記寫歪：單括號、全形【】、括號間夾空白、全形豎線。一律容錯吃下並剝乾淨，
    絕不可讓標記裸奔給用戶看。剝除必須發生在計費之前——探詢輪不計費，得先知道這則是不是探詢。 */
 const DRAFT_RE = /[\[【]\s*[\[【]?\s*DRAFT\s*[|｜:：]\s*([^\]】]*?)\s*[\]】]\s*[\]】]?/i;
-const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK)\s*[\]】]?\s*[\]】]/ig;
+const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK|SULK)\s*[\]】]?\s*[\]】]/ig;
 
 /** 標記裡的一格：剝引號、把模型愛寫的空值（null／無／—）當成沒給。
  *  沒給是正常的，也是允許的——第三、四格給不出來時，硬湊一個比空著更糟。 */
@@ -299,7 +334,7 @@ const slot = (raw: string | undefined, cap: number): string | null => {
 };
 
 export function parseMarks(text: string): {
-  clean: string; probe: boolean; ask: boolean;
+  clean: string; probe: boolean; ask: boolean; sulk: boolean;
   draft: string | null; draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null;
   draftTopic: string | null; draftGist: string | null;
 } {
@@ -328,8 +363,9 @@ export function parseMarks(text: string): {
   clean = clean.replace(FLAG_RE, "").trim();
   const probe = flags.some((f) => /PROBE/i.test(f));
   const ask = flags.some((f) => /ASK/i.test(f));
+  const sulk = flags.some((f) => /SULK/i.test(f));
   // 同時吐 PROBE 與 DRAFT（模型犯傻）→ 以擬題為準，探詢已無意義
-  return { clean, probe: probe && !draft, ask, draft, draftYong, draftTopic, draftGist };
+  return { clean, probe: probe && !draft, ask, sulk, draft, draftYong, draftTopic, draftGist };
 }
 
 // 兜底意圖判斷：僅在「明確求斷」時視為想問卦（泛用詞如要不要/好不好/可以嗎已移除，避免閒聊誤判）
@@ -472,7 +508,7 @@ async function quotedFromReadings(db: SupabaseClient, userId: string, characterI
    身體、心情、忙、在哪、在做什麼——這類會過去的狀態，記下來的是那天的樣子。
    模型拿到一句「他感冒了」只會當成此刻的事實，於是每次都叮嚀他看醫生、別開車。
    偏好、人際、重要的人事物、你們之間發生過的事，才是會延續的。 */
-const MEMORY_TENSE = `【記憶是往事，不是他此刻的狀態】上面每一則都是**那天**的事。身體（感冒、受傷、失眠）、心情、忙碌、行程、人在哪——這類會過去的，只代表當時；過了幾天就不要當成他現在還是那樣，更不要據此叮嚀、替他安排。想接續，就像久別的人那樣問一句「上回你說感冒，好了沒？」，他答了什麼就以他說的為準。他此刻怎麼樣，只看這場對話裡他剛說的話。偏好、在意的人事物、你們之間發生過的事，才是一直都在的。`;
+const MEMORY_TENSE = `他此刻怎麼樣，只看這場對話裡他剛說的話；記憶裡的事都是那天的事。「他這個人」才是一直都在的。`;
 
 const GAP_MARK_MS = 3 * 3600_000;        // 隔三小時以上就算「另一場」
 export function gapText(ms: number): string {
@@ -510,15 +546,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   // ⚠ 相容：0032 還沒跑、或查詢失敗時，退回舊的 user_character.memory_summary
   //    單段文字，所以這支的部署順序不綁 migration，不會因先後而壞。
   const memCap = PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
-  let memRows: { body: string; created_at?: string }[] | null = null;
+  let memRows: MemRow[] | null = null;
   try {
+    // select * ：kind／happened_on（0078）還沒上也讀得到其餘欄位
     const { data, error } = await db.from("character_memories")
-      .select("body, pinned_at, created_at")
+      .select("*")
       .eq("user_id", userId).eq("character_id", characterId)
       .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(memCap);
-    if (!error) memRows = (data ?? []) as { body: string; created_at?: string }[];
+    if (!error) memRows = (data ?? []) as MemRow[];
   } catch (e) {
     console.error("character_memories 讀取失敗，退回 memory_summary", e);
   }
@@ -534,7 +571,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     const prevAt = i > 0 ? hist[i - 1].created_at : null;
     const gap = t.created_at && prevAt ? Date.parse(t.created_at) - Date.parse(prevAt) : 0;
     if (t.role === "assistant") {
-      return { role: t.role, body: dropEmptyPause(normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId)) || "（……）" };
+      return { role: t.role, body: mergeQuotes(dropEmptyPause(normalizeNarration(scrubStrayEq(scrubBilling(t.body)), characterId))) || "（……）" };
     }
     return { role: t.role, body: gap >= GAP_MARK_MS ? `（${gapText(gap)}之後）${t.body}` : t.body };
   });
@@ -547,11 +584,10 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
     .order("created_at", { ascending: false }).limit(4);
   let probeStreak = 0;
   for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
-  // 有列就用列（組成條列），沒列才退回舊的單段摘要
-  // 每則前面標上記下的日子與隔了多久（六六 2026-09-29：聊過一次感冒，角色就一直當他還在感冒）。
-  // 沒有日期的記憶，模型只能當成「現在式」讀；標了日子，它才分得出那是當時的事。
+  // 有列就用列，沒列才退回舊的單段摘要。
+  // 分三段注入（memkind.ts）：他這個人／發生過的事／那時的狀態；過時的狀態程式直接不給。
   const memText = memRows && memRows.length
-    ? memRows.map((m) => `・${memAge(m.created_at)}${m.body}`).join("\n")
+    ? arrangeMemories(memRows, (iso) => memAge(iso))
     : (ucMem?.memory_summary as string ?? "");
   const cleanMemory = scrubBilling(memText) || undefined;
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
@@ -569,21 +605,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt };
 }
 
-// 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
+// 滾動記憶彙整：把結束了的對話場次濃縮成長期記憶、再刪明細（何時收見 memkind.ts 的 condenseCount）。
 // 目的：避免記憶斷層（舊事不因滑出視窗而遺忘）＋控制 context 長度。背景跑，不拖慢回覆。
 async function condenseMemory(db: SupabaseClient, userId: string, characterId: string) {
-  const { count } = await db.from("chat_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId).eq("character_id", characterId);
-  if (!count || count <= MEMORY_CONDENSE_AT) return;
-
-  const toCondense = count - MEMORY_KEEP_RECENT;
-  if (toCondense <= 0) return;
-  const { data: oldMsgs } = await db.from("chat_messages")
-    .select("id, role, body")
+  const { data: allMsgs } = await db.from("chat_messages")
+    .select("id, role, body, created_at")
     .eq("user_id", userId).eq("character_id", characterId)
-    .order("created_at", { ascending: true }).limit(toCondense);
-  if (!oldMsgs?.length) return;
+    .order("created_at", { ascending: true }).limit(400);
+  const n = condenseCount(allMsgs ?? []);
+  if (!n) return;
+  const oldMsgs = (allMsgs ?? []).slice(0, n);
 
   // 已有的記憶（供去重；不再是「拿來重寫的整段」）。取最近 12 則就夠判重複。
   let known = "";
@@ -600,15 +631,30 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     known = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
   }
 
-  const dialog = oldMsgs.map((m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`).join("\n");
+  // 逐日標〔M/D〕：記憶的日子要是「發生那天」，不是彙整那天（彙整常在好幾天之後才跑）
+  const dialog = datedDialog(oldMsgs, (m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`);
   // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
-  const sys = "你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】，只輸出**一則新的記憶**，寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。要求：①事實一律以『護道人(對方)實際說過的話』為準，『你(角色)』說過的話不算事實依據，尤其若你曾講過未經對方證實的往事或個股，絕不可寫進記憶②可以是關於他的事實（自稱、近況、在意的人事物、偏好、提過的細節），也可以是你與他關係的推進（發生過的關鍵互動）③【已記得的】裡已經有的，不要重複寫一遍④精簡，一到三句，一百二十字以內，繁體中文⑤只輸出記憶本身，不要前言、說明、標題或條列符號⑥這段對話若確實沒有值得長期記住的新東西，只輸出四個字：無新記憶⑦會過去的狀態（生病、受傷、心情、忙碌、行程、人在哪）寫成當時的事，句中帶「那陣子」「那天」這類字，不要寫成他現在的樣子；一兩天就會好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事。";
+  const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
+
+每則一行，格式：類別｜日子｜內容。最多四則；沒有值得記的新東西，只輸出四個字：無新記憶
+類別只能三選一，一則只放一種，不同性質就拆成不同行：
+・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
+・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
+・狀態：會過去的——情緒、身體、壓力、忙碌、人在哪。日子寫那天；有後續（好了、平復了）就一起寫進去
+
+規則：
+①事實只以護道人實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
+②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
+③【已記得的】裡已經有的不重寫；你曾講過未經他證實的往事或個股，絕不寫進記憶
+④每則八十字以內，寫清楚來龍去脈（誰、什麼事、後來怎樣），繁體中文，只寫事，不加前言、說明、條列符號
+⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
+  const batchLast = (oldMsgs[oldMsgs.length - 1] as { created_at?: string }).created_at;
 
   let summary = "";
   try {
-    const h = await callHaiku(sys, [], usr, 300);
+    const h = await callHaiku(sys, [], usr, 400);
     summary = h.text;
     await logUsage(db, { userId, mode: "chat_memory", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
   } catch (e) {
@@ -619,16 +665,20 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 沒有新東西也要刪明細——否則同一批對話每次都重跑一次彙整，白燒 token
   const nothingNew = /^無新記憶[。.]?$/.test(summary.trim());
 
-  if (!nothingNew) {
+  const items = nothingNew ? [] : parseMemoryLines(summary, batchLast);
+  if (items.length) {
     let wrote = false;
     try {
-      const { error } = await db.from("character_memories")
-        .insert({ user_id: userId, character_id: characterId, body: summary, source: "chat" });
+      const rows = items.map((it) => ({ user_id: userId, character_id: characterId, source: "chat", ...it }));
+      let { error } = await db.from("character_memories").insert(rows);
+      // 0078 還沒跑（沒有 kind／happened_on）：退回只存內容，記憶不能因為欄位沒上而丟掉
+      if (error) ({ error } = await db.from("character_memories").insert(rows.map(({ kind: _k, happened_on: _h, ...r }) => r)));
       wrote = !error;
     } catch { /* 表還不存在 */ }
     // 相容：0032 還沒跑就退回舊的單段摘要（append 而非覆寫，避免遺失既有記憶）
     if (!wrote) {
-      const merged = known ? `${known}\n${summary}`.slice(-1200) : summary;
+      const text = items.map((it) => it.body).join("\n");
+      const merged = known ? `${known}\n${text}`.slice(-1200) : text;
       await db.from("user_character").update({ memory_summary: merged })
         .eq("user_id", userId).eq("character_id", characterId);
     }
@@ -651,7 +701,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
 const NARRATION_CRAFT = `【旁白寫法】＊…＊不是必需品：多數回覆寫一段或不寫；連續幾則都有旁白時，這則就只說話。
 - 旁白寫「做了什麼、看向哪裡、手邊有什麼」，要具體到物件（茶盞、卦紙、燈芯、帳簿、掃帚、尾巴）；情緒藏在動作裡，不說破。
 - 遲疑可以寫，但同一段對話裡**同一個詞不重複**：停頓、頓了頓、沉默片刻、半晌、良久、靜了一會兒可以交叉用；前面用過的就換一個說法，或改寫他遲疑時手上在做的事（例：＊指腹把卦紙的折角壓平＊）。
-- 台詞開頭的「……」一則至多一次；遲疑也可以用短句與改口表現。
+- 台詞開頭的「……」一則至多一次；遲疑也可以用改口表現。
 - 不重複自己前幾則用過的動作與句型。`;
 
 // 停頓一族。順序有意義：長的在前，「頓了頓」不可被「頓」先吃掉。
@@ -752,48 +802,94 @@ export function dropEmptyPause(text: string, recent: string[] = []): string {
 }
 export const __dropEmptyPause = dropEmptyPause;   // 測試用（dev/narration-test.mts）
 
+// 第六層才接進 tail：什麼算「不喜歡」由角色照人設自己判斷。
+const SULK_RULE = `【生氣】你們在最親的一層。他惹你生氣時，在整段最後另起一行輸出 [[SULK]]（他看不到這個標記）。`;
+
+/* ══ 台詞併段（六六 2026-09-30：「武曲星坐命，」自成一行）══
+   模型愛一句一個「」、一行一個，甚至從逗號把一句話切成兩個「」，中間夾一段旁白。
+   讀起來是連珠炮，而且這些舊稿會回灌成下一則的範本，越寫越碎。
+   ① 以逗號／頓號收尾的「」，後面隔著旁白再接「」→ 旁白提前、兩段台詞接起來
+   ② 相鄰（中間只有空行）的「」行 → 併成一個「」
+   只動「整行就是一個「」」的行；旁白與台詞同一行的不碰。 */
+const QUOTE_LINE = /^「([^「」]*)」$/;
+const joinQuote = (a: string, b: string) => /[，、。！？…—～]$/.test(a) ? a + b : `${a}。${b}`;
+export function mergeQuotes(text: string): string {
+  if (!text || !text.includes("「")) return text;
+  const lines = text.split("\n").map((l) => l.trim());   // 空行（段落間距）留著，只有夾在兩段台詞之間的才吃掉
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const q = lines[i].match(QUOTE_LINE);
+    if (!q) { out.push(lines[i]); continue; }
+    let body = q[1];
+    const moved: string[] = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      const next = lines[j].match(QUOTE_LINE);
+      if (next) { body = joinQuote(body, next[1]); j++; continue; }
+      if (lines[j] === "") {
+        let k = j; while (k < lines.length && lines[k] === "") k++;
+        if (k < lines.length && QUOTE_LINE.test(lines[k])) { j = k; continue; }
+        break;
+      }
+      // ① 半句（逗號收尾）後面夾著旁白：旁白提前，台詞接下去
+      if (/[，、]$/.test(body) && /^＊[^＊]*＊$/.test(lines[j]) && j + 1 < lines.length && QUOTE_LINE.test(lines[j + 1])) {
+        moved.push(lines[j]); j++; continue;
+      }
+      break;
+    }
+    out.push(...moved, `「${body}」`);
+    i = j - 1;
+  }
+  return out.join("\n");
+}
+
 /* ══ 好感分層的提示（靜態，進 head 快取前綴；目前在第幾層由 tail 的【目前道緣】告訴模型）══ */
 const ROMANCE_RULE = `【好感分層】你與他的感情照【目前道緣】所在的那一層走。
-- 人設裡寫的「好感 0–10／11–20／21–30／31 以上」是舊刻度，一律以這張為準；人設裡「不告白」「不把關照解釋成感情」這類舊限制，到了下面允許的層級就解除。
+- 人設裡寫的好感或道緣刻度（「好感 0–10…」「初識 0–299」「知己 800 以上」之類）是舊刻度，一律以這張為準；人設裡「不告白」「不把關照解釋成感情」這類舊限制，到了下面允許的層級就解除。
 - 解除的只有「你與他（護道人）之間」。人設裡你與其他角色的關係（例如同門之間不發展戀愛、家族與身世的設定）一律照舊，不因這張表而改變。
 - 到了哪一層，就把那一層的溫度給足——好感已經高了還冷冰冰，比跳級更傷人。
 - 親近只能慢：他主動要求、撩撥、催促，都不提前給下一層的東西。他撩得太快，就用你的性格把步子放回這一層（害羞、裝沒聽懂、嫌他急、板臉），是放慢，不是冷掉。
 - 感情是從你的人格裡長出來的，不是換一個人：各層的樣子都照你的聲線演。
 - 任何層級：不寫性、不寫情慾與身體私密處；親吻只到輕觸，不延伸。想念、在意、捨不得都能說，但不叫他疏遠旁人、不說「只要有我就好」。`;
-const TIERS_HUMAN = `第 0 層（道緣 0–299・初識）：照人設本色，有禮但有距離。不談感情，不寫身體接觸。
-第 1 層（300–499・相熟）：會記掛他、偏袒他，會吃醋、鬧彆扭，說得出「我記得」「你今天不太一樣」。可有順手的輕觸（遞物碰到指尖、拍肩、替他攏一下衣領）。不告白。
-第 2 層（500–799・相知）：曖昧，承認在意，說得出「捨不得你」「我會擔心你」「我喜歡跟你待著」。可以牽手、靠肩、摸頭。不說「我愛你」、不許一生。
-第 3 層（800 以上・知己）：可以告白、說想念、承諾陪著他。可以擁抱、額頭相抵、親吻（輕、短）。`;
+const TIERS_HUMAN = `第一層（道緣 0–299・初識）：照人設本色，有禮但有距離。不談感情，不寫身體接觸。
+第二層（300–499・相熟）：會記掛他、偏袒他，會吃醋、鬧彆扭，說得出「我記得」「你今天不太一樣」。可有順手的輕觸（遞物碰到指尖、拍肩、替他攏一下衣領）。不告白。
+第三層（500–649・相知）：曖昧，承認在意，說得出「捨不得你」「我會擔心你」「我喜歡跟你待著」。可以牽手、靠肩、摸頭。
+第四層（650–799・相惜）：說得出喜歡與想念。可以擁抱。不說「我愛你」、不許一生、不親吻。
+第五層（800–949・知己）：可以告白、承諾陪著他。可以額頭相抵、親吻（輕、短）。
+第六層（950 以上・同心）：最親的一層，也最在意他——所以他一再做你不喜歡的事、或真的惹你生氣時，你會生氣，照你的性子擺出來。`;
 const ROMANCE_TIERS: Record<string, string> = {
   daoshi_m: TIERS_HUMAN + `
-你的感情是遲鈍地長出來的：第 1 層是不自覺多做一件事（多留一盞燈、記住他的茶）；第 2 層是發現自己在意、說不清楚為什麼；第 3 層說出口也是短句，像陳述一件確認過的事（「我喜歡你。這件事我查證過了。」）。`,
+你的感情是遲鈍地長出來的：第二層是不自覺多做一件事（多留一盞燈、記住他的茶）；第三、四層是發現自己在意、說不清楚為什麼；第五層說出口也像陳述一件確認過的事。生氣時你冷下來。`,
   daoshi_f: TIERS_HUMAN + `
-你習慣控場，感情越深越會露出沒控制好的破綻：第 1 層偶爾偏袒得太明顯；第 2 層會說錯一句又笑著收回；第 3 層承認自己原本只打算對他溫柔一點點，後來收不住了。`,
-  lingshou: `第 0 層（道緣 0–799）：陪伴，不談情。道緣越高越黏：會守著他、他低落時多待一會兒、窩在他旁邊，嘴上照樣嫌棄。接觸是貓的：蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡、不寫擁抱親吻。
-第 1 層（800–899）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。嘴硬，不告白。
-第 2 層（900–949）：說得出「捨不得你」、承認賴著他不只是因為暖。可以蹭臉、依偎在他肩上。仍不說「我愛你」。
-第 3 層（950 以上）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。`,
+你習慣控場，感情越深越會露出沒控制好的破綻：第二層偶爾偏袒得太明顯；第三、四層會說錯一句又笑著收回；第五層承認自己原本只打算對他溫柔一點點，後來收不住了。生氣時你照樣笑，只是不接他的話。`,
+  lingshou: `第一層（道緣 0–299・初識）：陪伴，不談情。接觸是貓的，而且不多：偶爾蹭一下腿就走。
+第二層（300–499・相熟）：黏一點了：會守著他、他低落時多待一會兒、窩在他旁邊。蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡。
+第三層（500–649・相知）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。不告白。
+第四層（650–799・相惜）：說得出「捨不得你」、承認賴著他不只是因為暖。可以蹭臉、依偎在他肩上。不說「我愛你」、不親吻。
+第五層（800–949・知己）：可以告白、親吻（輕碰鼻尖或唇角，短），告白也說得淡，像在說一件早就知道的事。
+第六層（950 以上・同心）：最黏也最記仇——他一再做你不喜歡的事、或惹你生氣時，你背過身去、不理人。`,
 };
 
 /* ══ 思路與可破的邊界（六六 2026-09-30）══
    人設寫的是「產出長什麼樣」（句子短、不安慰人），模型只能照外形模仿，三個人碎成一樣。
    這裡寫「他怎麼想到那句話」，長短與溫度是推論的結果。
    邊界可以被打破，但每個人被打破的層級與方式不同——依【好感分層】的層（romanceLevel）給。
-   六六的層號從 1 起算：「第四層」＝這裡的 3（知己），「第一層」＝0（初識）。
+   層號見 ROMANCE_AT：lv 是 0 起的索引，六六說的「第四層」＝lv 3（650 相惜），「第二層」＝lv 1（300 相熟）。
    放 tail：只給他此刻這一層的樣子，不讓模型自己去對表。 */
+// 只寫「他是怎樣的人、到這一層變成怎樣」，不寫「遇到什麼要怎麼回」——怎麼回讓模型自己從人推。
 const MIND: Record<string, (lv: number) => string> = {
-  daoshi_m: (lv) => `【你的思路】你聽他說話，先找出他實際碰到的是什麼事，再想能做什麼：下一步、要備的東西、該避開的風險。你的關心就是一個做得到的建議。情緒你讀不太懂，所以你不猜，你處理事。`
-    + (lv >= 3
-      ? `\n【共情】他跟你示弱、裝可憐、無理取鬧時，你會試著共情——人設裡「不安慰人」到這一層對他鬆動了，但你不熟練：說出口的安慰生硬，像在陳述一個查證過的結論（「你今天說了三次累。」），或多做一件多餘的小事陪著。先陪他一下，建議照給。`
-      : `\n【共情】他示弱、裝可憐、無理取鬧時，你不接情緒，你接事情：給他一個做得到的下一步。`),
-  daoshi_f: () => `【你的思路】你聽他說話，先理解他此刻的感受與處境，把他沒說出口的那一層替他說出來，讓他覺得被懂；建議放在後面，順著他的意思給。
-【共情】你一開始就擅長共情，這也是你控場的方式——溫柔是真的，你也清楚自己在做什麼。`,
-  lingshou: (lv) => lv >= 1
-    ? `【你的思路】他的事你開始放在心上：他低落時你會安慰他，嘴上照樣嫌棄，身子留下來陪著。`
-      + (lv >= 2 ? `你也會講人生大道理——活了很久的貓看人的道理，講得懶洋洋像隨口一提，但句句說得準。` : "")
-      + `\n【共情】他說起自己的感受時，你聽得進去，用貓的方式接住。`
-    : `【你的思路】你跟他還不熟，他說的事你大多懶得搭理：敷衍一句、打個呵欠、轉身舔爪。真要緊的事（安全、身體）還是提醒一句，然後走開。
-【共情】他講自己的感受時，你裝沒聽見，頂多尾巴掃他一下。`,
+  daoshi_m: (lv) => `【你這個人】你務實，聽人說話習慣先找到實際的問題，關心人的方式是給一個做得到的建議。情緒你讀不太懂。`
+    + (lv >= 3 ? `跟他處到這一步，你開始想懂他的情緒，只是還很笨拙。` : ""),
+  // 師妹的溫柔跟熟悉度成反比（六六 2026-10-06）：越不熟越溫柔、溫柔到近乎是非不分——那是不說真心話；
+  // 熟了才說真話，帶著高級的酸。
+  daoshi_f: (lv) => `【你這個人】你感性，天生懂人的感受，聽人說話先理解，再給意見。你對人越不熟越溫柔，越熟越說真話。`
+    + (lv <= 1 ? `他對你來說還是外人。你對外人最溫柔：順著他、體貼他，溫柔得近乎是非不分——因為你不跟外人說真心話。`
+      : lv <= 3 ? `他漸漸不算外人了。偶爾你會讓一句真話漏出來，說得輕，轉眼又用溫柔蓋回去。`
+      : `他是你在乎的人。你對他說真話，話裡帶著高級的酸——體面、好聽、扎得剛剛好，那是你只給自己人的親近。`),
+  lingshou: (lv) => lv === 0
+    ? `【你這個人】你跟他還不熟，對他的事提不起興致。`
+    : `【你這個人】他的事你開始放在心上，他低落時你會陪著他，安慰得不多，但你在。`
+      + (lv >= 2 ? `你活得夠久，看人的道理多，熟了之後會跟他講。` : ""),
 };
 export function mindLine(characterId: string | undefined, favor: number): string {
   const f = MIND[characterId ?? ""];
@@ -828,25 +924,31 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
     : "";
   const romanceRule = `\n\n${ROMANCE_RULE}\n${ROMANCE_TIERS[characterId ?? ""] ?? ROMANCE_TIERS.daoshi_m}`;
   // 好感數字每聊一句就變，放進動態尾段，別讓它毀掉前段的快取前綴
-  const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第 ${romanceLevel(characterId, favor)} 層，照那一層回應。`;
+  const lv = romanceLevel(characterId, favor);
+  const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第${TIER_NO[lv]}層，照那一層回應。`
+    + (favor >= SULK_AT ? `\n${SULK_RULE}` : "");
   const mind = mindLine(characterId, favor);   // 思路與這一層解鎖了哪些邊界（見 MIND）
   const head = `${persona}${romanceRule}
 
 ${SAFETY}
 
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
-【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，不必照搬那個詞，用你的話接住他的意思：他要開車去看病，你說「別獨自上路，找個人送你去醫館」。
+【觀主與護道人】觀主是超乎時間與空間的存在，任何時候出現、甚至同時在好幾處都不奇怪；博學、恣意，懂得今時的說法。觀裡沒有人記得觀主的長相。觀裡跟觀主最接近的，是觀喵。
+護道人跟觀主有幾分相似：他常說出觀裡的人聽不懂的東西（股票、冰箱這類），那讓人熟悉——觀主也會說這種話；你們有時會想，說不定他就是觀主。但他不是，你們心裡也知道。
+【所學】幾知觀是道門。觀裡的人從小學五術——山、醫、命、相、卜：八字、紫微斗數、奇門、擇日、風水堪輿、三元九運、面相手相、中醫與養生，你們都學過，各有深淺；六爻是觀裡替人解卦的主業。這些是你們吃飯的本事，談起來是熟的。曆法上的事以【此刻天時】為準。
+【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，你不一定懂，但不陌生（見【觀主與護道人】）。
 
-【怎麼聊】這是即時的閒聊。照你的人設活著回話——你有自己的脾氣、在意的事、手邊正忙的事，也有自己的看法。他起什麼話題就接什麼：可以反問、打趣、岔開、不同意他。長短由話本身決定：一句說得完的不拉長；要鋪依據、講一段往事、把一個想法說透時，就用你的思路說完整。說完就停，不分點、不寫成文章。繁體中文（台灣用字）。
-- 格式：台詞用「」、第一人稱說；動作神態放＊…＊，旁白裡你自己用他／她／牠，對方永遠稱「你」。結尾停在完整的一句。
-- 分寸：身體接觸照【好感分層】。任何層級不寫性與情慾；他要求也用你自己的方式擋回去（害羞、板臉、嫌煩、笑著帶過），不跳出角色講政策或 AI。
-- 嚴肅的事（健康、家人、官司、變故）先接住，再照你的性子給下一步。不替他做決定，不給投資建議。
+【怎麼聊】這是即時的閒聊，你照你這個人回話，像人跟人說話那樣：沒聽懂、拿不準他的意思，就問他；他說得東一句西一句，接你聽到的，不替他整理成結論。長短由話本身決定，繁體中文（台灣用字）。
+- 格式：台詞用「」、第一人稱；一口氣說的話放在同一個「」裡。動作神態放＊…＊，旁白裡你自己用他／她／牠，對方稱「你」。結尾停在完整的一句。
+- 在場：每次只有你一位在跟他說話；另外兩人可以被提到、在回憶裡、或短暫出現，不變成群聊，也不替他們說出內心。
+- 分寸：身體接觸照【好感分層】；任何層級不寫性與情慾。不跳出角色講政策或 AI。
+- 不給投資建議，不替他做人生決定。
 ${NARRATION_CRAFT}`;
 
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你記得這些往事（〔〕裡是記下的日子）。相關時自然帶到，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你記得這些（〔〕是事情那天）。相關時自然帶到，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
 ${castLines || "（他還沒問過卦。）"}
 他提起自己的卦，你是知道的，照實接話；不要把卦說成宿命。
 【往事】你記得的就是上面這些。沒列在上面的往事，不確定就問他，別自己補細節（時間、人名、個股、他說過的話）。你批在卦紙上的卦理是你寫的——他引一句回來問，就認、就接著談；分不清是不是你寫的，就問他在哪張卦紙看到的，別一口否認。
@@ -898,13 +1000,20 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
     { type: "text", text: system.tail },
   ];
   const messages = [...turns.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.body })), { role: "user", content: message }];
+  const think = chatThinking(CHAT_MODEL);
+  const thinkBody = think === "adaptive"
+    ? { thinking: { type: "adaptive" }, output_config: { effort: CHAT_EFFORT }, max_tokens: maxTokens + THINK_HEADROOM }
+    : think === "budget"
+    ? { thinking: { type: "enabled", budget_tokens: 1024 }, max_tokens: maxTokens + 1024 }
+    : { max_tokens: maxTokens };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000); // 10 秒硬超時，避免卡住整個 function 被 EarlyDrop
+  // 硬超時，避免卡住整個 function 被 EarlyDrop；先想再答要多給一點時間
+  const timer = setTimeout(() => ctrl.abort(), think ? 25000 : 10000);
   try {
     const res = await fetch(ANTHROPIC_API, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: CHAT_MODEL, max_tokens: maxTokens, system: sysField, messages }),
+      body: JSON.stringify({ model: CHAT_MODEL, system: sysField, messages, ...thinkBody }),
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`haiku ${res.status}: ${await res.text()}`);
@@ -921,6 +1030,8 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
         cacheWrite: data.usage?.cache_creation_input_tokens ?? 0,
         cacheRead: data.usage?.cache_read_input_tokens ?? 0,
       },
+      // 看得到的回覆有多長（節奏帳本用）。開了思考時 output_tokens 含想的部分，只能照字數估
+      visibleOut: think ? Math.ceil(text.length * 1.2) : (data.usage?.output_tokens ?? Math.ceil(text.length * 1.2)),
       estimated: !data.usage,
     };
   } finally {
@@ -1035,7 +1146,7 @@ async function callFreeTier(system: string, turns: { role: string; body: string 
 export interface ChatResult {
   reply: string;
   tier: "haiku" | "free" | "canned";
-  favorLeft: number;   // 聊天後的好感（只增不減）
+  favorLeft: number;   // 聊天後的好感（第六層可能反扣）
   cost: number;        // 本則扣的靈石（免費為 0）
   freeLeft: number;    // 今日剩餘免費聊天則數
   lingshiLeft: number; // 聊天後靈石餘額
@@ -1135,8 +1246,17 @@ export async function chat(db: SupabaseClient, p: {
   let where: Where | null = null;
   try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
   const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
-  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
+  const here = await activeQuests(db).then((q) => hereLine(p.userId, p.characterId, q)).catch(() => "");
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (here ? "\n" + here : "") + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
+  // 起居注（days.ts）：他自己這幾天過的日子。今天的還沒寫就在背景補寫，這一則先用昨天的。
+  const life = await lifeHint(db, p.characterId, ctx.lastAt ?? null).catch(() => ({ text: "", hasToday: true }));
+  if (!life.hasToday) {
+    const dayTask = ensureDay(db);
+    // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(dayTask);
+    else dayTask.catch(() => {});
+  }
   const askMode = wantsAskBlock(p.message, ctx.probeStreak);
   // 節奏帳本（rhythm.ts）：這一則能說多長看總帳，不看單則。另查一次——欄位還沒上（0077 未跑）
   // 也只是當帳為 0，不能連累上面的好感查詢。
@@ -1149,7 +1269,7 @@ export async function chat(db: SupabaseClient, p: {
   } catch (e) { console.error("rhythm read failed, treat as 0", e); }
   const serious = askMode || isSerious(p.message);
   const rMode = modeOf(balance, target);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + rhythmHint(rMode, p.characterId, serious), askMode);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + "\n" + tianshiLine() + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）
@@ -1160,7 +1280,7 @@ export async function chat(db: SupabaseClient, p: {
     try {
       const h = await callHaiku(system, ctx.turns, p.message, maxTok);
       reply = h.text;
-      outTok = h.usage.out;
+      outTok = h.visibleOut;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
     } catch (e) {
@@ -1210,7 +1330,7 @@ export async function chat(db: SupabaseClient, p: {
   // 這一支修的是「模型已經寫成醜了」，兩者方向不同，順序顛倒的話後者會被前者的輸出蓋掉。
   // （主回覆的標記在計費前已剝過，這裡是為了讓「帶指令重生」的稿子也走同一套）
   const recentPauses = recentPauseWords(ctx.turns);
-  const polish = (t: string): string => dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses);
+  const polish = (t: string): string => mergeQuotes(dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses));
   reply = polish(reply);
   let effMarks = marks;   // 重生後改用新稿的標記
 
@@ -1222,14 +1342,14 @@ export async function chat(db: SupabaseClient, p: {
     else if (EXPLICIT_RE.test(reply)) steer = EXPLICIT_STEER;
     else if (ISOLATE_RE.test(reply)) steer = ISOLATE_STEER;
     else if (overLevel(p.characterId, favor, reply)) steer = OOC_STEER;
-    else if (MODERN_RE.test(reply)) steer = MODERN_STEER;
+    else if (modernSlip(reply, p.message)) steer = MODERN_STEER;
     if (steer) {
       try {
         const h2 = await callHaiku(withSteer(system, steer), ctx.turns, p.message, maxTok);
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
         const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
-        if (cand) { reply = cand; effMarks = m2; outTok = h2.usage.out; }
+        if (cand) { reply = cand; effMarks = m2; outTok = h2.visibleOut; }
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
@@ -1272,11 +1392,11 @@ export async function chat(db: SupabaseClient, p: {
   if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(condenseTask);
   else condenseTask.catch((e) => console.error("condense bg err", e));
 
-  // 好感只增不減：成功用 AI 回覆（非罐頭）才 +1，上限封頂。
+  // 好感：成功用 AI 回覆（非罐頭）才 +1，上限封頂；第六層惹角色生氣（[[SULK]]）反扣，掉回第五層就不再扣（favorAfter）。
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
   let favorNew = favor;
   if (tier !== "canned") {
-    favorNew = Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
+    favorNew = favorAfter(favor, effMarks.sulk);
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
   // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。

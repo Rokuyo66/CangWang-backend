@@ -61,7 +61,7 @@ export const isSerious = (msg: string) => SERIOUS_RE.test(msg);
 const TIGHT_VOICE: Record<string, string> = {
   daoshi_m: "像查完了只報結論。",
   daoshi_f: "笑著帶過，把話留一半讓他來問。",
-  lingshou: "懶得多講，一句嫌棄或甩個尾巴就夠。",
+  lingshou: "看他一眼、或一句話就夠。",
 };
 
 /** 放進 tail 的節奏提示。平常不提示；嚴肅時不叫角色收。 */
