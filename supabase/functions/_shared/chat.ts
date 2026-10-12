@@ -7,7 +7,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
 import { tianshiLine } from "./tianshi.ts";
-import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, sessionStart, repeatedTopics, mergeTarget, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -572,9 +572,11 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   const { data: history } = await db.from("chat_messages")
     .select("role, body, created_at").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
-  const hist = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
+  const allHist = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
   // 最後一次說話的時間：隔太久的話，提示詞裡會說「那已經是昨天的事」（見 timeGapHint）
-  const lastAt = hist.length ? hist[hist.length - 1].created_at ?? null : null;
+  const lastAt = allHist.length ? allHist[allHist.length - 1].created_at ?? null : null;
+  // 前一場的逐字稿不整串回灌：隔得不久只接最後兩則，再久就不帶（memkind.ts 的 sessionStart）
+  const hist = allHist.slice(sessionStart(allHist));
   // 舊稿回灌前先照新規則收拾一遍：模型會把自己的舊回覆當範本——舊稿滿是「停頓，」，新稿就跟著寫。
   // 兩則之間隔了很久的，在那一句前面標出來，模型才分得出哪些話是同一場、哪些是好幾天前的。
   const turns = hist.map((t, i) => {
@@ -629,11 +631,12 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 已有的記憶（供去重；不再是「拿來重寫的整段」）。取最近 12 則就夠判重複。
   let known = "";
   let hasRows = false;
+  let recent: { id: string; body: string; kind?: string | null; created_at?: string; pinned_at?: string | null }[] = [];
   try {
     const { data, error } = await db.from("character_memories")
-      .select("body").eq("user_id", userId).eq("character_id", characterId)
+      .select("*").eq("user_id", userId).eq("character_id", characterId)
       .order("created_at", { ascending: false }).limit(12);
-    if (!error) { hasRows = true; known = (data ?? []).map((m) => `・${m.body}`).join("\n"); }
+    if (!error) { hasRows = true; recent = (data ?? []) as typeof recent; known = recent.map((m) => `・${m.body}`).join("\n"); }
   } catch { /* 表還不存在，走下面的舊路 */ }
   if (!hasRows) {
     const { data: uc } = await db.from("user_character")
@@ -647,16 +650,16 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
   const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
 
-每則一行，格式：類別｜日子｜內容。最多四則；沒有值得記的新東西，只輸出四個字：無新記憶
+每則一行，格式：類別｜日子｜內容。最多兩則，同一件事只寫一則；沒有值得記的新東西，只輸出四個字：無新記憶
 類別只能三選一，一則只放一種，不同性質就拆成不同行：
 ・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
 ・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
 ・狀態：會過去的——情緒、身體、壓力、忙碌、人在哪。日子寫那天；有後續（好了、平復了）就一起寫進去
 
 規則：
-①事實只以護道人實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
+①每則的主詞是他（護道人），寫他說了什麼、做了什麼、遇到什麼。事實只以他實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
 ②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
-③【已記得的】裡已經有的不重寫；你曾講過未經他證實的往事或個股，絕不寫進記憶
+③【已記得的】裡已經有的不重寫；同一件事有了新發展，就把來龍去脈寫成完整的一則（舊的那則會被它取代）；你曾講過未經他證實的往事或個股，絕不寫進記憶
 ④每則八十字以內，寫清楚來龍去脈（誰、什麼事、後來怎樣），繁體中文，只寫事，不加前言、說明、條列符號
 ⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
@@ -679,8 +682,16 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   if (items.length) {
     let wrote = false;
     try {
-      const rows = items.map((it) => ({ user_id: userId, character_id: characterId, source: "chat", ...it }));
-      let { error } = await db.from("character_memories").insert(rows);
+      // 同一件事併進原本那一則（改寫成新的），不另開一格
+      const fresh: typeof items = [];
+      for (const it of items) {
+        const id = mergeTarget(it, recent);
+        if (!id) { fresh.push(it); continue; }
+        const { error: upErr } = await db.from("character_memories").update({ body: it.body, kind: it.kind, happened_on: it.happened_on }).eq("id", id);
+        if (upErr) fresh.push(it);
+      }
+      const rows = fresh.map((it) => ({ user_id: userId, character_id: characterId, source: "chat", ...it }));
+      let { error } = rows.length ? await db.from("character_memories").insert(rows) : { error: null };
       // 0078 還沒跑（沒有 kind／happened_on）：退回只存內容，記憶不能因為欄位沒上而丟掉
       if (error) ({ error } = await db.from("character_memories").insert(rows.map(({ kind: _k, happened_on: _h, ...r }) => r)));
       wrote = !error;
@@ -726,7 +737,7 @@ export function pauseWordsIn(text: string): string[] {
 }
 
 /** 讓旁白「在場」且不重複：此刻所在＋最近幾則用過的停頓詞與旁白。放 tail（每輪都變）。 */
-export function narrationHint(where: unknown, turns: { role: string; body: string }[]): string {
+export function narrationHint(where: unknown, turns: { role: string; body: string }[], message = ""): string {
   const out: string[] = [];
   // 客戶端送來的字：只收短的純中文（「在廊下喝茶」），擋掉任何想藉此塞指令的東西
   const w = typeof where === "string" ? where.trim() : "";
@@ -744,6 +755,8 @@ export function narrationHint(where: unknown, turns: { role: string; body: strin
     if (used.length >= 4) break;
   }
   if (pauses.length) out.push(`【換個說法】前幾則已經用過「${pauses.join("」「")}」，這一則要表現遲疑就換別的詞或寫手上的動作，別再用這幾個。`);
+  const loop = repeatedTopics(turns, message);
+  if (loop.length) out.push(`【別繞回去】你這幾則都提到「${loop.join("」「")}」，他沒接這個話。這則跟著他現在說的走。`);
   if (used.length) out.push(`【別重複】你前幾則用過的旁白：${used.slice(0, 4).map((x) => `「${x}」`).join("")}。這則換別的動作，或乾脆只說話。`);
   return out.length ? "\n" + out.join("\n") : "";
 }
@@ -1259,7 +1272,7 @@ export async function chat(db: SupabaseClient, p: {
   try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
   const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
   const here = await activeQuests(db).then((q) => hereLine(p.userId, p.characterId, q)).catch(() => "");
-  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (here ? "\n" + here : "") + (wh.secret ? "\n" + wh.secret : "")
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns, p.message) + (here ? "\n" + here : "") + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
   // 起居注（days.ts）：他自己這幾天過的日子。今天的還沒寫就在背景補寫，這一則先用昨天的。
   const life = await lifeHint(db, p.characterId, ctx.lastAt ?? null).catch(() => ({ text: "", hasToday: true }));

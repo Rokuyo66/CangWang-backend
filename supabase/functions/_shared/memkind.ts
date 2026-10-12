@@ -12,6 +12,7 @@
 //   ・舊資料沒有類別：讀的時候用字判一下（情緒、壓力、生病……當狀態）
 
 export type MemKind = "trait" | "event" | "state";
+const SELF_SUBJECT = /^(師妹|大師兄|師兄|觀喵|觀貓|喵師傅|你)/;
 export const STATE_FRESH_DAYS = 7;
 
 const LABEL: Record<string, MemKind> = { 其人: "trait", 事件: "event", 狀態: "state" };
@@ -99,7 +100,8 @@ export function parseMemoryLines(text: string, batchLastIso?: string): { body: s
     // 其人不綁日子；事件、狀態沒填就當這批對話最後那天
     out.push({ body: m[3].trim().slice(0, 200), kind, happened_on: kind === "trait" ? null : day ?? fallbackDay });
   }
-  return out.slice(0, 4);
+  // 主詞是角色自己的（「師妹指他……」「師兄說……」）是角色的話，不是他的事——不收
+  return out.filter((it) => !SELF_SUBJECT.test(it.body)).slice(0, 2);
 }
 
 /* ── 什麼時候形成回憶（六六 2026-10-05：統整太頻繁，每則回憶都很短）──
@@ -112,7 +114,7 @@ export function parseMemoryLines(text: string, batchLastIso?: string): { body: s
    ・一場聊得太長（還沒結束就超過 HARD_CAP）：先收最舊的一段，免得明細無限長 */
 export const SESSION_GAP_MS = 3 * 3600_000;
 const KEEP_TAIL = 32;
-const MIN_BATCH = 24;
+const MIN_BATCH = 40;
 const STALE_MS = 7 * 86400_000;
 const STALE_MIN = 8;
 const HARD_CAP = 80;
@@ -132,4 +134,69 @@ export function condenseCount(msgs: { created_at?: string }[], now = Date.now())
   if (finished >= STALE_MIN && now - at(0) >= STALE_MS) return Math.min(finished, MAX_BATCH);
   if (eligible >= HARD_CAP) return Math.min(eligible, MAX_BATCH);
   return 0;
+}
+
+/* ── 帶進對話的明細從哪一則開始（六六 2026-10-12：不管隔多久，師妹都卡在那碗湯）──
+   timeGapHint 只是一句「那是之前的事」，可前一場的明細照樣整串回灌，模型看到的最後幾則全是湯。
+   新做法：這一場的全帶；前一場只在隔得不久（PREV_KEEP_MS 內）時帶最後兩則接個話頭；
+   再久就一則都不帶——前一場的事交給回憶，不交給逐字稿。 */
+const PREV_KEEP_MS = 12 * 3600_000;
+const PREV_KEEP_N = 2;
+export function sessionStart(msgs: { created_at?: string }[], now = Date.now()): number {
+  if (!msgs.length) return 0;
+  const at = (i: number) => Date.parse(msgs[i]?.created_at ?? "");
+  let s: number;
+  if (now - at(msgs.length - 1) >= SESSION_GAP_MS) s = msgs.length;      // 這句話開了新的一場
+  else { s = msgs.length - 1; while (s > 0 && !(at(s) - at(s - 1) >= SESSION_GAP_MS)) s--; }
+  if (s === 0) return 0;
+  const began = s < msgs.length ? at(s) : now;
+  const idle = began - at(s - 1);
+  return idle < PREV_KEEP_MS ? Math.max(0, s - PREV_KEEP_N) : s;
+}
+
+/* ── 一直繞回同一件事（同上）：角色最近幾則都提、他卻沒接的詞 ──
+   取角色最近 4 則裡至少 3 則都出現的三字詞（只收中文、不含虛字），他最近說的話裡沒有的才算。 */
+const FUNC = /[你我他她牠的了是不在有就也都這那個麼嗎呢吧啊和與而又很太更再還]/;
+export function repeatedTopics(turns: { role: string; body: string }[], message = ""): string[] {
+  const mine = turns.filter((t) => t.role === "assistant").slice(-4).map((t) => t.body);
+  if (mine.length < 3) return [];
+  const his = turns.filter((t) => t.role === "user").slice(-3).map((t) => t.body).join("") + message;
+  const count = new Map<string, number>();
+  for (const b of mine) {
+    const seen = new Set<string>();
+    for (let i = 0; i + 3 <= b.length; i++) {
+      const g = b.slice(i, i + 3);
+      if (!/^[\u4e00-\u9fff]{3}$/.test(g) || FUNC.test(g) || seen.has(g)) continue;
+      seen.add(g);
+      count.set(g, (count.get(g) ?? 0) + 1);
+    }
+  }
+  const hits = [...count].filter(([g, n]) => n >= 3 && !his.includes(g)).map(([g]) => g);
+  // 相鄰的三字詞（「薑棗水」「棗水喝」）只留第一個
+  const out: string[] = [];
+  for (const g of hits) if (!out.some((o) => o.includes(g.slice(0, 2)) || o.includes(g.slice(1)))) out.push(g);
+  return out.slice(0, 2);
+}
+
+/* ── 同一件事不另開一格（六六 2026-10-12：武曲星坐命兩天內佔了兩格）──
+   新寫的一則跟最近的某一則講的是同一件事（字面重疊夠多、類別相同），就把那一則改寫成新的，不另插一列。 */
+const bigrams = (t: string) => { const s = new Set<string>(); const c = t.replace(/[^\u4e00-\u9fffA-Za-z0-9]/g, ""); for (let i = 0; i + 2 <= c.length; i++) s.add(c.slice(i, i + 2)); return s; };
+export function overlap(a: string, b: string): number {
+  const A = bigrams(a), B = bigrams(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const g of A) if (B.has(g)) n++;
+  return n / Math.min(A.size, B.size);
+}
+export const SAME_THING = 0.35;
+/** 該併進哪一則（回傳 id），沒有就 null。只看兩週內、沒釘選的；類別要相同（舊資料沒類別就當同類）。 */
+export function mergeTarget(item: { body: string; kind: MemKind | null }, rows: { id: string; body: string; kind?: string | null; created_at?: string; pinned_at?: string | null }[], now = Date.now()): string | null {
+  let best: string | null = null, top = SAME_THING;
+  for (const r of rows) {
+    if (r.pinned_at) continue;
+    if (now - Date.parse(r.created_at ?? "") > 14 * 86400_000) continue;
+    if (item.kind && r.kind && item.kind !== r.kind) continue;
+    const o = overlap(item.body, r.body);
+    if (o >= top) { top = o; best = r.id; }
+  }
+  return best;
 }
