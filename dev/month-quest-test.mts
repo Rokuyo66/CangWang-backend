@@ -1,0 +1,20 @@
+// dev/month-quest-test.mts — 每月非常規事件的驗證與地點挑選。跑法：node dev/month-quest-test.mts
+(globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
+const { oddPlaces, validateDraft, twMonth } = await import("../supabase/functions/_shared/monthly-quest.ts");
+let p = 0, f = 0; const ok = (n: string, c: boolean) => { if (c) p++; else { f++; console.log("✗", n); } };
+const perm = [{ character_id: "daoshi_m", place: "zaofang" }];
+const odd = oddPlaces("daoshi_m", perm);
+ok("師兄的日常地點不算非常規", !odd.includes("dadian") && !odd.includes("houyuan"));
+ok("永久支線那處也排除", !odd.includes("zaofang"));
+ok("有地方可去", odd.length > 0);
+const allowed = { daoshi_m: odd, daoshi_f: oddPlaces("daoshi_f", []), lingshou: oddPlaces("lingshou", []) };
+const good = { character: "daoshi_m", place: odd[0], doing: "在屋脊", bands: "exz", hint: "他在屋脊上數瓦片", ask: "屋頂|瓦片", subject: "屋脊的事", body: "那天的事別說出去。附上幾顆靈石。" };
+const v = validateDraft(good, allowed);
+ok("合格的收下", !!v);
+ok("時段只留合法代碼", v?.bands === "ez");
+ok("觸發詞補上通用問法", !!v && v.ask.startsWith("屋頂|瓦片|") && new RegExp(v.ask).test("你在做什麼"));
+ok("地點不在名單 → 丟", validateDraft({ ...good, place: "dadian" }, allowed) === null);
+ok("缺信件 → 丟", validateDraft({ ...good, body: "" }, allowed) === null);
+ok("觸發詞裡的正則符號被拔掉", validateDraft({ ...good, ask: "屋(頂|瓦片*" }, allowed)!.ask.startsWith("屋頂|瓦片|"));
+ok("台北年月", twMonth(Date.parse("2026-10-31T17:00:00Z")) === "2026-11");
+console.log(`\n${p} 過 / ${f} 敗`); if (f) process.exit(1);

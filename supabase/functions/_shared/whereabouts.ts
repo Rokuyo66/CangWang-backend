@@ -125,9 +125,11 @@ let questCache: { at: number; rows: Quest[] } | null = null;
 export async function activeQuests(db: SupabaseClient): Promise<Quest[]> {
   if (questCache && Date.now() - questCache.at < 300_000) return questCache.rows;
   const { data, error } = await db.from("hidden_quests")
-    .select("id, character_id, place, doing, bands, weight, hint, found_hint, ask_re").eq("active", true);
+    .select("*").eq("active", true);
   if (error) { console.error("hidden_quests read failed", error.message); return questCache?.rows ?? []; }
-  questCache = { at: Date.now(), rows: (data ?? []) as Quest[] };
+  // 每月的那一批（monthly-quest.ts）只在那個月出現；沒有 month 的是永久支線
+  const month = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 7);
+  questCache = { at: Date.now(), rows: ((data ?? []) as (Quest & { month?: string | null })[]).filter((q) => !q.month || q.month === month) };
   return questCache.rows;
 }
 export const __resetQuestCache = () => { questCache = null; };
