@@ -47,8 +47,9 @@
 | 站內信與日誌 | （index.ts 內）、`broadcast-command.ts` | `mail_*` | `mail`、`mail_state`、`changelog`、`broadcasts` |
 | 日運與小工具 | `fortune.ts`、`qian60.ts`、`jieqi.ts`、`widget*.ts` | `daily_fortune`、`widget`、`signin` | — |
 | 營運 | `services.ts`、`notify-admin.ts` | — | `ai_usage`、`rate_minute`、`daily_stats` |
+| 觀主信箱管家與週報 | `gmail.ts`、`mailbot.ts`（判斷，純函式）、`mailbot-tg.ts`（TG 指令與按鈕） | —（`mail-butler` 排程、TG `/mailnow` 等） | `mailbot_rules`、`mailbot_seen`；週報 `admin_weekly_stats()` |
 
-其他 Edge Function：`due-reminder`（應期提醒，排程）、`broadcast`、`webhook-tg`（Telegram bot）。
+其他 Edge Function：`due-reminder`（應期提醒，排程）、`broadcast`、`webhook-tg`（Telegram bot）、`mail-butler`（信箱管家＋週報，排程；設定見 `dev/MAIL-BUTLER.md`）。
 排程（pg_cron）：`cleanup-expired-casts-weekly`、`daily-stats-snapshot`（在 migration 裡）；`due-reminder-daily`（應期提醒）**只設在線上、不在 migration 裡**——換環境會漏，待補進版控。
 
 ---
