@@ -47,6 +47,7 @@ th,td{padding:6px 8px;border-bottom:1px solid var(--hair);text-align:right;white
 th:first-child,td:first-child{text-align:left}
 th{font-weight:500;color:var(--ink-faint);font-size:.78rem}
 .tw{overflow-x:auto}
+.pl input{width:52px;padding:3px 4px}.pl td,.pl th{padding:4px 3px}
 .neg{color:var(--cin)}.pos{color:var(--good)}
 .cell-bad{background:var(--cin-soft)}.cell-ok{background:var(--good-soft)}
 svg text{fill:var(--ink-faint);font-size:11px;font-family:var(--f-body)}
@@ -58,7 +59,7 @@ pre{background:var(--paper-2);border:1px solid var(--edge);border-radius:4px;pad
 <div class="wrap">
   <header>
     <h1>幾知觀回本試算</h1>
-    <p class="lede">固定月費＋每位用戶的 AI 成本，對上玉牒實收。改左欄任何一格，右邊即時重算。預設值裡標「估」的是我猜的，請換成你帳單上的數字。</p>
+    <p class="lede">固定月費＋每位用戶的 AI 成本，對上玉牒實收。改左欄任何一格（含三方案的額度），右邊即時重算。預設值裡標「估」的是我猜的，請換成你帳單上的數字。</p>
   </header>
 
   <div class="cols">
@@ -76,21 +77,27 @@ pre{background:var(--paper-2);border:1px solid var(--edge);border-radius:4px;pad
         <div class="row two"><label for="mau">每月活躍人數（MAU）</label><input id="mau" type="number" step="50" value="1000"></div>
         <div class="row two"><label for="conv">持牒比例 %</label><input id="conv" type="number" step="0.5" value="5"></div>
         <div class="hint">手機 App 訂閱的常見轉換是 2–5%，做得好的陪伴類到 8–10%。</div>
-        <div class="row two"><label for="mix1">持牒者中 觀微 %</label><input id="mix1" type="number" value="60"></div>
-        <div class="row two"><label for="mix2">知幾 %</label><input id="mix2" type="number" value="30"></div>
-        <div class="row two"><label for="mix3">藏往 %</label><input id="mix3" type="number" value="10"></div>
+        <div class="row two"><label for="mix1">持牒者中 問卦 %</label><input id="mix1" type="number" value="40"></div>
+        <div class="row two"><label for="mix2">攻略 %</label><input id="mix2" type="number" value="40"></div>
+        <div class="row two"><label for="mix3">深度 %</label><input id="mix3" type="number" value="20"></div>
         <div class="row two"><label for="uf">無牒用掉額度 %</label><input id="uf" type="number" step="1" value="15"></div>
         <div class="row two"><label for="up">持牒用掉額度 %</label><input id="up" type="number" step="1" value="35"></div>
         <div class="hint">「用掉額度」＝一個月平均下來，每日免費額度用了幾成（沒打開的日子算 0）。這是整張表最敏感的一格，上線後用文末的 SQL 實測。</div>
       </section>
 
       <section>
-        <h2>售價與單次成本</h2>
-        <div class="row"><label for="p1">觀微 NT$／月</label><input id="p1" type="number" value="150"><span class="hint">3卦3追25聊</span></div>
-        <div class="row"><label for="p2">知幾</label><input id="p2" type="number" value="299"><span class="hint">5/5/50</span></div>
-        <div class="row"><label for="p3">藏往</label><input id="p3" type="number" value="999"><span class="hint">8/20/100</span></div>
+        <h2>三方案（2026-10-08 定的方向）</h2>
+        <div class="hint">每日額度：卦／追問／閒聊。贈石＝每月致贈靈石，朗讀＝每月免費朗讀次數。都可以改。</div>
+        <div class="tw"><table class="pl">
+          <tr><th></th><th>月費</th><th>卦</th><th>追</th><th>聊</th><th>贈石</th><th>朗讀</th></tr>
+          <tr><td>無牒</td><td>0</td><td><input id="f-c" type="number" value="2"></td><td><input id="f-f" type="number" value="2"></td><td><input id="f-h" type="number" value="15"></td><td>0</td><td>0</td></tr>
+          <tr><td>問卦</td><td><input id="p1" type="number" value="199"></td><td><input id="c1" type="number" value="4"></td><td><input id="f1" type="number" value="4"></td><td><input id="h1" type="number" value="12"></td><td><input id="g1" type="number" value="60"></td><td><input id="t1" type="number" value="0"></td></tr>
+          <tr><td>攻略</td><td><input id="p2" type="number" value="199"></td><td><input id="c2" type="number" value="2"></td><td><input id="f2" type="number" value="1"></td><td><input id="h2" type="number" value="100"></td><td><input id="g2" type="number" value="60"></td><td><input id="t2" type="number" value="0"></td></tr>
+          <tr><td>深度</td><td><input id="p3" type="number" value="399"></td><td><input id="c3" type="number" value="5"></td><td><input id="f3" type="number" value="6"></td><td><input id="h3" type="number" value="100"></td><td><input id="g3" type="number" value="150"></td><td><input id="t3" type="number" value="8"></td></tr>
+        </table></div>
+        <div class="hint">攻略另有好感 ×1.5、記憶 24 則、釘選 3、劇情：這些幾乎不花 AI 錢，所以不在成本裡。贈石與朗讀次數 10-08 沒定，這裡是我填的。</div>
         <div class="row two"><label for="model">起卦／追問模型</label>
-          <select id="model"><option value="s46">Sonnet 4.6（現行）</option><option value="s55">Sonnet 5.5（省一成多）</option></select></div>
+          <select id="model"><option value="s55">Sonnet 5.5（線上，實測 NT$0.70／卦）</option><option value="s46">Sonnet 4.6（舊，實測 NT$1.11／卦）</option></select></div>
         <div class="row two"><label for="tax">營業稅 %</label><input id="tax" type="number" step="0.5" value="5"></div>
         <div class="row two"><label for="fee">金流手續費 %（估）</label><input id="fee" type="number" step="0.05" value="2.75"></div>
       </section>
@@ -173,15 +180,18 @@ $("addFx").onclick=()=>{fixed.push({n:"新項目",v:0,c:"TWD",p:"月"});save();d
 
 const num=id=>+$(id).value||0;
 const fmt=n=>Math.round(n).toLocaleString("zh-TW");
-const PLANS=[{id:"guanwei",n:"觀微",c:3,f:3,h:25,g:60,t:0},{id:"zhiji",n:"知幾",c:5,f:5,h:50,g:150,t:0},{id:"cangwang",n:"藏往",c:8,f:20,h:100,g:300,t:8}];
-const FREE={c:2,f:2,h:15,g:0,t:0};
-const SIGN=171, STONE=0.063, CHAT=0.01, TTS=4.16;
+const NAMES=["問卦","攻略","深度"];
+const SIGN=171, CHAT=0.01, TTS=4.16;
 
 function model(over={}){
   const rate=num("fx-rate");
   const F=fixed.reduce((a,f)=>a+f.v*(f.c==="USD"?rate:1)/(f.p==="年"?12:f.p==="一次"?12:1),0);
+  // 起卦：2026-10-08 dev/model-ab.mts 實測（6 盤平均，含新 tokenizer）。追問沒單獨量，照舊比例 0.56/0.63 推
   const s55=$("model").value==="s55";
-  const CAST=s55?0.55:0.63, FU=s55?0.49:0.56;
+  const CAST=s55?0.70:1.11, FU=CAST*0.89;
+  const STONE=CAST/10;   // 靈石錨點＝加卦 10 顆；其他出口對齊它
+  const PLANS=[1,2,3].map(i=>({n:NAMES[i-1],c:num("c"+i),f:num("f"+i),h:num("h"+i),g:num("g"+i),t:num("t"+i)}));
+  const FREE={c:num("f-c"),f:num("f-f"),h:num("f-h"),g:0,t:0};
   const full=q=>30*(q.c*CAST+q.f*FU+q.h*CHAT)+(q.g+SIGN)*STONE+q.t*TTS;
   const net=1/(1+num("tax")/100)*(1-num("fee")/100);
   const prices=[num("p1"),num("p2"),num("p3")].map(p=>p*(over.k??1));
@@ -207,7 +217,7 @@ function calc(){
 
   const freeShare=(1-m.c)*m.freeCost, paidShare=m.c*m.paidAvg;
   $("verdict").textContent=!isFinite(m.be)
-    ? `無牒用戶每人每月花 NT$${m.freeCost.toFixed(1)}，持牒者帶進來的錢蓋不過。先動無牒額度（起卦 2→1、或無牒起卦改 Haiku），或提高持牒比例；漲價救不了這個情況。`
+    ? `無牒用戶每人每月花 NT$${m.freeCost.toFixed(1)}，持牒者帶進來的錢蓋不過。先動無牒額度（起卦或追問 2→1），或提高持牒比例；漲價救不了這個情況。無牒起卦不能改用 Haiku：10-08 的 A/B 裡 Haiku 5.5 六題錯兩題方向。`
     : `每 100 個活躍用戶：持牒者淨貢獻 NT$${fmt(paidShare*100)}，無牒者吃掉 NT$${fmt(freeShare*100)}。無牒成本佔了持牒貢獻的 ${Math.round(freeShare/paidShare*100)}%。`;
 
   $("unit").innerHTML=`<tr><th></th><th>售價</th><th>實收</th><th>用滿成本</th><th>實際成本</th><th>每人淨賺</th></tr>`
