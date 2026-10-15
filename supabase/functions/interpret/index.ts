@@ -7,7 +7,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAf
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetState } from "../_shared/widget-state.ts";
-import { chat, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatFavorCap, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
@@ -624,11 +624,19 @@ async function handle(req: Request): Promise<Response> {
           memories: memoryQuotaOf(id),   // 角色長期記憶注入幾則（閒聊用），不是心事
           pins: pinQuotaOf(id),
           threads: threadQuotaOf(id),     // 心事同時記幾件（手帳›心事）。與 memories 是兩回事，方案頁曾混為一談
+          favor_cap: chatFavorCap(id),    // 閒聊能把道緣聊到多高。無牒封頂 299（FREE_CHAT_FAVOR_CAP），持牒不封頂
         };
       });
+      // 無牒的同一組數字。plans 表沒有 free 那一列，方案頁要寫「持牒多了什麼」就得有對照
+      const free = {
+        casts: PLAN_CASTS.free, followups: PLAN_FOLLOWUPS.free, chats: chatQuotaOf("free"),
+        memories: memoryQuotaOf("free"), pins: pinQuotaOf("free"), threads: threadQuotaOf("free"),
+        favor_cap: chatFavorCap("free"),
+      };
       return Response.json({
         kind: "ok",
         plans: quotas,
+        free,
         current: plan,
         plan_until: (prof as { plan_until?: string } | null)?.plan_until ?? null,
         // 有沒有正在跑的定期定額。退訂要去綠界那側辦，畫面上至少要說得出「你有」

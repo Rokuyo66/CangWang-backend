@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 const { COST, SIGN_REWARDS, priceTable } = await import("../supabase/functions/_shared/prices.ts");
 const { PLAN_CASTS, PLAN_FOLLOWUPS } = await import("../supabase/functions/_shared/services.ts");
-const { PLAN_CHATS } = await import("../supabase/functions/_shared/chat.ts");
+const { chatQuotaOf } = await import("../supabase/functions/_shared/chat.ts");
 
 let pass = 0, fail = 0;
 const t = (name: string, fn: () => void) =>
@@ -58,18 +58,21 @@ await t("0059 的每一列都與 prices.ts 的預設相符", () => {
 console.log("\n— 每顆靈石的真實成本（價差就是套利空間）");
 // 每次呼叫的 AI 成本（NT$，由 0043 單價表推算：快取命中、匯率 32）。
 // 這幾個數字會隨模型與匯率變——它們是這支測試的前提，不是被測的對象。
+// 2026-10-15：閒聊換 Haiku 5.5 後 0.07 → 0.01（推算，待 ai_cost 實測；起卦等仍是 Sonnet 4.6）。
 const TWD_PER_CALL: Record<string, number> = {
-  extra_cast: 0.63, followup: 0.56, comment: 0.49, deepen: 2.13, chat: 0.07,
+  extra_cast: 0.63, followup: 0.56, comment: 0.49, deepen: 2.13, chat: 0.01,
 };
-await t("最貴與最便宜的出口，每顆成本相差在 1.35 倍以內", () => {
+// 錨點＝加卦（NT$0.63／10 顆）。套利只會往「比錨點貴」的出口跑——比錨點便宜的出口
+// （閒聊換 Haiku 5.5 之後一顆只花 0.01）是毛利，不是漏洞，所以只盯上緣。
+await t("沒有出口的每顆成本高過錨點（加卦）1.35 倍", () => {
   const per = Object.entries(TWD_PER_CALL).map(([k, twd]) => [k, twd / COST[k as keyof typeof COST]] as const);
   const sorted = [...per].sort((a, b) => a[1] - b[1]);
-  const [loK, lo] = sorted[0], [hiK, hi] = sorted[sorted.length - 1];
-  const spread = hi / lo;
+  const anchor = TWD_PER_CALL.extra_cast / COST.extra_cast;
+  const [hiK, hi] = sorted[sorted.length - 1];
   console.log(`     每顆：${sorted.map(([k, v]) => `${k} ${v.toFixed(3)}`).join("  ")}`);
-  if (spread > 1.35) {
+  if (hi / anchor > 1.35) {
     throw new Error(
-      `價差 ${spread.toFixed(1)}×（${hiK} ${hi.toFixed(3)}／顆 vs ${loK} ${lo.toFixed(3)}／顆）。\n` +
+      `${hiK} 每顆 ${hi.toFixed(3)}，是錨點 ${anchor.toFixed(3)} 的 ${(hi / anchor).toFixed(1)}×。\n` +
       `       免費石會集中兌到 ${hiK}，真實平均成本會往那一端滑。調 ${hiK} 的價或重算錨點。`);
   }
 });
@@ -124,24 +127,44 @@ await t("每一階的月成本天花板都不超過售價", () => {
     .map(([k, twd]) => twd / COST[k as keyof typeof COST]));
   // 朗讀（0059）：只有最高階有免費次數，一次 NT$4.16
   const freeReadings: Record<string, number> = { guanwei: 0, zhiji: 0, cangwang: 8 };
+  // 售價不是實收：營業稅 5%（內含）＋綠界信用卡手續費約 2.75%。收費前沒算進去，
+  // 觀微會在「帳上看起來有賺」的狀態下實際虧損。數字是假設，開立發票／簽約後照實改。
+  const NET = 1 / 1.05 * (1 - 0.0275);
 
   const bad: string[] = [];
   for (const r of rows) {
     const ai = 30 * (PLAN_CASTS[r.id] * TWD_PER_CALL.extra_cast
                    + PLAN_FOLLOWUPS[r.id] * TWD_PER_CALL.followup
-                   + PLAN_CHATS[r.id] * TWD_PER_CALL.chat);
+                   + chatQuotaOf(r.id) * TWD_PER_CALL.chat);
     const ceiling = ai + (r.grant + signPerMonth) * perStone + freeReadings[r.id] * 4.16;
-    const margin = r.twd - ceiling;
-    console.log(`     ${r.id.padEnd(9)} ${PLAN_CASTS[r.id]}/${PLAN_FOLLOWUPS[r.id]}/${PLAN_CHATS[r.id]}` +
-      `  天花板 ${ceiling.toFixed(0).padStart(4)}  售價 ${String(r.twd).padStart(4)}` +
+    const margin = r.twd * NET - ceiling;
+    console.log(`     ${r.id.padEnd(9)} ${PLAN_CASTS[r.id]}/${PLAN_FOLLOWUPS[r.id]}/${chatQuotaOf(r.id)}` +
+      `  天花板 ${ceiling.toFixed(0).padStart(4)}  售價 ${String(r.twd).padStart(4)}（實收 ${(r.twd * NET).toFixed(0)}）` +
       `  毛利 ${margin.toFixed(0).padStart(5)} (${(margin / r.twd * 100).toFixed(0)}%)`);
-    if (margin < 0) bad.push(`${r.id}：天花板 ${ceiling.toFixed(0)} > 售價 ${r.twd}，用滿一個月虧 ${(-margin).toFixed(0)}`);
+    if (margin < 0) bad.push(`${r.id}：天花板 ${ceiling.toFixed(0)} > 實收 ${(r.twd * NET).toFixed(0)}，用滿一個月虧 ${(-margin).toFixed(0)}`);
   }
   if (bad.length) {
     throw new Error(bad.join("\n       ") +
       "\n       改額度（PLAN_CASTS／PLAN_FOLLOWUPS／PLAN_CHATS）或改售價（0058 的 insert）。" +
       "\n       這種虧損不會叫——它看起來像留存很好。");
   }
+});
+
+console.log("\n— 方案階梯");
+// 2026-10-08 把無牒閒聊 8→15 時，觀微還是 12：付了錢、每日閒聊反而少三句。
+// 改無牒那一格的人不會想到去看付費那幾格，所以由這裡看。
+await t("持牒每一項額度都不低於無牒，且逐階不減", () => {
+  const order = ["free", "guanwei", "zhiji", "cangwang"];
+  const tables: Record<string, (id: string) => number> = {
+    起卦: (id) => PLAN_CASTS[id], 追問: (id) => PLAN_FOLLOWUPS[id], 閒聊: (id) => chatQuotaOf(id),
+  };
+  const bad: string[] = [];
+  for (const [name, f] of Object.entries(tables)) {
+    for (let i = 1; i < order.length; i++) {
+      if (f(order[i]) < f(order[i - 1])) bad.push(`${name}：${order[i]} ${f(order[i])} < ${order[i - 1]} ${f(order[i - 1])}`);
+    }
+  }
+  if (bad.length) throw new Error(bad.join("\n       "));
 });
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 通過，${fail} 失敗\n`);

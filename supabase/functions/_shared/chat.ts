@@ -103,8 +103,11 @@ export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15
 // 2026-09-22：觀微 20→12、知幾 50→30。閒聊單價低（NT$0.07／則）但額度大，
 // 所以它是兩個中階裡最不痛的那一刀——砍追問或起卦會直接砍掉升級的理由，
 // 砍閒聊只是把「聊不完的」變成「夠聊」。藏往不動，它是利潤來源不是成本問題。
-export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 12, zhiji: 30, cangwang: 100 };
-export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
+// 2026-10-15：觀微 12→25、知幾 30→50。10-08 把無牒拉到 15 之後，觀微反而比無牒少三句——
+// 付了錢、每日閒聊變少。Haiku 5.5 一則約 NT$0.01，觀微多 13 句一個月約 NT$4。
+// chatQuotaOf 另外保底：持牒的句數永遠不低於無牒（FREE_CHAT_PER_DAY 是環境變數，調高時不必回頭改這張表）。
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 25, zhiji: 50, cangwang: 100 };
+export const chatQuotaOf = (plan: string) => Math.max(PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY, FREE_CHAT_PER_DAY);
 // 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
 // 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。
 export const PLAN_MEMORIES: Record<string, number> = { free: 6, guanwei: 12, zhiji: 24, cangwang: 40 };
