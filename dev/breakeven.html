@@ -1,0 +1,261 @@
+<title>幾知觀回本試算</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：左欄假設、右欄結果（窄螢幕疊成一欄）。色碼取自 dev/design/tokens.json 的宣紙／夜觀 */
+:root{
+  --paper:#F2EBDA;--paper-2:#EBE1CC;--edge:#E0D4B8;--ink:#272320;--ink-soft:#5A5045;--ink-faint:#8A7E6C;
+  --hair:rgba(34,30,26,.13);--cin:#B5402E;--cin-soft:rgba(181,64,46,.13);--gold:#9a7b3f;--good:#4f7a4d;--good-soft:rgba(79,122,77,.14);
+  --f-disp:"Noto Serif TC","Songti TC",serif;--f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#15120E;--paper-2:#2F2923;--edge:#0D0A08;--ink:#ECE3D1;--ink-soft:#B3A78F;--ink-faint:#857B68;
+  --hair:rgba(236,227,209,.22);--cin:#D86A52;--cin-soft:rgba(216,106,82,.16);--gold:#C4A164;--good:#7fae6e;--good-soft:rgba(127,174,110,.16);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#15120E;--paper-2:#2F2923;--edge:#0D0A08;--ink:#ECE3D1;--ink-soft:#B3A78F;--ink-faint:#857B68;
+  --hair:rgba(236,227,209,.22);--cin:#D86A52;--cin-soft:rgba(216,106,82,.16);--gold:#C4A164;--good:#7fae6e;--good-soft:rgba(127,174,110,.16);color-scheme:dark}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 48px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;gap:28px}
+h1{font-family:var(--f-disp);font-weight:800;font-size:1.9rem;margin:0;letter-spacing:.04em;text-wrap:balance}
+h2{font-family:var(--f-disp);font-weight:600;font-size:1.1rem;margin:0 0 10px;letter-spacing:.06em}
+.lede{color:var(--ink-soft);max-width:68ch;margin:6px 0 0}
+.cols{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:minmax(0,1fr)}}
+section{display:grid;gap:8px}
+.panel{background:var(--paper-2);border:1px solid var(--edge);border-radius:6px;padding:16px;display:grid;gap:18px}
+.row{display:grid;grid-template-columns:1fr 92px 64px;gap:8px;align-items:center}
+.row.two{grid-template-columns:1fr 92px}
+.row label,.lab{font-size:.88rem;color:var(--ink-soft)}
+.hint{font-size:.76rem;color:var(--ink-faint);line-height:1.5}
+input,select{font:inherit;font-size:.9rem;font-variant-numeric:tabular-nums;background:var(--paper);color:var(--ink);
+  border:1px solid var(--hair);border-radius:4px;padding:4px 6px;width:100%;box-sizing:border-box;min-width:0}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--cin);outline-offset:1px}
+.fx{display:grid;grid-template-columns:1fr 84px 70px 24px;gap:6px;align-items:center}
+.fx input[type=text]{font-size:.85rem}
+button{font:inherit;font-size:.85rem;cursor:pointer;background:transparent;color:var(--ink-soft);border:1px solid var(--hair);border-radius:4px;padding:3px 10px}
+button.x{border:0;padding:0;color:var(--ink-faint);font-size:1rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile{border-top:3px solid var(--hair);padding-top:8px}
+.tile.bad{border-color:var(--cin)}.tile.ok{border-color:var(--good)}
+.tile .k{font-size:.78rem;color:var(--ink-faint);letter-spacing:.06em}
+.tile .v{font-family:var(--f-disp);font-size:1.7rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .s{font-size:.8rem;color:var(--ink-soft)}
+table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--hair);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:500;color:var(--ink-faint);font-size:.78rem}
+.tw{overflow-x:auto}
+.neg{color:var(--cin)}.pos{color:var(--good)}
+.cell-bad{background:var(--cin-soft)}.cell-ok{background:var(--good-soft)}
+svg text{fill:var(--ink-faint);font-size:11px;font-family:var(--f-body)}
+.note{border-left:3px solid var(--gold);padding:4px 0 4px 12px;color:var(--ink-soft);font-size:.9rem}
+pre{background:var(--paper-2);border:1px solid var(--edge);border-radius:4px;padding:10px;overflow-x:auto;font-size:.8rem;margin:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>幾知觀回本試算</h1>
+    <p class="lede">固定月費＋每位用戶的 AI 成本，對上玉牒實收。改左欄任何一格，右邊即時重算。預設值裡標「估」的是我猜的，請換成你帳單上的數字。</p>
+  </header>
+
+  <div class="cols">
+    <div class="panel">
+      <section>
+        <h2>固定月費</h2>
+        <div class="hint">年費、一次性費用自動攤成每月。一次性的攤 12 個月。</div>
+        <div id="fixed" style="display:grid;gap:6px"></div>
+        <div><button id="addFx" type="button">＋ 加一項</button></div>
+        <div class="row two"><label for="fx-rate">匯率（TWD/USD）</label><input id="fx-rate" type="number" step="0.1" value="32"></div>
+      </section>
+
+      <section>
+        <h2>用戶</h2>
+        <div class="row two"><label for="mau">每月活躍人數（MAU）</label><input id="mau" type="number" step="50" value="1000"></div>
+        <div class="row two"><label for="conv">持牒比例 %</label><input id="conv" type="number" step="0.5" value="5"></div>
+        <div class="hint">手機 App 訂閱的常見轉換是 2–5%，做得好的陪伴類到 8–10%。</div>
+        <div class="row two"><label for="mix1">持牒者中 觀微 %</label><input id="mix1" type="number" value="60"></div>
+        <div class="row two"><label for="mix2">知幾 %</label><input id="mix2" type="number" value="30"></div>
+        <div class="row two"><label for="mix3">藏往 %</label><input id="mix3" type="number" value="10"></div>
+        <div class="row two"><label for="uf">無牒用掉額度 %</label><input id="uf" type="number" step="1" value="15"></div>
+        <div class="row two"><label for="up">持牒用掉額度 %</label><input id="up" type="number" step="1" value="35"></div>
+        <div class="hint">「用掉額度」＝一個月平均下來，每日免費額度用了幾成（沒打開的日子算 0）。這是整張表最敏感的一格，上線後用文末的 SQL 實測。</div>
+      </section>
+
+      <section>
+        <h2>售價與單次成本</h2>
+        <div class="row"><label for="p1">觀微 NT$／月</label><input id="p1" type="number" value="150"><span class="hint">3卦3追25聊</span></div>
+        <div class="row"><label for="p2">知幾</label><input id="p2" type="number" value="299"><span class="hint">5/5/50</span></div>
+        <div class="row"><label for="p3">藏往</label><input id="p3" type="number" value="999"><span class="hint">8/20/100</span></div>
+        <div class="row two"><label for="model">起卦／追問模型</label>
+          <select id="model"><option value="s46">Sonnet 4.6（現行）</option><option value="s55">Sonnet 5.5（省一成多）</option></select></div>
+        <div class="row two"><label for="tax">營業稅 %</label><input id="tax" type="number" step="0.5" value="5"></div>
+        <div class="row two"><label for="fee">金流手續費 %（估）</label><input id="fee" type="number" step="0.05" value="2.75"></div>
+      </section>
+    </div>
+
+    <div style="display:grid;gap:28px;min-width:0">
+      <section>
+        <div class="tiles" id="tiles"></div>
+        <p class="note" id="verdict"></p>
+      </section>
+
+      <section>
+        <h2>人數與每月盈虧</h2>
+        <div class="tw"><svg id="chart" viewBox="0 0 640 240" width="100%" role="img" aria-label="每月盈虧對活躍人數"></svg></div>
+      </section>
+
+      <section>
+        <h2>每位用戶一個月</h2>
+        <div class="tw"><table id="unit"></table></div>
+        <div class="hint">「用滿成本」＝每日額度天天用完＋致贈石與簽到石全倒進最貴的出口。實際成本＝用滿成本 × 用掉額度 %。</div>
+      </section>
+
+      <section>
+        <h2>回本人數：持牒比例 × 無牒用量</h2>
+        <div class="tw"><table id="sens"></table></div>
+        <div class="hint">格子是回本要的 MAU；「—」表示人越多虧越多（每多一人平均是負的）。</div>
+      </section>
+
+      <section>
+        <h2>反推定價</h2>
+        <div class="row two" style="max-width:360px"><label for="target">目標：幾人回本（MAU）</label><input id="target" type="number" step="100" value="1000"></div>
+        <div class="tw"><table id="solve"></table></div>
+        <div class="hint">三階等比例調整，維持現在的價差。</div>
+      </section>
+
+      <section>
+        <h2>上線後實測「用掉額度」</h2>
+        <pre>-- 近 30 天，每位有用 AI 的人平均花多少（NT$），依方案分
+select coalesce(p.plan,'free') as 方案,
+       count(distinct c.user_id) as 人數,
+       round(sum(c.usd) * 32 / count(distinct c.user_id), 2) as 每人每月NT
+from ai_usage_cost c
+left join profiles p on p.id = c.user_id
+where c.created_at &gt;= now() - interval '30 days' and c.user_id is not null
+group by 1 order by 1;</pre>
+        <div class="hint">把「每人每月NT」除以上表的用滿成本，就是真的用掉額度 %。</div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const FIXED0=[
+  {n:"Supabase Pro",v:25,c:"USD",p:"月"},
+  {n:"Claude 開發訂閱（估）",v:100,c:"USD",p:"月"},
+  {n:"Cloudflare Pages",v:0,c:"USD",p:"月"},
+  {n:"網域（估）",v:400,c:"TWD",p:"年"},
+  {n:"Google Play 開發者",v:25,c:"USD",p:"一次"},
+];
+let fixed;
+try{fixed=JSON.parse(localStorage.getItem("be-fixed"))||FIXED0}catch(e){fixed=FIXED0}
+fixed=fixed.map(x=>({...x}));
+
+function drawFixed(){
+  $("fixed").innerHTML=fixed.map((f,i)=>`<div class="fx">
+    <input type="text" id="fn${i}" value="${f.n.replace(/"/g,"&quot;")}" aria-label="項目">
+    <input type="number" id="fv${i}" value="${f.v}" aria-label="金額">
+    <select id="fc${i}" aria-label="幣別與週期">${["USD/月","TWD/月","USD/年","TWD/年","USD/一次","TWD/一次"].map(o=>`<option ${o===f.c+"/"+f.p?"selected":""}>${o}</option>`).join("")}</select>
+    <button class="x" type="button" data-i="${i}" aria-label="刪除">×</button></div>`).join("");
+  fixed.forEach((f,i)=>{
+    $("fn"+i).oninput=e=>{f.n=e.target.value;save()};
+    $("fv"+i).oninput=e=>{f.v=+e.target.value||0;save();calc()};
+    $("fc"+i).onchange=e=>{[f.c,f.p]=e.target.value.split("/");save();calc()};
+  });
+  $("fixed").querySelectorAll(".x").forEach(b=>b.onclick=()=>{fixed.splice(+b.dataset.i,1);save();drawFixed();calc()});
+}
+function save(){try{localStorage.setItem("be-fixed",JSON.stringify(fixed))}catch(e){}}
+$("addFx").onclick=()=>{fixed.push({n:"新項目",v:0,c:"TWD",p:"月"});save();drawFixed();calc()};
+
+const num=id=>+$(id).value||0;
+const fmt=n=>Math.round(n).toLocaleString("zh-TW");
+const PLANS=[{id:"guanwei",n:"觀微",c:3,f:3,h:25,g:60,t:0},{id:"zhiji",n:"知幾",c:5,f:5,h:50,g:150,t:0},{id:"cangwang",n:"藏往",c:8,f:20,h:100,g:300,t:8}];
+const FREE={c:2,f:2,h:15,g:0,t:0};
+const SIGN=171, STONE=0.063, CHAT=0.01, TTS=4.16;
+
+function model(over={}){
+  const rate=num("fx-rate");
+  const F=fixed.reduce((a,f)=>a+f.v*(f.c==="USD"?rate:1)/(f.p==="年"?12:f.p==="一次"?12:1),0);
+  const s55=$("model").value==="s55";
+  const CAST=s55?0.55:0.63, FU=s55?0.49:0.56;
+  const full=q=>30*(q.c*CAST+q.f*FU+q.h*CHAT)+(q.g+SIGN)*STONE+q.t*TTS;
+  const net=1/(1+num("tax")/100)*(1-num("fee")/100);
+  const prices=[num("p1"),num("p2"),num("p3")].map(p=>p*(over.k??1));
+  let mix=[num("mix1"),num("mix2"),num("mix3")]; const ms=mix.reduce((a,b)=>a+b,0)||1; mix=mix.map(m=>m/ms);
+  const c=(over.conv??num("conv"))/100, uf=(over.uf??num("uf"))/100, up=num("up")/100;
+  const freeCost=uf*full(FREE);
+  const paid=PLANS.map((p,i)=>({...p,price:prices[i],rev:prices[i]*net,full:full(p),cost:up*full(p),contrib:prices[i]*net-up*full(p)}));
+  const paidAvg=paid.reduce((a,p,i)=>a+mix[i]*p.contrib,0);
+  const perUser=c*paidAvg-(1-c)*freeCost;
+  const be=perUser>0?F/perUser:Infinity;
+  return {F,full,FREE_full:full(FREE),freeCost,paid,mix,c,uf,up,net,paidAvg,perUser,be,CAST,FU};
+}
+
+function calc(){
+  const m=model(), N=num("mau");
+  const profit=N*m.perUser-m.F;
+  const revenue=N*m.c*m.paid.reduce((a,p,i)=>a+m.mix[i]*p.rev,0);
+  $("tiles").innerHTML=[
+    ["固定月費",`NT$${fmt(m.F)}`,"不管幾個人都要付",""],
+    [`${fmt(N)} 人時每月`,`${profit<0?"−":"+"}NT$${fmt(Math.abs(profit))}`,`實收 ${fmt(revenue)}，持牒 ${fmt(N*m.c)} 人`,profit<0?"bad":"ok"],
+    ["回本人數",isFinite(m.be)?`${fmt(Math.ceil(m.be))} 人`:"不會回本",isFinite(m.be)?`每人平均淨賺 NT$${m.perUser.toFixed(2)}`:`每多一人平均虧 NT$${(-m.perUser).toFixed(2)}`,isFinite(m.be)?"ok":"bad"],
+  ].map(([k,v,s,cl])=>`<div class="tile ${cl}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  const freeShare=(1-m.c)*m.freeCost, paidShare=m.c*m.paidAvg;
+  $("verdict").textContent=!isFinite(m.be)
+    ? `無牒用戶每人每月花 NT$${m.freeCost.toFixed(1)}，持牒者帶進來的錢蓋不過。先動無牒額度（起卦 2→1、或無牒起卦改 Haiku），或提高持牒比例；漲價救不了這個情況。`
+    : `每 100 個活躍用戶：持牒者淨貢獻 NT$${fmt(paidShare*100)}，無牒者吃掉 NT$${fmt(freeShare*100)}。無牒成本佔了持牒貢獻的 ${Math.round(freeShare/paidShare*100)}%。`;
+
+  $("unit").innerHTML=`<tr><th></th><th>售價</th><th>實收</th><th>用滿成本</th><th>實際成本</th><th>每人淨賺</th></tr>`
+    +`<tr><td>無牒</td><td>0</td><td>0</td><td>${fmt(m.FREE_full)}</td><td>${m.freeCost.toFixed(1)}</td><td class="neg">−${m.freeCost.toFixed(1)}</td></tr>`
+    +m.paid.map(p=>`<tr><td>${p.n}</td><td>${p.price}</td><td>${fmt(p.rev)}</td><td>${fmt(p.full)}</td><td>${p.cost.toFixed(1)}</td><td class="${p.contrib<0?"neg":"pos"}">${p.contrib.toFixed(0)}</td></tr>`).join("");
+
+  // 敏感度
+  const convs=[2,3,5,8,12], ufs=[5,10,15,25,40];
+  $("sens").innerHTML=`<tr><th>持牒 ＼ 無牒用量</th>${ufs.map(u=>`<th>${u}%</th>`).join("")}</tr>`
+    +convs.map(cv=>`<tr><td>${cv}%</td>${ufs.map(u=>{const r=model({conv:cv,uf:u});
+      return isFinite(r.be)?`<td class="${r.be<=N?"cell-ok":""}">${fmt(Math.ceil(r.be))}</td>`:`<td class="cell-bad">—</td>`}).join("")}</tr>`).join("");
+
+  // 反推定價
+  const T=num("target")||1;
+  const need=m.F/T+(1-m.c)*m.freeCost+m.c*m.paid.reduce((a,p,i)=>a+m.mix[i]*p.cost,0);
+  const have=m.c*m.paid.reduce((a,p,i)=>a+m.mix[i]*p.rev,0);
+  const k=have>0?need/have:Infinity;
+  $("solve").innerHTML=`<tr><th></th><th>現價</th><th>${fmt(T)} 人回本的最低價</th><th>差</th></tr>`
+    +m.paid.map(p=>{const np=Math.ceil(p.price*k);return `<tr><td>${p.n}</td><td>${p.price}</td><td>${isFinite(np)?np:"—"}</td><td class="${np>p.price?"neg":"pos"}">${isFinite(np)?(np>p.price?"+":"")+(np-p.price):"—"}</td></tr>`}).join("");
+
+  drawChart(m,N);
+}
+
+function drawChart(m,N){
+  const W=640,H=240,L=58,R=12,T=12,B=28;
+  const maxN=Math.max(1000,Math.ceil(Math.max(N*2,isFinite(m.be)?m.be*1.5:0)/500)*500);
+  const ys=[0,maxN].map(n=>n*m.perUser-m.F);
+  let lo=Math.min(...ys,-m.F),hi=Math.max(...ys,0); const pad=(hi-lo)*.08||100; lo-=pad;hi+=pad;
+  const x=n=>L+(n/maxN)*(W-L-R), y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  const ticks=5,stepN=maxN/ticks;
+  let g="";
+  const vstep=niceStep((hi-lo)/4);
+  for(let v=Math.ceil(lo/vstep)*vstep;v<=hi;v+=vstep){
+    g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--hair)" fill="none"/>`
+      +`<text x="${L-6}" y="${y(v)+4}" text-anchor="end">${v<0?"−":""}${fmtK(Math.abs(v))}</text>`;
+  }
+  for(let i=0;i<=ticks;i++){const n=i*stepN;g+=`<text x="${x(n)}" y="${H-8}" text-anchor="middle">${fmt(n)}</text>`}
+  g+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--ink-faint)" fill="none"/>`;
+  g+=`<line x1="${x(0)}" y1="${y(ys[0])}" x2="${x(maxN)}" y2="${y(ys[1])}" stroke="${m.perUser>0?"var(--good)":"var(--cin)"}" stroke-width="2.5" fill="none"/>`;
+  if(isFinite(m.be)&&m.be<=maxN) g+=`<circle cx="${x(m.be)}" cy="${y(0)}" r="5" fill="var(--good)"/><text x="${x(m.be)}" y="${y(0)-10}" text-anchor="middle" style="fill:var(--ink)">回本 ${fmt(Math.ceil(m.be))} 人</text>`;
+  const pv=N*m.perUser-m.F;
+  g+=`<circle cx="${x(N)}" cy="${y(pv)}" r="4" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>`;
+  $("chart").innerHTML=g;
+}
+function niceStep(r){const p=Math.pow(10,Math.floor(Math.log10(r||1)));const n=r/p;return (n<1.5?1:n<3.5?2:n<7.5?5:10)*p}
+function fmtK(v){return v>=10000?(v/10000).toFixed(v>=100000?0:1)+"萬":fmt(v)}
+
+drawFixed();
+document.querySelectorAll("input,select").forEach(e=>{if(!e.closest("#fixed"))e.addEventListener("input",calc)});
+calc();
+</script>
