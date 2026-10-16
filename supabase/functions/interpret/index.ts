@@ -1274,10 +1274,10 @@ async function handle(req: Request): Promise<Response> {
 
     // 刪除單卦（連同追問、應期紀錄）
     if (body.mode === "delete_cast") {
-      await db.from("followups").delete().eq("cast_id", body.cast_id);
-      await db.from("feedback").delete().eq("cast_id", body.cast_id);
-      const { error } = await db.from("casts").delete().eq("id", body.cast_id).eq("user_id", uid);
-      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+      // 只刪自己的卦；followups / feedback 等由 on delete cascade 帶走（0001_init）。
+      // 不可先以 cast_id 單獨刪子表：service role 繞過 RLS，別人的 cast_id 也會被清。
+      const { data, error } = await db.from("casts").delete().eq("id", body.cast_id).eq("user_id", uid).select("id");
+      return Response.json({ kind: error || !data?.length ? "err" : "ok" }, { headers: CORS });
     }
 
     // 改暱稱

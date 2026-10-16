@@ -859,6 +859,9 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     // verdict:castId:n  (1準 2部分 3不準)
     const parts = data.split(":");
     const vCastId = parts[1], v = Number(parts[2]);
+    // callback_data 可被偽造：先確認這一卦是本人的
+    const { data: own } = await db.from("casts").select("id").eq("id", vCastId).eq("user_id", userId).maybeSingle();
+    if (!own) { await send(chatId, "找不到這一卦的應期紀錄。"); return; }
     const { data: fb } = await db.from("feedback").select("verdict, cast_id").eq("cast_id", vCastId).maybeSingle();
     if (!fb) { await send(chatId, "找不到這一卦的應期紀錄。"); return; }
     if (fb.verdict && fb.verdict > 0) { await send(chatId, "你已經印證過這一卦了，多謝。"); return; }
