@@ -33,6 +33,7 @@ import {
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 import { kindOf, isDormant } from "../_shared/memkind.ts";
+import { castKeepOf, searchCasts, FORTUNE_KEEP_DAYS, FREE_KEEP_DAYS } from "../_shared/keep.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -553,6 +554,8 @@ async function handle(req: Request): Promise<Response> {
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
+        // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
+        ...(await castKeepOf(db, uid).then((k) => ({ castKeepDays: k.days, castKeepGraceUntil: k.graceUntil }))),
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
@@ -603,9 +606,9 @@ async function handle(req: Request): Promise<Response> {
        玉牒的方案表。價格是資料（plans 那張表），所以這裡只是照抄，
        不做任何計算——前端顯示的數字與結帳時送出去的數字必須是同一個來源。 */
     if (body.mode === "plan_list") {
-      const { data: rows } = await db.from("plans")
-        .select("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort")
-        .eq("active", true).order("sort");
+      const planq = (cols: string) => db.from("plans").select(cols).eq("active", true).order("sort");
+      let { data: rows, error: planErr } = await planq("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort, keep_days");
+      if (planErr) ({ data: rows } = await planq("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort"));   // 0087 未跑的兜底
       const plan = await planOf(db, uid);
       const { data: prof } = await db.from("profiles").select("plan_until").eq("id", uid).maybeSingle();
       const { data: ord } = await db.from("orders")
@@ -624,6 +627,8 @@ async function handle(req: Request): Promise<Response> {
           memories: memoryQuotaOf(id),   // 角色長期記憶注入幾則（閒聊用），不是心事
           pins: pinQuotaOf(id),
           threads: threadQuotaOf(id),     // 心事同時記幾件（手帳›心事）。與 memories 是兩回事，方案頁曾混為一談
+          // 卦保存幾天（null＝永久）。0087 未跑時沒有這欄，照舊的 90 天報，不要報成永久
+          keep_days: "keep_days" in (r as Record<string, unknown>) ? (r as { keep_days: number | null }).keep_days : FREE_KEEP_DAYS,
         };
       });
       return Response.json({
@@ -631,6 +636,8 @@ async function handle(req: Request): Promise<Response> {
         plans: quotas,
         current: plan,
         plan_until: (prof as { plan_until?: string } | null)?.plan_until ?? null,
+        // 卦的保存：無牒天數（方案頁比較列用）、日運天數，以及此人此刻的天數與斷牒緩衝
+        keep: { ...(await castKeepOf(db, uid)), freeDays: FREE_KEEP_DAYS, fortuneDays: FORTUNE_KEEP_DAYS },
         // 有沒有正在跑的定期定額。退訂要去綠界那側辦，畫面上至少要說得出「你有」
         subscription: ord ?? null,
         // 金流沒設好時不要讓人按下去才發現。按鈕該是灰的，不是會爆炸的。
@@ -1396,11 +1403,18 @@ async function handle(req: Request): Promise<Response> {
       }, { headers: CORS });
     }
 
+    // 搜尋舊卦：問句／摘要／追問／卦名，日運不進。每筆附到期時點，前端據此提醒（0087）
+    if (body.mode === "cast_search") {
+      const r = await searchCasts(db, uid, { q: body.q, before: body.before, limit: body.limit });
+      return Response.json(r, { headers: CORS });
+    }
+
     // 卦曆列表
     if (body.mode === "history") {
       // 卦曆、心跡、斷線復原共用：最近三個月的卦（六六 2026-10-05：原本固定撈最近 60 卦，
       // 起卦多的人月曆往前翻就空了）。HISTORY_MAX 是保險，一天問二十卦連問三個月也裝得下。
-      // 三個月與 cleanup_expired_casts 的 90 天對齊：再舊的未印證卦本來就會被清。
+      // 三個月與無牒的 90 天保存對齊。持牒者更舊的卦、已印證或歸進心跡的舊卦都還在，
+      // 但不從這裡回——走 cast_search（0087），免得藏往一年份把這支撐爆。
       const since = new Date(); since.setMonth(since.getMonth() - 3);
       const { data: casts } = await db.from("casts")
         // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
