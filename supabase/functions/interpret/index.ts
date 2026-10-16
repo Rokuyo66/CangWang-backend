@@ -1280,11 +1280,15 @@ async function handle(req: Request): Promise<Response> {
     }
 
     // 刪除單卦（連同追問、應期紀錄）
+    // 只刪 casts 那一列，追問與應期靠 on delete cascade（0001）跟著走。
+    // 原本先用 service role 依 cast_id 刪 followups／feedback、最後才在 casts 檢查 user_id：
+    // 前兩刀沒有身分檢查，拿到別人的卦號就能抹掉他的追問與印證——印證一沒，
+    // 那一卦也跟著失去永久保存（0087 cast_is_kept），之後被清理刪掉。
     if (body.mode === "delete_cast") {
-      await db.from("followups").delete().eq("cast_id", body.cast_id);
-      await db.from("feedback").delete().eq("cast_id", body.cast_id);
-      const { error } = await db.from("casts").delete().eq("id", body.cast_id).eq("user_id", uid);
-      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+      const { data: gone, error } = await db.from("casts").delete()
+        .eq("id", body.cast_id).eq("user_id", uid).select("id");
+      if (error) return Response.json({ kind: "err" }, { headers: CORS });
+      return Response.json({ kind: (gone ?? []).length ? "ok" : "not_found" }, { headers: CORS });
     }
 
     // 改暱稱
@@ -1414,11 +1418,24 @@ async function handle(req: Request): Promise<Response> {
       // 卦曆、心跡、斷線復原共用：最近三個月的卦（六六 2026-10-05：原本固定撈最近 60 卦，
       // 起卦多的人月曆往前翻就空了）。HISTORY_MAX 是保險，一天問二十卦連問三個月也裝得下。
       // 三個月與無牒的 90 天保存對齊。持牒者更舊的卦、已印證或歸進心跡的舊卦都還在，
-      // 但不從這裡回——走 cast_search（0087），免得藏往一年份把這支撐爆。
+      // 不在預設這一包裡：卦曆往前翻時帶 ym 逐月補（見下），搜尋走 cast_search（0087）。
+      // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
+      const cols = "id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)";
+      // ym＝"2026-05"：卦曆翻到三個月窗口之外的那一個月時才帶，只回那個月（台北日界）
+      // 起的卦與應期落在那個月的卦。一次一個月，藏往一年份也不會一次全倒出來。
+      const ym = typeof body.ym === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.ym) ? body.ym : null;
+      if (ym) {
+        const [yy, mm] = ym.split("-").map(Number);
+        const from = new Date(Date.UTC(yy, mm - 1, 1) - 8 * 3600_000);   // 台北該月 1 日 00:00
+        const to = new Date(Date.UTC(yy, mm, 1) - 8 * 3600_000);
+        const dFrom = `${ym}-01`, dTo = new Date(Date.UTC(yy, mm, 1)).toISOString().slice(0, 10);
+        const { data: casts } = await db.from("casts").select(cols).eq("user_id", uid)
+          .or(`and(created_at.gte.${from.toISOString()},created_at.lt.${to.toISOString()}),and(due_date.gte.${dFrom},due_date.lt.${dTo})`)
+          .order("created_at", { ascending: false }).limit(HISTORY_MAX);
+        return Response.json({ kind: "ok", casts: casts ?? [], ym }, { headers: CORS });
+      }
       const since = new Date(); since.setMonth(since.getMonth() - 3);
-      const { data: casts } = await db.from("casts")
-        // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)")
+      const { data: casts } = await db.from("casts").select(cols)
         .eq("user_id", uid).gte("created_at", since.toISOString())
         .order("created_at", { ascending: false }).limit(HISTORY_MAX);
       return Response.json({ kind: "ok", casts: casts ?? [], since: since.toISOString() }, { headers: CORS });

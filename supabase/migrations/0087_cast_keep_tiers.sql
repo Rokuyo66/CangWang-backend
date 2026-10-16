@@ -150,6 +150,10 @@ select cron.schedule(
 -- 分頁：p_before 給上一頁最後一筆的 created_at，新→舊。
 -- expires_at：這一卦預計被清的時點；永久保存（受保護或方案永久）為 null。
 --   實際刪除在那之後的第一次清理（每天 03:00 UTC），畫面寫「剩 N 天」不會多報。
+--   斷牒緩衝期內不能照原方案報：藏往的緩衝期裡標「永久」，緩衝一過照樣被清，是騙人。
+--   緩衝期內的保存天數是 K（原方案），之後是 90，所以預計被清的時點是：
+--     起卦＋K 早於緩衝截止 → 起卦＋K（緩衝期內就到期）
+--     否則                  → max(緩衝截止, 起卦＋90)
 create or replace function search_casts(
   p_user uuid, p_q text, p_before timestamptz default null, p_limit int default 30
 )
@@ -165,6 +169,7 @@ as $$
 declare
   terms text[];
   keep  int;
+  grace timestamptz;
 begin
   -- 跳脫 LIKE 的萬用字元：問「100%」不該變成「100 後面接任何東西」
   select array_agg('%' || replace(replace(replace(t, '\', '\\'), '%', '\%'), '_', '\_') || '%')
@@ -173,18 +178,27 @@ begin
    where t <> '';
   if terms is null then return; end if;
 
-  select k.keep_days into keep from cast_keep_of(p_user) k;
+  select k.keep_days, k.grace_until into keep, grace from cast_keep_of(p_user) k;
   if not found then keep := 90; end if;
 
   return query
   select c.id, c.question, c.digest, c.gua_ben, c.gua_bian,
          c.category, c.character_id, c.created_at, c.due_date,
          c.thread_id, f.verdict,
-         (keep is null or cast_is_kept(c.id, c.thread_id)) as kept,
-         case when keep is null or cast_is_kept(c.id, c.thread_id) then null
-              else c.created_at + make_interval(days => keep) end as expires_at
+         x.exp is null as kept,
+         x.exp as expires_at
     from casts c
     left join feedback f on f.cast_id = c.id
+    cross join lateral (
+      select case
+        when cast_is_kept(c.id, c.thread_id) then null
+        when grace is null then
+          case when keep is null then null else c.created_at + make_interval(days => keep) end
+        when keep is not null and c.created_at + make_interval(days => keep) < grace
+          then c.created_at + make_interval(days => keep)
+        else greatest(grace, c.created_at + interval '90 days')
+      end as exp
+    ) x
    where c.user_id = p_user
      and coalesce(c.category, '') <> '日運'
      and (p_before is null or c.created_at < p_before)

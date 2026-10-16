@@ -41,7 +41,7 @@
     "id": "…", "question": "…", "digest": "…", "gua_ben": "乾為天", "gua_bian": null,
     "category": "事業", "character_id": "…", "created_at": "…", "due_date": null,
     "thread_id": null, "verdict": 1,
-    "kept": true,                   // 永久保存（受保護或藏往）
+    "kept": true,                   // 永久保存（受保護，或藏往且不在斷牒緩衝期）
     "expiresAt": null,              // 預計清理時點；kept 時為 null
     "daysLeft": null                // 剩幾天（向下取整）；kept 時為 null
   }],
@@ -55,10 +55,17 @@
 // 失敗：{ "kind": "err", "msg": "要找什麼？打個字。" }
 ```
 
+**斷牒緩衝期內**，`expiresAt` 已經照「緩衝結束後回到 90 天」算好：藏往斷牒時，
+半年前的卦會顯示「剩 N 天」（N＝離緩衝截止的天數），不會顯示「永久」。前端照欄位畫就好，不必自己算。
+
 **搜尋只找得到還沒被清掉的卦。** 90 天前已被清掉的，就是找不到——這正是提醒要說的事。
 
 ## 三、其他地方多帶的欄位
 
+- `history` 多收一個 `ym`（如 `"2026-05"`）：只回那個月（台北日界）起的卦與應期落在那個月的卦，
+  回應帶 `ym`、不帶 `since`。卦曆翻到預設三個月窗口（`since`）之外的月份時逐月補，要過的月份記著不重打。
+  不帶 `ym` 時與原本一模一樣。
+- `delete_cast`：卦號不是自己的（或已刪）回 `{ kind: "not_found" }`，不再回 `ok`。
 - `profile`：`castKeepDays`（null＝永久）、`castKeepGraceUntil`
 - `plan_list`：每個方案多 `keep_days`；外層多 `keep: { days, graceUntil, freeDays, fortuneDays }`
   ——方案頁的比較表加一列「卦保存」。
