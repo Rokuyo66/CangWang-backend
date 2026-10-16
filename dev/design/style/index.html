@@ -690,7 +690,9 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     const map = { ground: T.paper, paper: T.paper, "paper-2": face, "paper-edge": T["paper-edge"], ink: T.ink, "ink-soft": T["ink-soft"], "ink-faint": T["ink-faint"],
       cinnabar: resolve(bs.getPropertyValue("--b-primary-face").trim() || T.cinnabar), "cinnabar-edge": resolve(bs.getPropertyValue("--b-primary-edge").trim()),
       gold: resolve(bs.getPropertyValue("--b-second-face").trim() || T.gold), "gold-edge": resolve(bs.getPropertyValue("--b-second-edge").trim()),
-      hair: T.hair, shade: T.shadow };
+      hair: T.hair, shade: T.shadow,
+      // 站上的次一階紙與五行木（搜尋框、保存標籤）：原型的 --paper-2 是亮紙，站上這一塊另接
+      "app-paper-2": T["paper-2"], "wx-木": T["wx-木"] };
     Object.entries(map).forEach(([k, v]) => { if (v) st.setProperty("--" + k, v); });
     st.colorScheme = DARK[theme] ? "dark" : "light";
     if (d.body) d.body.style.background = T.paper;
