@@ -14,8 +14,8 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash, modify, fileAway, ensureLabel, labelIds } from "./gmail.ts";
 import {
-  esc, fileText, fileButtons, parseMbCallback, mbCallback, weeklyText, isValidNewLabel, TODO,
-  KIND_LABEL, ACTION_LABEL, type Rule, type WeeklyStats,
+  esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO,
+  KIND_LABEL, ACTION_LABEL, type Rule,
 } from "./mailbot.ts";
 
 type Send = (text: string, extra?: Record<string, unknown>) => Promise<unknown>;
@@ -32,15 +32,19 @@ export const MAILBOT_HELP =
   "<code>/mailrules</code>　看規則\n" +
   "<code>/mailrule del 編號</code>　刪規則\n" +
   "<code>/mailrule add trash|report|keep sender|domain|subject 內容</code>\n" +
-  "<code>/week</code>　立刻出產品週報";
+  "<code>/week</code>　立刻出產品週報（從產品專案送來）";
 
 const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week)(@\w+)?(\s|$)/;
 export const isMailbotCommand = (text: string) => MAILBOT_CMD.test(text);
 
+// 產品週報在產品專案（CangWang-backend 的 weekly-report），由它自己讀產品數據、經管家 bot 送過來。
+// 這裡只負責叫它：帶 REPORT_SECRET，兩個專案各存一份同樣的值。
+const PRODUCT_REPORT_URL = Deno.env.get("PRODUCT_REPORT_URL") ?? "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/weekly-report";
+
 async function fireJob(job: "triage" | "weekly" | "tidy") {
   const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mail-butler`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-internal-secret": Deno.env.get("BROADCAST_INTERNAL_SECRET") ?? "" },
+    headers: { "content-type": "application/json", "x-internal-secret": Deno.env.get("MAILBOT_CRON_SECRET") ?? "" },
     body: JSON.stringify({ job }),
   });
   return res.json().catch(() => ({ ok: res.ok }));
@@ -53,8 +57,10 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
   if (cmd === "mail_help") { await send(MAILBOT_HELP); return; }
 
   if (cmd === "week") {
-    const { data, error } = await db.rpc("admin_weekly_stats");
-    await send(error || !data ? `週報算不出來：${esc(error?.message ?? "no data")}` : weeklyText(data as WeeklyStats));
+    const res = await fetch(PRODUCT_REPORT_URL, { method: "POST", headers: { "x-report-secret": Deno.env.get("REPORT_SECRET") ?? "" } })
+      .catch((e) => ({ ok: false, status: 0, text: async () => String(e) }));
+    // 成功時週報由產品那邊直接送來，這裡不必再說話
+    if (!res.ok) await send(`叫不到產品週報（${res.status}）：${esc((await res.text()).slice(0, 150))}\n<i>檢查兩個專案的 REPORT_SECRET 是否一致</i>`);
     return;
   }
 

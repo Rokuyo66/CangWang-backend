@@ -1,20 +1,19 @@
-// functions/mail-butler/index.ts — 觀主的信箱管家＋產品週報（排程叫起來）
+// functions/mail-butler/index.ts — 觀主的信箱管家（獨立專案 66-butler，排程叫起來）
 //
 //   POST { "job": "triage" }  每兩小時：收件匣清零維持（tidy）→ 掃近 3 天沒看過的信 → 刪／自動歸檔／推歸檔卡
 //   POST { "job": "tidy" }    一次性大掃除：tidy ＋ 收件匣裡所有沒看過的信（不限 3 天）都推歸檔卡
-//   POST { "job": "weekly" }  每週一 09:00（台北）：到期清理（三月／五年標籤）＋產品週報
+//   POST { "job": "weekly" }  每週一 09:03（台北）：到期清理（三月／五年標籤）＋信箱週報
+//   （產品週報不在這裡，在產品專案的 weekly-report；/week 會去叫它）
 //
-// 鑑權與 due-reminder 同一把：x-internal-secret = BROADCAST_INTERNAL_SECRET（fail-closed）。
+// 鑑權：x-internal-secret = MAILBOT_CRON_SECRET（fail-closed）。只在這個專案用，不跟產品共用任何密碼。
 // 所有推播只發給 ADMIN_TG_ID，經由私人管家 bot（ADMIN_BOT_TOKEN）。設定步驟：dev/MAIL-BUTLER.md
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { gmailConfigured, listIds, getMeta, trash, labelIds, modify, fileAway, receivedAt, type MailMeta } from "../_shared/gmail.ts";
 import {
   matchRule, decide, parseFrom, classifyPrompt, parseClassify, classifySys,
-  fileText, fileButtons, fileOptions, digestText, weeklyText, sweepFor, LABELS, TODO,
-  type Rule, type AiVerdict, type DigestItem, type WeeklyStats,
+  fileText, fileButtons, fileOptions, digestText, mailWeeklyText, sweepFor, noThinking, LABELS, TODO,
+  type Rule, type AiVerdict, type DigestItem, type MailWeek,
 } from "../_shared/mailbot.ts";
-import { logUsage } from "../_shared/services.ts";
-import { noThinking } from "../_shared/model-params.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 // 發訊息用的是觀主私人的管家 bot（ADMIN_BOT_TOKEN），不是對外的卜卦 bot：
@@ -63,13 +62,8 @@ async function classify(metas: MailMeta[], labels: string[], extra: string[]): P
     if (!res.ok) throw new Error(`anthropic ${res.status} ${(await res.text()).slice(0, 200)}`);
     const data = await res.json();
     const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
-    await logUsage(db, {
-      userId: null, mode: "mailbot", model: MODEL, estimated: !data.usage,
-      usage: {
-        in: data.usage?.input_tokens ?? 0, out: data.usage?.output_tokens ?? 0,
-        cacheWrite: data.usage?.cache_creation_input_tokens ?? 0, cacheRead: data.usage?.cache_read_input_tokens ?? 0,
-      },
-    });
+    // 用量只記 log：這個專案沒有產品的 ai_usage 表，也不該把私人用量混進產品成本
+    console.log("mailbot usage", MODEL, data.usage?.input_tokens ?? 0, data.usage?.output_tokens ?? 0);
     return parseClassify(text, metas.length, labels);
   } catch (e) {
     console.error("mailbot classify failed", e instanceof Error ? e.message : String(e));
@@ -225,7 +219,7 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
 }
 
 /** 到期清理：三月層 3 個月、五年層 5 年。丟垃圾桶（30 天內撿得回來），不是永久刪。 */
-async function sweep(): Promise<NonNullable<WeeklyStats["sweep"]>> {
+async function sweep(): Promise<NonNullable<MailWeek["sweep"]>> {
   const byLabel: Record<string, number> = {};
   let swept = 0;
   const { labels } = await loadLabels();
@@ -244,19 +238,27 @@ async function sweep(): Promise<NonNullable<WeeklyStats["sweep"]>> {
 }
 
 async function weekly(): Promise<Record<string, unknown>> {
-  const { data, error } = await db.rpc("admin_weekly_stats");
-  if (error || !data) {
-    await say(`⚠️ 週報算不出來：${(error?.message ?? "no data").slice(0, 200)}`);
-    return { ok: false, error: error?.message };
-  }
-  const stats = data as WeeklyStats;
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  // deno-lint-ignore no-explicit-any
+  const count = async (f: (q: any) => any) => {
+    const { count } = await f(db.from("mailbot_seen").select("id", { count: "exact", head: true }));
+    return count ?? 0;
+  };
+  const w: MailWeek = {
+    trashed: await count((q) => q.eq("decision", "trash").gte("created_at", since)),
+    filed: await count((q) => q.neq("decision", "trash").eq("status", "done").not("label", "is", null).gte("created_at", since)),
+    cards: await count((q) => q.not("options", "is", null).gte("created_at", since)),
+    open: await count((q) => q.eq("status", "open")),
+    rules: (await db.from("mailbot_rules").select("id", { count: "exact", head: true })).count ?? 0,
+    newLabels: ((await db.from("mailbot_labels").select("name").gte("created_at", since)).data ?? []).map((r) => String(r.name)),
+  };
   // 清理失敗不擋週報：週報是給人看的，清理下週還會再跑
   if (gmailConfigured()) {
-    try { stats.sweep = await sweep(); }
+    try { w.sweep = await sweep(); }
     catch (e) { console.error("sweep failed", e instanceof Error ? e.message : String(e)); }
   }
-  await say(weeklyText(stats));
-  return { ok: true, swept: stats.sweep?.swept ?? 0 };
+  await say(mailWeeklyText(w));
+  return { ok: true, swept: w.sweep?.swept ?? 0 };
 }
 
 Deno.serve(async (req) => {
@@ -264,9 +266,9 @@ Deno.serve(async (req) => {
     console.error("ADMIN_BOT_TOKEN 未設定：管家沒有 bot 可以發訊息");
     return Response.json({ ok: false, error: "ADMIN_BOT_TOKEN not set" }, { status: 500 });
   }
-  const secret = Deno.env.get("BROADCAST_INTERNAL_SECRET");
+  const secret = Deno.env.get("MAILBOT_CRON_SECRET");
   if (!secret || req.headers.get("x-internal-secret") !== secret) {
-    if (!secret) console.error("BROADCAST_INTERNAL_SECRET 未設定：mail-butler 一律拒絕");
+    if (!secret) console.error("MAILBOT_CRON_SECRET 未設定：mail-butler 一律拒絕");
     return new Response("forbidden", { status: 403 });
   }
   let job = "";

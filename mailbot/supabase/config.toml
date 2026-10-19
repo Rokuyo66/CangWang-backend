@@ -1,0 +1,11 @@
+# 信箱管家專案（66-butler，project ref nlyxvhxvqzwoqwpxharp）
+# 部署：在 repo 根目錄跑 supabase functions deploy <名稱> --project-ref nlyxvhxvqzwoqwpxharp --workdir mailbot
+project_id = "66-butler"
+
+# 兩支都自己驗身分（排程帶 x-internal-secret、Telegram 帶 secret_token），不吃 Supabase 的登入憑證。
+# 寫在這裡，部署時漏打 --no-verify-jwt 也不會被 Supabase 門口擋成 401。
+[functions.mail-butler]
+verify_jwt = false
+
+[functions.admin-tg]
+verify_jwt = false

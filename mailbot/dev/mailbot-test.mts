@@ -6,11 +6,11 @@
 //   ・觀主的規則最大；但「主旨含」這種粗規則碰到守門字要改問
 //   ・模型沒回或回壞了，那封這輪不處理（回 null），不可默默當成 keep 記掉
 //
-// 跑法：node dev/mailbot-test.mts
+// 跑法：node mailbot/dev/mailbot-test.mts
 
 import {
   parseFrom, matchRule, decide, parseClassify, parseMbCallback, mbCallback,
-  digestText, weeklyText, delta, guardHit, LABELS, SWEEP, sweepFor, fileOptions, fileButtons, fileText,
+  digestText, mailWeeklyText, guardHit, LABELS, SWEEP, sweepFor, fileOptions, fileButtons, fileText,
   isValidNewLabel, classifySys, type Rule, type Meta,
 } from "../supabase/functions/_shared/mailbot.ts";
 
@@ -101,24 +101,6 @@ t("沒事就不發匯報；有事 HTML 有轉義", () => {
   if (!s.includes("已刪 2 封")) throw new Error("沒報刪除數");
 });
 
-t("delta：新／持平／升降", () => {
-  eq(delta(5, 0), "（新）"); eq(delta(0, 0), ""); eq(delta(10, 10), "（持平）");
-  eq(delta(12, 10), "（▲20%）"); eq(delta(5, 10), "（▼50%）");
-});
-
-t("週報算得出留存與毛利，空資料不炸", () => {
-  const s = weeklyText({
-    from: "2026-10-05", to: "2026-10-11",
-    cur: { new_users: 12, active_users: 40, casts: 100, casts_web: 30, followups: 20, chats: 300, verdicts: 4, verdict_hit: 3, lingshi_spent: 500, revenue_twd: 900, payments: 3, ai_twd: 400 },
-    prv: { active_users: 20 }, retained: 10,
-    casts_by_char: { daoshi_f: 60, lingshou: 40 }, casts_by_cat: { 感情: 50 },
-    by_day: { "2026-10-06": 20, "2026-10-07": 25 },
-    mail: { trashed: 50, reported: 4, open: 1, rules: 6 },
-  });
-  for (const k of ["50%（10/20）", "毛利 NT$ <b>500</b>", "師妹 60", "10-07", "準 75%"]) if (!s.includes(k)) throw new Error(`少了「${k}」`);
-  weeklyText({ from: "", to: "", cur: {}, prv: {}, retained: 0, casts_by_char: {}, casts_by_cat: {}, by_day: {}, mail: { trashed: 0, reported: 0, open: 0, rules: 0 } });
-});
-
 t("期限標籤：規則指定的優先於 AI 建議", () => {
   const r: Rule = { id: 5, kind: "sender", pattern: "amy@gmail.com", action: "report", label: "永久/房產" };
   eq(decide(personal, r, { v: "report", c: 1, why: "", sum: "", lb: "待辦" })?.label, "永久/房產");
@@ -148,14 +130,6 @@ t("到期清理只碰三月與五年，永久與待辦絕不在清單裡", () =>
   for (const l of LABELS) if (/^(三月|五年)\//.test(l) && !swept.has(l)) throw new Error(`${l} 沒有到期清理`);
 });
 
-t("週報帶出清理數與待辦", () => {
-  const s = weeklyText({ from: "a", to: "b", cur: {}, prv: {}, retained: 0, casts_by_char: {}, casts_by_cat: {}, by_day: {},
-    mail: { trashed: 0, reported: 0, open: 0, rules: 0 },
-    sweep: { swept: 12, byLabel: { "三月/帳單繳費": 12 }, todo: 3, todoOldestDays: 9 } });
-  for (const k of ["到期清理 12 封", "三月/帳單繳費 12", "待辦還有 3 封", "放了 9 天"]) if (!s.includes(k)) throw new Error(`少了「${k}」`);
-});
-
-// ── 收件匣清零 ──
 t("自動歸檔：規則指定了標籤 → 直接歸檔（觀主已經決定過）", () => {
   const r: Rule = { id: 1, kind: "sender", pattern: "amy@gmail.com", action: "report", label: "永久/重要內容" };
   eq(decide(personal, r, null)?.autoFile, true);
@@ -218,6 +192,15 @@ t("自建分類也會到期清理；永久層的自建分類不會", () => {
   if (!q.some((x) => x.label === "三月/電信" && x.q === "label:三月-電信 older_than:3m")) throw new Error("三月/電信 沒有清理");
   if (q.some((x) => x.label.startsWith("永久") || x.label === "待辦")) throw new Error("清單混進永久或待辦");
   eq(SWEEP.length, sweepFor(LABELS).length);
+});
+
+t("信箱週報帶出清理數與待辦；沒東西時也說清楚", () => {
+  const s = mailWeeklyText({ trashed: 40, filed: 12, cards: 5, open: 1, rules: 30, newLabels: ["五年/課程學習"],
+    sweep: { swept: 12, byLabel: { "三月/帳單繳費": 12 }, todo: 3, todoOldestDays: 9 } });
+  for (const k of ["刪 40", "自動歸檔 12", "到期清理 12 封", "三月/帳單繳費 12", "待辦還有 3 封", "放了 9 天", "五年/課程學習"]) if (!s.includes(k)) throw new Error(`少了「${k}」`);
+  const e = mailWeeklyText({ trashed: 0, filed: 0, cards: 0, open: 0, rules: 0, newLabels: [] });
+  if (!e.includes("本週沒有到期的信") || !e.includes("待辦清空")) throw new Error(e);
+  if (/產品|起卦|營收/.test(s + e)) throw new Error("信箱週報混進了產品數據");
 });
 
 setTimeout(() => {

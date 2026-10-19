@@ -306,69 +306,34 @@ export function digestText(items: DigestItem[], c: DigestCounts): string {
   return lines.join("\n");
 }
 
-/* ── 週報 ────────────────────────────────────────────────── */
+/* ── 信箱週報（每週一，跟到期清理一起發）──────────────────────
+   產品週報不在這裡：那是產品的數據，留在產品專案（CangWang-backend 的 weekly-report）。 */
 
-type Week = Record<string, number>;
-export type WeeklyStats = {
-  from: string; to: string; cur: Week; prv: Week; retained: number;
-  casts_by_char: Record<string, number>; casts_by_cat: Record<string, number>;
-  by_day: Record<string, number>;
-  mail: { trashed: number; reported: number; open: number; rules: number };
-  // 以下由 mail-butler 在發週報當下從 Gmail 算出來（不在 SQL 裡）
+export type MailWeek = {
+  trashed: number; filed: number; cards: number; open: number; rules: number; newLabels: string[];
   sweep?: { swept: number; byLabel: Record<string, number>; todo: number; todoOldestDays: number | null };
 };
 
-/** 本週 vs 上週：▲12%／▼5%／持平／新（上週 0）。 */
-export function delta(cur: number, prv: number): string {
-  if (!prv) return cur ? "（新）" : "";
-  const p = Math.round(((cur - prv) / prv) * 100);
-  return p === 0 ? "（持平）" : p > 0 ? `（▲${p}%）` : `（▼${-p}%）`;
+export function mailWeeklyText(w: MailWeek): string {
+  const n = (v: unknown) => Number(v ?? 0).toLocaleString("en-US");
+  return [
+    `📬 <b>信箱週報</b>`,
+    `近 7 天：刪 ${n(w.trashed)}　自動歸檔 ${n(w.filed)}　推卡 ${n(w.cards)}　還沒按的卡 ${n(w.open)}`,
+    `規則 ${n(w.rules)} 條` + (w.newLabels.length ? `　本週新分類：${w.newLabels.map(esc).join("、")}` : ""),
+    w.sweep && w.sweep.swept
+      ? `🧹 到期清理 ${n(w.sweep.swept)} 封：` + Object.entries(w.sweep.byLabel).filter(([, v]) => v > 0).map(([k, v]) => `${esc(k)} ${n(v)}`).join("、")
+      : `🧹 本週沒有到期的信`,
+    w.sweep && w.sweep.todo
+      ? `📌 待辦還有 ${n(w.sweep.todo)} 封` + (w.sweep.todoOldestDays !== null ? `，最舊的放了 ${w.sweep.todoOldestDays} 天` : "")
+      : `📌 待辦清空`,
+  ].join("\n");
 }
 
-const CHAR_LABELS: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
-
-export function weeklyText(s: WeeklyStats): string {
-  const n = (v: unknown) => Number(v ?? 0).toLocaleString("en-US");
-  const c = s.cur ?? {}, p = s.prv ?? {};
-  const row = (label: string, k: string) => `${label} <b>${n(c[k])}</b>${delta(Number(c[k] ?? 0), Number(p[k] ?? 0))}`;
-  const retainBase = Number(p.active_users ?? 0);
-  const retain = retainBase ? `${Math.round((s.retained / retainBase) * 100)}%（${s.retained}/${retainBase}）` : "—";
-  const hit = Number(c.verdicts ?? 0) ? `${Math.round((Number(c.verdict_hit ?? 0) / Number(c.verdicts)) * 100)}%` : "—";
-  const margin = Number(c.revenue_twd ?? 0) - Number(c.ai_twd ?? 0);
-  const days = Object.entries(s.by_day ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  const peak = days.reduce((best, d) => (d[1] > best[1] ? d : best), ["", -1] as [string, number]);
-  const chars = Object.entries(s.casts_by_char ?? {}).sort((a, b) => b[1] - a[1])
-    .map(([k, v]) => `${esc(CHAR_LABELS[k] ?? k)} ${n(v)}`).join("　") || "—";
-  const cats = Object.entries(s.casts_by_cat ?? {}).sort((a, b) => b[1] - a[1])
-    .map(([k, v]) => `${esc(k)} ${n(v)}`).join("　") || "—";
-
-  return [
-    `📊 <b>藏往知來・週報</b>　${esc(s.from)} ～ ${esc(s.to)}`,
-    `<i>括號內為與前一週相比</i>`,
-    "",
-    `<b>👥 用戶</b>`,
-    `${row("新註冊", "new_users")}　${row("週活躍", "active_users")}`,
-    `留存（上週活躍、本週回來）${retain}`,
-    peak[1] >= 0 ? `最熱的一天 ${esc(peak[0].slice(5))}（${n(peak[1])} 人）` : null,
-    "",
-    `<b>🔮 使用</b>`,
-    `${row("起卦", "casts")}（網頁／App ${n(c.casts_web)}）　${row("追問", "followups")}`,
-    `${row("閒聊", "chats")}`,
-    `角色：${chars}`,
-    `問事：${cats}`,
-    `回評 ${n(c.verdicts)} 則，準 ${hit}`,
-    "",
-    `<b>💰 營收與成本</b>`,
-    `${row("收入 NT$", "revenue_twd")}（${n(c.payments)} 筆扣款）`,
-    `${row("AI 成本 NT$", "ai_twd")}`,
-    `毛利 NT$ <b>${n(margin)}</b>　靈石消耗 ${n(c.lingshi_spent)}`,
-    "",
-    `<b>📬 信箱管家</b>　刪 ${n(s.mail?.trashed)}　回報 ${n(s.mail?.reported)}　待決 ${n(s.mail?.open)}　規則 ${n(s.mail?.rules)} 條`,
-    s.sweep && s.sweep.swept
-      ? `🧹 到期清理 ${n(s.sweep.swept)} 封：` + Object.entries(s.sweep.byLabel).filter(([, v]) => v > 0).map(([k, v]) => `${esc(k)} ${n(v)}`).join("、")
-      : null,
-    s.sweep && s.sweep.todo
-      ? `📌 待辦還有 ${n(s.sweep.todo)} 封` + (s.sweep.todoOldestDays !== null ? `，最舊的放了 ${s.sweep.todoOldestDays} 天` : "")
-      : null,
-  ].filter((l) => l !== null).join("\n");
+/** 解卦不需要外顯推理，分類也一樣：每一代關掉思考的寫法不同（寫錯是 400）。
+ *  抄自產品的 model-params.ts——管家獨立部署，不能 import 產品的檔案。 */
+export function noThinking(m: string): { body: Record<string, unknown>; headroom: number } {
+  if (/^claude-sonnet-5-5/.test(m)) return { body: { thinking: { type: "between_tools" } }, headroom: 0 };
+  if (/^claude-(opus-5-5|fable|mythos)/.test(m)) return { body: { thinking: { type: "adaptive" }, output_config: { effort: "low" } }, headroom: 1500 };
+  if (/^claude-((sonnet|opus)-5(?!-\d)|haiku-5)/.test(m)) return { body: { thinking: { type: "disabled" } }, headroom: 0 };
+  return { body: {}, headroom: 0 };
 }
