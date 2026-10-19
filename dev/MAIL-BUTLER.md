@@ -113,6 +113,32 @@ select cron.schedule('mail-butler-weekly', '3 1 * * 1', $$
 $$);
 ```
 
+**不知道密碼原文時**（Supabase 後台只顯示雜湊）：應期提醒的排程本來就帶著同一把 `x-internal-secret`，
+下面這段直接從那裡讀出來，貼進 SQL Editor 執行一次即可，不必經手密碼：
+
+```sql
+do $$
+declare s text;
+begin
+  select (regexp_match(command, 'x-internal-secret[''"]?\s*[:,]\s*[''"]([^''"]+)'))[1]
+    into s from cron.job where command ilike '%x-internal-secret%' limit 1;
+  if s is null then raise exception '現有排程裡找不到 x-internal-secret，請改用上面的手動版'; end if;
+  perform cron.schedule('mail-butler-triage', '5 */2 * * *', format($f$
+    select net.http_post(
+      url := 'https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/mail-butler',
+      headers := jsonb_build_object('content-type','application/json','x-internal-secret',%L),
+      body := '{"job":"triage"}'::jsonb, timeout_milliseconds := 120000);
+  $f$, s));
+  perform cron.schedule('mail-butler-weekly', '3 1 * * 1', format($f$
+    select net.http_post(
+      url := 'https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/mail-butler',
+      headers := jsonb_build_object('content-type','application/json','x-internal-secret',%L),
+      body := '{"job":"weekly"}'::jsonb, timeout_milliseconds := 120000);
+  $f$, s));
+end $$;
+select jobname, schedule, active from cron.job where jobname like 'mail-butler%';
+```
+
 改頻率：`select cron.unschedule('mail-butler-triage');` 再重設。
 
 ## 頭幾天的用法
