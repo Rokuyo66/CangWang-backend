@@ -3,6 +3,20 @@
 前端（`CangWang-web` `src/main/09-auth.js`）已改成**驗證碼優先、連結也能用**。
 程式只做了一半——下面四件要在 Supabase 後台（Authentication）手動設，**沒設的話驗證碼不會出現在信裡**。
 
+## 現況（2026-10-19 已設好）
+
+| 項目 | 設定 |
+| --- | --- |
+| 網頁網址 | `https://jizhiguan.com`（Cloudflare Pages 自訂網域；`cangwang-web.pages.dev` 仍可用） |
+| 寄認證信 | Resend，寄件網域 `mail.jizhiguan.com`（DNS 由 Resend 自動寫進 Cloudflare），寄件人 `no-reply@mail.jizhiguan.com` |
+| Supabase SMTP | `smtp.resend.com:465`，帳號 `resend`，密碼＝Resend API key（只在 Supabase 後台，不進 repo） |
+| 信件範本 | Confirm signup、Reset Password 已加 `{{ .Token }}` |
+| Site URL／Redirect URLs | `https://jizhiguan.com`（含 www、舊 pages.dev） |
+| 客服信箱 | `support@jizhiguan.com`，Cloudflare Email Routing 轉寄到觀主 Gmail；Catch-all 關閉 |
+| `ALLOWED_ORIGINS` | `https://jizhiguan.com,https://www.jizhiguan.com,https://cangwang-web.pages.dev,*.cangwang-web.pages.dev,https://localhost`（最後一個是 APK，不能漏） |
+
+查信有沒有寄出去：Resend › Logs。查客服信有沒有轉到：Cloudflare › Email Routing › Activity log。
+
 症狀對照（六六 2026-10-16）：
 
 | 症狀 | 原因 | 對應 |
@@ -73,4 +87,4 @@ Authentication › **Providers** › Email：
 - **重寄**：60 秒一次（同 Supabase 限制），按鈕上倒數。
 - **忘記密碼**：填信箱 → 收驗證碼 → 輸入驗證碼＋新密碼 → 直接入觀。網頁版點重設連結回來，也會跳出「設定新密碼」。
 - **道籍›設定**：顯示登入信箱、「變更密碼」、客服信箱。
-- **客服信箱**：前端 `src/app/contact.js` 的 `SUPPORT_EMAIL`，全站只這一處（登入框底部、設定頁、退款政策）。**還沒填。**
+- **客服信箱**：前端 `src/app/contact.js` 的 `SUPPORT_EMAIL`，全站只這一處（登入框底部、設定頁、退款政策）：`support@jizhiguan.com`。
