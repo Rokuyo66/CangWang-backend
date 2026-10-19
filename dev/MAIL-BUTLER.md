@@ -61,7 +61,7 @@ npx supabase secrets set GMAIL_REFRESH_TOKEN=你的RefreshToken  --project-ref a
 ## 第 3 步 · 上 migration 與部署
 
 ```powershell
-npx supabase db push --project-ref ajogafvzlhqwlxwkfcpn     # 或把 0087_mail_butler.sql 貼進 SQL Editor
+npx supabase db push --project-ref ajogafvzlhqwlxwkfcpn     # 或把 0091_mail_butler.sql 貼進 SQL Editor
 supabase functions deploy mail-butler --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 supabase functions deploy webhook-tg  --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
@@ -110,4 +110,4 @@ $$);
 | --- | --- | --- |
 | `gmail token 400 invalid_grant` | OAuth 還在「測試中」過了 7 天，或你在 Google 帳號撤銷了授權 | 第 1 步第 3 點改成發布，重做第 5 點換新 token，重設 `GMAIL_REFRESH_TOKEN` |
 | `gmail ... 403` | Gmail API 沒啟用，或 scope 不是 `gmail.modify` | 第 1 步第 2、5 點 |
-| `週報算不出來` | migration 0087 沒上 | 第 3 步 |
+| `週報算不出來` | migration 0091 沒上 | 第 3 步 |
