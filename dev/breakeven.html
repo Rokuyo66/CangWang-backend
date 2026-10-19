@@ -80,7 +80,7 @@ pre{background:var(--paper-2);border:1px solid var(--edge);border-radius:4px;pad
         <div class="row two"><label for="mix1">持牒者中 問卦 %</label><input id="mix1" type="number" value="40"></div>
         <div class="row two"><label for="mix2">攻略 %</label><input id="mix2" type="number" value="40"></div>
         <div class="row two"><label for="mix3">深度 %</label><input id="mix3" type="number" value="20"></div>
-        <div class="row two"><label for="uf">無牒用掉額度 %</label><input id="uf" type="number" step="1" value="15"></div>
+        <div class="row two"><label for="uf">無牒用掉額度 %</label><input id="uf" type="number" step="1" value="23"></div>
         <div class="row two"><label for="up">持牒用掉額度 %</label><input id="up" type="number" step="1" value="35"></div>
         <div class="hint">「用掉額度」＝一個月平均下來，每日免費額度用了幾成（沒打開的日子算 0）。這是整張表最敏感的一格，上線後用文末的 SQL 實測。</div>
       </section>
@@ -91,9 +91,9 @@ pre{background:var(--paper-2);border:1px solid var(--edge);border-radius:4px;pad
         <div class="tw"><table class="pl">
           <tr><th></th><th>月費</th><th>卦</th><th>追</th><th>聊</th><th>贈石</th><th>朗讀</th></tr>
           <tr><td>無牒</td><td>0</td><td><input id="f-c" type="number" value="2"></td><td><input id="f-f" type="number" value="2"></td><td><input id="f-h" type="number" value="15"></td><td>0</td><td>0</td></tr>
-          <tr><td>問卦</td><td><input id="p1" type="number" value="199"></td><td><input id="c1" type="number" value="4"></td><td><input id="f1" type="number" value="4"></td><td><input id="h1" type="number" value="12"></td><td><input id="g1" type="number" value="60"></td><td><input id="t1" type="number" value="0"></td></tr>
-          <tr><td>攻略</td><td><input id="p2" type="number" value="199"></td><td><input id="c2" type="number" value="2"></td><td><input id="f2" type="number" value="1"></td><td><input id="h2" type="number" value="100"></td><td><input id="g2" type="number" value="60"></td><td><input id="t2" type="number" value="0"></td></tr>
-          <tr><td>深度</td><td><input id="p3" type="number" value="399"></td><td><input id="c3" type="number" value="5"></td><td><input id="f3" type="number" value="6"></td><td><input id="h3" type="number" value="100"></td><td><input id="g3" type="number" value="150"></td><td><input id="t3" type="number" value="8"></td></tr>
+          <tr><td>問卦</td><td><input id="p1" type="number" value="199"></td><td><input id="c1" type="number" value="4"></td><td><input id="f1" type="number" value="4"></td><td><input id="h1" type="number" value="12"></td><td><input id="g1" type="number" value="100"></td><td><input id="t1" type="number" value="0"></td></tr>
+          <tr><td>攻略</td><td><input id="p2" type="number" value="199"></td><td><input id="c2" type="number" value="2"></td><td><input id="f2" type="number" value="1"></td><td><input id="h2" type="number" value="100"></td><td><input id="g2" type="number" value="100"></td><td><input id="t2" type="number" value="0"></td></tr>
+          <tr><td>深度</td><td><input id="p3" type="number" value="349"></td><td><input id="c3" type="number" value="5"></td><td><input id="f3" type="number" value="6"></td><td><input id="h3" type="number" value="100"></td><td><input id="g3" type="number" value="250"></td><td><input id="t3" type="number" value="8"></td></tr>
         </table></div>
         <div class="hint">攻略另有好感 ×1.5、記憶 24 則、釘選 3、劇情：這些幾乎不花 AI 錢，所以不在成本裡。贈石與朗讀次數 10-08 沒定，這裡是我填的。</div>
         <div class="row two"><label for="model">起卦／追問模型</label>
@@ -152,7 +152,7 @@ group by 1 order by 1;</pre>
 <script>
 const $=id=>document.getElementById(id);
 const FIXED0=[
-  {n:"Supabase Pro",v:25,c:"USD",p:"月"},
+  {n:"Supabase（現在 Free，收費前建議升 Pro US$25）",v:0,c:"USD",p:"月"},
   {n:"Claude 開發訂閱（估）",v:100,c:"USD",p:"月"},
   {n:"Cloudflare Pages",v:0,c:"USD",p:"月"},
   {n:"網域（估）",v:400,c:"TWD",p:"年"},
