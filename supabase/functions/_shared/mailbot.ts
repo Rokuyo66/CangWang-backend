@@ -1,10 +1,14 @@
 // _shared/mailbot.ts — 信箱管家的判斷與文案（純函式，不碰網路、不碰 Deno.env，node 測得到）
 //
-// 一封信的去處只有四種：
-//   report → 推到 TG 給觀主看（需要知道的）
-//   trash  → 丟垃圾桶（Gmail 30 天後自動清，空間回來）
-//   keep   → 不動、不吵（收據、通知類，留著備查但不必看）
-//   ask    → 拿不準，推到 TG 附按鈕問；按下去順便長出一條規則，下次就不問了
+// 觀主要的是「收件匣清零」：收件匣只放待辦，和他還沒處理的信；其他一律歸檔、標已讀，左欄不出現未讀數。
+//
+// 一封信的去處：
+//   trash    → 丟垃圾桶（Gmail 30 天後自動清，空間回來）
+//   自動歸檔 → 規則指定了標籤，或 AI 很有把握的留存信：貼標籤、移出收件匣、標已讀
+//   歸檔卡   → 其餘的（要他看的、拿不準的）留在收件匣未讀，TG 推一張卡：⭐推薦標籤、備選、
+//              都不合適時建議新分類、待辦、刪。按下去就歸檔；再按一下「以後都放這」就長成規則
+//
+// decision 的四個值仍是 report／trash／keep／ask——卡片上的標題據此不同（📨 要你看／❓ 拿不準）
 //
 // 【順序】觀主的規則 > 守門關鍵字 > AI 判斷。
 // 【鐵則】寧可多問一封，不可錯刪一封。AI 說刪但信心不夠、或不是廣告型的信，一律改問。
@@ -12,7 +16,7 @@
 
 export type Decision = "report" | "trash" | "keep" | "ask";
 export type Rule = { id: number; kind: "sender" | "domain" | "subject"; pattern: string; action: "trash" | "report" | "keep"; label?: string | null };
-export type AiVerdict = { v: Decision; c: number; why: string; sum: string; lb?: string };
+export type AiVerdict = { v: Decision; c: number; why: string; sum: string; lb?: string; alt?: string[]; nw?: string };
 
 /* ── 保留期限標籤（觀主的 Gmail 標籤，名稱逐字對應）──────────────
    分類依據不是「主題」而是「要留多久」：
@@ -27,18 +31,22 @@ export const LABELS = [
   "永久/合約明細", "永久/房產", "永久/金鑰序號", "永久/重要內容",
   "待辦",
 ] as const;
-export const isLabel = (s: unknown): s is string => typeof s === "string" && (LABELS as readonly string[]).includes(s);
+export const TODO = "待辦";
+export const inList = (list: readonly string[], s: unknown): s is string => typeof s === "string" && list.includes(s);
+export const isLabel = (s: unknown): s is string => inList(LABELS, s);
 
-/** 到期清理：Gmail 搜尋語法裡，巢狀標籤的「/」寫成「-」。 */
-export const SWEEP = [
-  { q: "label:三月-水電瓦斯 older_than:3m", label: "三月/水電瓦斯" },
-  { q: "label:三月-保險通知 older_than:3m", label: "三月/保險通知" },
-  { q: "label:三月-帳單繳費 older_than:3m", label: "三月/帳單繳費" },
-  { q: "label:五年-外包收入 older_than:5y", label: "五年/外包收入" },
-  { q: "label:五年-保固憑證 older_than:5y", label: "五年/保固憑證" },
-  { q: "label:五年-產品營運 older_than:5y", label: "五年/產品營運" },
-  { q: "label:五年-錄取通知 older_than:5y", label: "五年/錄取通知" },
-] as const;
+/** 新分類只准長在三層底下、名字 2～8 字。AI 建議的、觀主按出來的都過這一關——
+ *  不在三層底下的標籤沒有到期日，等於又開了一個永遠不會清的抽屜。 */
+export const NEW_LABEL_RE = /^(三月|五年|永久)\/[\p{L}\p{N}]{2,8}$/u;
+export const isValidNewLabel = (s: unknown): s is string => typeof s === "string" && NEW_LABEL_RE.test(s);
+
+/** 到期清理（三月 3 個月、五年 5 年）。Gmail 搜尋語法裡巢狀標籤的「/」寫成「-」。
+ *  從標籤名稱推出來，觀主新開的分類自動納入，不必另外登記。 */
+export function sweepFor(labels: readonly string[]) {
+  return labels.filter((l) => /^(三月|五年)\//.test(l))
+    .map((l) => ({ q: `label:${l.replace(/\//g, "-")} older_than:${l.startsWith("三月") ? "3m" : "5y"}`, label: l }));
+}
+export const SWEEP = sweepFor(LABELS);
 export type Meta = {
   from: string; subject: string; snippet: string;
   labels: string[]; listUnsubscribe: boolean;
@@ -105,13 +113,22 @@ export const looksBulk = (m: Meta) =>
 export const AUTO_TRASH_CONF = 0.85;
 
 /** 決定去處。ai 為 null（模型沒回）時回 null：這封先不處理，下一輪再看——不記錄就不會被當成「看過了」。 */
-export function decide(meta: Meta, rule: Rule | null, ai: AiVerdict | null):
-  { decision: Decision; source: "rule" | "ai" | "guard"; reason: string; label?: string } | null {
+export const AUTO_FILE_CONF = 0.85;
+
+export type Decided = { decision: Decision; source: "rule" | "ai" | "guard"; reason: string; label?: string; autoFile?: boolean };
+
+/** labels＝現行可用的標籤（固定清單＋觀主自建的）。 */
+export function decide(meta: Meta, rule: Rule | null, ai: AiVerdict | null, labels: readonly string[] = LABELS): Decided | null {
   const d = decideCore(meta, rule, ai);
   if (!d || (d.decision !== "report" && d.decision !== "keep")) return d;
-  // 留下來的信才貼期限標籤；規則指定的優先，其次 AI 建議的
-  const label = isLabel(rule?.label) ? rule!.label! : isLabel(ai?.lb) ? ai!.lb : undefined;
-  return label ? { ...d, label } : d;
+  // 留下來的信才有標籤；規則指定的優先，其次 AI 建議的
+  const ruleLabel = rule && inList(labels, rule.label) ? rule.label : undefined;
+  const label = ruleLabel ?? (inList(labels, ai?.lb) ? ai!.lb : undefined);
+  if (!label) return d;
+  // 自動歸檔只在兩種情況：觀主的規則指定了標籤（他已經決定過），
+  // 或 AI 很有把握的「留存不必看」。要他看的、待辦，一律留在收件匣讓他自己按。
+  const autoFile = label !== TODO && (!!ruleLabel || (d.decision === "keep" && (ai?.c ?? 0) >= AUTO_FILE_CONF));
+  return { ...d, label, autoFile };
 }
 
 function decideCore(meta: Meta, rule: Rule | null, ai: AiVerdict | null):
@@ -137,7 +154,10 @@ export const ACTION_LABEL: Record<Rule["action"], string> = { trash: "🗑 直�
 
 /* ── AI 分類 ─────────────────────────────────────────────── */
 
-export const CLASSIFY_SYS = `你是「觀主」的信箱管家。觀主是台灣的遊戲 UI 設計師，也是占卜 App「藏往知來／幾知觀」的開發者兼營運者，另外在追蹤桃園航空城的建案。
+/** extra＝觀主自建的分類，接在固定清單後面讓模型也能選。 */
+export function classifySys(extra: readonly string[] = []): string {
+  const extraLines = extra.length ? extra.map((l) => `- ${l}：觀主自建的分類，依名稱判斷\n`).join("") : "";
+  return `你是「觀主」的信箱管家。觀主是台灣的遊戲 UI 設計師，也是占卜 App「藏往知來／幾知觀」的開發者兼營運者，另外在追蹤桃園航空城的建案。
 
 每封信只給你寄件人、主旨、摘要。為每一封決定去處：
 - report：觀主需要知道或需要動手處理的。真人寫來的信、工作與合作邀約、帳單與扣款、帳號安全警示、政府與法務、建案進度、產品相關（用戶來信、App 審核、金流、伺服器與 API 用量或費用警示、服務中斷）。
@@ -161,9 +181,14 @@ lb 是保留期限標籤，只在 report 或 keep 時給，從下面挑一個（
 - 永久/金鑰序號：軟體序號、授權證明、字型與素材授權、2FA 備用碼與救援碼
 - 永久/重要內容：證件、公文、健檢報告等查不回來的個人文件
 - 待辦：要觀主動手的，或有未來日期的事（預約、機票、即將到期的金鑰或服務、平台規則變更要配合）
-一次性驗證碼、登入通知、物流進度這類用完即棄的，不給標籤。
+${extraLines}一次性驗證碼、登入通知、物流進度這類用完即棄的，不給標籤。
 
-只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…","lb":"五年/產品營運"}, …]`;
+alt：除了 lb 以外，次適合的標籤，最多兩個（陣列，可空）。
+nw：上面的標籤都不太合適、但這類信值得長期歸一處時，建議一個新分類，格式「三月/xx」「五年/xx」「永久/xx」（xx 為 2～8 字）；否則給空字串。依同一個判準選層：查得回來→三月，憑證→五年，查不回來還會用→永久。
+
+只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…","lb":"五年/產品營運","alt":["五年/保固憑證"],"nw":""}, …]`;
+}
+export const CLASSIFY_SYS = classifySys();
 
 export function classifyPrompt(items: { from: string; subject: string; snippet: string }[]): string {
   return items.map((m, i) =>
@@ -171,7 +196,7 @@ export function classifyPrompt(items: { from: string; subject: string; snippet: 
 }
 
 /** 容錯解析：模型偶爾包 ```json 或多話。缺的、壞的那一封回 null（下一輪重判）。 */
-export function parseClassify(text: string, n: number): (AiVerdict | null)[] {
+export function parseClassify(text: string, n: number, labels: readonly string[] = LABELS): (AiVerdict | null)[] {
   const out: (AiVerdict | null)[] = Array(n).fill(null);
   const m = String(text ?? "").match(/\[[\s\S]*\]/);
   if (!m) return out;
@@ -185,39 +210,69 @@ export function parseClassify(text: string, n: number): (AiVerdict | null)[] {
     if (!["report", "trash", "keep", "ask"].includes(v)) continue;
     const c = Math.max(0, Math.min(1, Number(x?.c ?? 0) || 0));
     out[i] = { v: v as Decision, c, why: String(x?.why ?? "").slice(0, 40), sum: String(x?.sum ?? "").slice(0, 80) };
-    if (isLabel(x?.lb)) out[i]!.lb = x.lb as string;
+    const v0 = out[i]!;
+    if (inList(labels, x?.lb)) v0.lb = x.lb as string;
+    const alt = (Array.isArray(x?.alt) ? x.alt : []).filter((a: unknown) => inList(labels, a) && a !== v0.lb && a !== TODO);
+    if (alt.length) v0.alt = [...new Set(alt as string[])].slice(0, 2);
+    if (isValidNewLabel(x?.nw) && !labels.includes(x.nw as string)) v0.nw = x.nw as string;
   }
   return out;
 }
 
 /* ── TG 按鈕 ─────────────────────────────────────────────── */
 // callback_data 上限 64 bytes：mb:<動作>:<mailbot_seen.id>
+//   o0／o1／o2  歸檔到卡上第 n 個標籤（選項存在 mailbot_seen.options，不把標籤名塞進 callback）
+//   n  開新分類（mailbot_seen.suggest）並歸檔      p  待辦：貼待辦、標已讀、留在收件匣
+//   A  以後這個寄件人都自動放進剛剛選的標籤
 //   t 刪這封   T 刪＋此寄件人以後都刪   D 刪＋此網域以後都刪
-//   k 留這封   K 留＋此寄件人以後一律回報   u 從垃圾桶救回（自動刪錯時用）
-export type MbOp = "t" | "T" | "D" | "k" | "K" | "u";
+//   u 從垃圾桶救回（/maillog）   k／K 舊版卡片的「留」「以後都報」，舊訊息上的按鈕還按得動
+export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u";
 export const mbCallback = (op: MbOp, id: number) => `mb:${op}:${id}`;
 export function parseMbCallback(data: string): { op: MbOp; id: number } | null {
-  const m = /^mb:([tTDkKu]):(\d{1,15})$/.exec(data ?? "");
+  const m = /^mb:(o[0-2]|[nApTtDkKu]):(\d{1,15})$/.exec(data ?? "");
   return m ? { op: m[1] as MbOp, id: Number(m[2]) } : null;
 }
 
-export function askButtons(id: number) {
-  return [
-    [{ text: "🗑 刪", callback_data: mbCallback("t", id) }, { text: "📥 留", callback_data: mbCallback("k", id) }],
-    [{ text: "🗑 這寄件人以後都刪", callback_data: mbCallback("T", id) }, { text: "🗑 整個網域都刪", callback_data: mbCallback("D", id) }],
-    [{ text: "📌 這寄件人以後都報給我", callback_data: mbCallback("K", id) }],
-  ];
+/** 卡上的歸檔選項：AI 推薦的排第一，再來是備選；待辦另有一顆鈕，不佔名額。最多三個。 */
+export function fileOptions(label: string | undefined, ai: AiVerdict | null): string[] {
+  const out: string[] = [];
+  for (const l of [label, ai?.lb, ...(ai?.alt ?? [])]) if (l && l !== TODO && !out.includes(l)) out.push(l);
+  return out.slice(0, 3);
+}
+
+export function fileButtons(id: number, options: string[], suggest?: string | null) {
+  const opt = options.slice(0, 3).map((l, i) => ({ text: (i === 0 ? "⭐ " : "") + l, callback_data: mbCallback(`o${i}` as MbOp, id) }));
+  const rows: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < opt.length; i += 2) rows.push(opt.slice(i, i + 2));
+  const second = [{ text: "📌 待辦（留收件匣）", callback_data: mbCallback("p", id) }];
+  if (suggest) second.push({ text: "🆕 " + suggest, callback_data: mbCallback("n", id) });
+  rows.push(second);
+  rows.push([
+    { text: "🗑 刪", callback_data: mbCallback("t", id) },
+    { text: "🗑 寄件人都刪", callback_data: mbCallback("T", id) },
+    { text: "🗑 網域都刪", callback_data: mbCallback("D", id) },
+  ]);
+  return rows;
 }
 
 /* ── 文案 ────────────────────────────────────────────────── */
 
-export function askText(m: { from: string; subject: string; snippet: string; reason: string }): string {
+export function fileText(m: { from: string; subject: string; snippet: string; reason: string; sum?: string; ask?: boolean },
+  options: string[], suggest?: string | null): string {
   const f = parseFrom(m.from);
-  return `❓ <b>這封要刪嗎？</b>\n` +
-    `<b>${esc(f.name)}</b>　<code>${esc(f.email)}</code>\n` +
-    `${esc(m.subject || "（無主旨）")}\n` +
-    `<i>${esc(m.snippet.slice(0, 120))}${m.snippet.length > 120 ? "…" : ""}</i>` +
-    (m.reason ? `\n\n🤖 ${esc(m.reason)}` : "");
+  const lines = [
+    m.ask ? "❓ <b>這封要留嗎？留的話放哪？</b>" : "📨 <b>這封放哪？</b>",
+    `<b>${esc(f.name)}</b>　<code>${esc(f.email)}</code>`,
+    esc(m.subject || "（無主旨）"),
+    `<i>${esc(m.snippet.slice(0, 120))}${m.snippet.length > 120 ? "…" : ""}</i>`,
+  ];
+  if (m.sum) lines.push("", `→ ${esc(m.sum)}`);
+  const tail: string[] = [];
+  if (options[0]) tail.push(`⭐ 推薦放「${esc(options[0])}」`);
+  else tail.push("現有分類都不太合適");
+  if (suggest) tail.push(`💡 可以開新分類「${esc(suggest)}」`);
+  if (m.reason) tail.push(`🤖 ${esc(m.reason)}`);
+  return [...lines, "", ...tail].join("\n");
 }
 
 export type DigestItem = { from: string; subject: string; sum: string };
@@ -241,10 +296,10 @@ export function digestText(items: DigestItem[], c: DigestCounts): string {
     const top = c.trashedSenders.slice(0, 5).map(esc).join("、");
     tail.push(`🗑 已刪 ${c.trashed} 封${top ? `（${top}${c.trashedSenders.length > 5 ? "…" : ""}）` : ""}`);
   }
-  if (c.kept) tail.push(`📥 留存不報 ${c.kept} 封`);
+  if (c.kept) tail.push(`🗂 自動歸檔 ${c.kept} 封（已讀，不在收件匣）`);
   const lab = Object.entries(c.labeled ?? {}).filter(([, n]) => n > 0);
   if (lab.length) tail.push(`🏷 歸檔：${lab.map(([k, n]) => `${esc(k)} ${n}`).join("、")}`);
-  if (c.asked) tail.push(`❓ 待你決定 ${c.asked} 封（見上方各則）`);
+  if (c.asked) tail.push(`📨 待你歸檔 ${c.asked} 封（見上方各張卡片，在收件匣等你）`);
   if (c.skipped) tail.push(`⏳ ${c.skipped} 封 AI 沒判出來，下一輪再看`);
   if (tail.length) lines.push("", ...tail);
   lines.push("", `<i>刪錯了：垃圾桶 30 天內都撿得回來；/mailrules 看規則</i>`);

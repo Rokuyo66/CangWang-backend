@@ -33,7 +33,8 @@ const send = (chatId: number, text: string, extra: Record<string, unknown> = {})
 // 輸入框左邊的「選單」：/start 時順手設一次，不必另外去 BotFather 一條條打
 const COMMANDS = [
   { command: "mailnow", description: "立刻整理一輪信箱" },
-  { command: "mailask", description: "還沒決定的信再推一次" },
+  { command: "mailtidy", description: "大掃除：收件匣全部推卡" },
+  { command: "mailask", description: "還沒按的歸檔卡再推一次" },
   { command: "maillog", description: "最近自動刪的信（可救回）" },
   { command: "mailrules", description: "看規則" },
   { command: "week", description: "產品週報" },

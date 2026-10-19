@@ -93,7 +93,28 @@ export async function labelIds(): Promise<Map<string, string>> {
 }
 
 export async function addLabel(id: string, labelId: string): Promise<void> {
-  await call(`/messages/${id}/modify`, { method: "POST", body: JSON.stringify({ addLabelIds: [labelId] }) });
+  await modify(id, [labelId], []);
+}
+
+/** 加／拿標籤。系統標籤也走這裡：拿掉 INBOX＝歸檔、拿掉 UNREAD＝標已讀。 */
+export async function modify(id: string, add: string[], remove: string[]): Promise<void> {
+  await call(`/messages/${id}/modify`, { method: "POST", body: JSON.stringify({ addLabelIds: add, removeLabelIds: remove }) });
+}
+
+/** 歸檔：貼標籤、移出收件匣、標已讀——收件匣清零與左欄不出現未讀，都靠這一步。 */
+export const fileAway = (id: string, labelId: string) => modify(id, [labelId], ["INBOX", "UNREAD"]);
+
+/** 開新標籤（觀主在 TG 按「🆕 新分類」時）。已存在就回現有的 id。 */
+export async function ensureLabel(name: string, known?: Map<string, string>): Promise<string> {
+  const map = known ?? await labelIds();
+  const hit = map.get(name);
+  if (hit) return hit;
+  const j = await call(`/labels`, {
+    method: "POST",
+    body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }),
+  });
+  map.set(name, j.id);
+  return j.id;
 }
 
 /** 收到的時間（毫秒）。算「待辦最舊放了幾天」用。 */

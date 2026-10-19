@@ -71,7 +71,8 @@ npx supabase secrets set ADMIN_TG_WEBHOOK_SECRET=自己編的一串英數    --p
 
 ```powershell
 .\dev\migrate.ps1 -Apply -Only 0091_mail_butler.sql
-.\dev\migrate.ps1 -Apply -Only 0092_mailbot_labels.sql   # 期限標籤、明確授權、起始規則   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
+.\dev\migrate.ps1 -Apply -Only 0092_mailbot_labels.sql   # 期限標籤、明確授權、起始規則
+.\dev\migrate.ps1 -Apply -Only 0093_mailbot_inbox_zero.sql   # 收件匣清零：歸檔卡、自建分類   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
 supabase functions deploy mail-butler --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 supabase functions deploy admin-tg    --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
@@ -145,3 +146,20 @@ $$);
 - 只有「留下來」（回報或留存）的信會貼標籤；規則的 `label` 優先於 AI 的建議，AI 編出清單外的標籤一律丟掉。
 - 到期清理每週一跑一次，一次最多 `MAILBOT_SWEEP_MAX`（預設 300）封，清不完下週繼續。
 - 在 Gmail 新增或改名標籤，要同步改 `LABELS` 與 `SWEEP`，跑 `node dev/mailbot-test.mts`。
+
+## 收件匣清零（2026-10-19 起）
+
+收件匣只放「待辦」和觀主還沒處理的信；其他的一律歸檔並標已讀，左欄不掛未讀數。
+
+| 信 | 去處 |
+| --- | --- |
+| 廣告、規則要刪的 | 垃圾桶 |
+| 規則指定了標籤的、AI 有把握（≥0.85）的留存信 | 自動歸檔：貼標籤、移出收件匣、標已讀 |
+| 其餘（要他看的、拿不準的） | 留在收件匣未讀，TG 推歸檔卡：⭐推薦、備選、🆕新分類建議、📌待辦、🗑刪 |
+
+每輪整理前先跑 `tidy`：收件匣外的未讀全標已讀、待辦拉回收件匣、收件匣裡已有標籤（待辦除外）的歸檔、
+在 Gmail 自己處理掉的信把卡片結案。所以在 Gmail 直接貼標籤也行，下一輪就會自動歸檔。
+
+- 卡上按完分類會再問「以後都放這」，按下去就長成規則（寄件人 → 標籤）。
+- 「🆕 新分類」只准 `三月/`、`五年/`、`永久/` 開頭、2～8 字，建好後記進 `mailbot_labels`，AI 與到期清理自動納入。
+- `/mailtidy`：一次性大掃除，收件匣裡所有沒看過的信（不限 3 天、最多 100 封）都推卡。

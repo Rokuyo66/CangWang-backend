@@ -1,15 +1,16 @@
 // functions/mail-butler/index.ts — 觀主的信箱管家＋產品週報（排程叫起來）
 //
-//   POST { "job": "triage" }  每兩小時：掃收件匣近 3 天沒看過的信 → 規則／AI 分類 → 刪、報、問
+//   POST { "job": "triage" }  每兩小時：收件匣清零維持（tidy）→ 掃近 3 天沒看過的信 → 刪／自動歸檔／推歸檔卡
+//   POST { "job": "tidy" }    一次性大掃除：tidy ＋ 收件匣裡所有沒看過的信（不限 3 天）都推歸檔卡
 //   POST { "job": "weekly" }  每週一 09:00（台北）：到期清理（三月／五年標籤）＋產品週報
 //
 // 鑑權與 due-reminder 同一把：x-internal-secret = BROADCAST_INTERNAL_SECRET（fail-closed）。
 // 所有推播只發給 ADMIN_TG_ID，經由私人管家 bot（ADMIN_BOT_TOKEN）。設定步驟：dev/MAIL-BUTLER.md
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { gmailConfigured, listIds, getMeta, trash, labelIds, addLabel, receivedAt, type MailMeta } from "../_shared/gmail.ts";
+import { gmailConfigured, listIds, getMeta, trash, labelIds, modify, fileAway, receivedAt, type MailMeta } from "../_shared/gmail.ts";
 import {
-  matchRule, decide, parseFrom, classifyPrompt, parseClassify, CLASSIFY_SYS,
-  askText, askButtons, digestText, weeklyText, SWEEP,
+  matchRule, decide, parseFrom, classifyPrompt, parseClassify, classifySys,
+  fileText, fileButtons, fileOptions, digestText, weeklyText, sweepFor, LABELS, TODO,
   type Rule, type AiVerdict, type DigestItem, type WeeklyStats,
 } from "../_shared/mailbot.ts";
 import { logUsage } from "../_shared/services.ts";
@@ -45,7 +46,7 @@ const say = (text: string, extra: Record<string, unknown> = {}) =>
   tg("sendMessage", { chat_id: ADMIN_TG_ID, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
 
 /** 一批信丟給 Haiku 判。失敗回全 null——那幾封這輪不處理，下一輪再判。 */
-async function classify(metas: MailMeta[]): Promise<(AiVerdict | null)[]> {
+async function classify(metas: MailMeta[], labels: string[], extra: string[]): Promise<(AiVerdict | null)[]> {
   const nt = noThinking(MODEL);
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -53,9 +54,9 @@ async function classify(metas: MailMeta[]): Promise<(AiVerdict | null)[]> {
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 120 * metas.length + 200 + nt.headroom,
+        max_tokens: 160 * metas.length + 200 + nt.headroom,
         ...nt.body,
-        system: [{ type: "text", text: CLASSIFY_SYS, cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: classifySys(extra), cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: classifyPrompt(metas) }],
       }),
     });
@@ -69,27 +70,75 @@ async function classify(metas: MailMeta[]): Promise<(AiVerdict | null)[]> {
         cacheWrite: data.usage?.cache_creation_input_tokens ?? 0, cacheRead: data.usage?.cache_read_input_tokens ?? 0,
       },
     });
-    return parseClassify(text, metas.length);
+    return parseClassify(text, metas.length, labels);
   } catch (e) {
     console.error("mailbot classify failed", e instanceof Error ? e.message : String(e));
     return metas.map(() => null);
   }
 }
 
-async function triage(): Promise<Record<string, unknown>> {
+/** 現行可用的標籤：固定清單＋觀主在 TG 按出來的新分類。 */
+async function loadLabels(): Promise<{ labels: string[]; extra: string[] }> {
+  const { data } = await db.from("mailbot_labels").select("name");
+  const extra = (data ?? []).map((r) => String(r.name)).filter((n) => !(LABELS as readonly string[]).includes(n));
+  return { labels: [...LABELS, ...extra], extra };
+}
+
+const errMsg = (e: unknown) => e instanceof Error ? e.message : String(e);
+
+/** 收件匣清零的維持工作，每輪整理前先跑：
+ *   ① 收件匣以外的未讀一律標已讀——左欄（標籤、分類）就不會掛數字
+ *   ② 待辦一律回到收件匣
+ *   ③ 收件匣裡已經有標籤（待辦除外）的＝已經有家了，歸檔、標已讀。觀主在 Gmail 自己貼標籤也算
+ *   ④ 卡片還沒按、但信已經被他在 Gmail 處理掉（歸檔、貼標籤、刪了）的，卡片結案 */
+async function tidy(lmap: Map<string, string>): Promise<{ read: number; archived: number; todoBack: number; closed: number }> {
+  const out = { read: 0, archived: 0, todoBack: 0, closed: 0 };
+  for (const id of await listIds("-in:inbox is:unread", 500)) {
+    try { await modify(id, [], ["UNREAD"]); out.read++; } catch (e) { console.error("tidy read", id, errMsg(e)); }
+  }
+  if (lmap.get(TODO)) {
+    for (const id of await listIds(`label:${TODO} -in:inbox`, 100)) {
+      try { await modify(id, ["INBOX"], []); out.todoBack++; } catch (e) { console.error("tidy todo", id, errMsg(e)); }
+    }
+  }
+  for (const id of await listIds(`in:inbox has:userlabels -label:${TODO}`, 200)) {
+    try { await modify(id, [], ["INBOX", "UNREAD"]); out.archived++; } catch (e) { console.error("tidy archive", id, errMsg(e)); }
+  }
+  const { data: open } = await db.from("mailbot_seen").select("id, gmail_id").eq("status", "open").limit(50);
+  for (const r of open ?? []) {
+    let gone = false;
+    try {
+      const m = await getMeta(r.gmail_id);
+      gone = !m.labels.includes("INBOX") || m.labels.some((l) => l.startsWith("Label_")) || m.labels.includes("TRASH");
+    } catch { gone = true; }   // 404：信已經不在了
+    if (gone) {
+      await db.from("mailbot_seen").update({ status: "done", source: "user", decided_at: new Date().toISOString() }).eq("id", r.id);
+      out.closed++;
+    }
+  }
+  return out;
+}
+
+async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, unknown>> {
   if (!gmailConfigured()) {
     await say("⚠️ 信箱管家還沒接上 Gmail：GMAIL_CLIENT_ID／GMAIL_CLIENT_SECRET／GMAIL_REFRESH_TOKEN 未設定。見 dev/MAIL-BUTLER.md");
     return { ok: false, error: "gmail not configured" };
   }
   const { data: rulesRaw } = await db.from("mailbot_rules").select("id, kind, pattern, action, label");
   const rules = (rulesRaw ?? []) as Rule[];
+  const { labels, extra } = await loadLabels();
+  // 標籤名 → id；讀不到（Gmail 掛了）就整輪不歸檔，信照樣分類與推卡
+  let lmap = new Map<string, string>();
+  try { lmap = await labelIds(); } catch (e) { console.error("labelIds failed", errMsg(e)); }
 
-  const ids = await listIds(QUERY, MAX_PER_RUN);
-  if (!ids.length) return { ok: true, scanned: 0 };
-  const { data: seen } = await db.from("mailbot_seen").select("gmail_id").in("gmail_id", ids);
+  let tidied: Awaited<ReturnType<typeof tidy>> | null = null;
+  try { tidied = await tidy(lmap); } catch (e) { console.error("tidy failed", errMsg(e)); }
+
+  const ids = await listIds(query, max);
+  const { data: seen } = ids.length ? await db.from("mailbot_seen").select("gmail_id").in("gmail_id", ids) : { data: [] };
   const seenSet = new Set((seen ?? []).map((r) => r.gmail_id as string));
   const fresh = ids.filter((id) => !seenSet.has(id));
-  if (!fresh.length) return { ok: true, scanned: ids.length, fresh: 0 };
+  if (!fresh.length) return { ok: true, scanned: ids.length, fresh: 0, tidied };
 
   const metas: MailMeta[] = [];
   for (let i = 0; i < fresh.length; i += 10) {
@@ -108,80 +157,79 @@ async function triage(): Promise<Record<string, unknown>> {
   const ai = new Map<string, AiVerdict | null>();
   for (let i = 0; i < needAi.length; i += BATCH) {
     const chunk = needAi.slice(i, i + BATCH);
-    const vs = await classify(chunk);
+    const vs = await classify(chunk, labels, extra);
     chunk.forEach((m, k) => ai.set(m.id, vs[k]));
   }
 
-  // 標籤名 → id；讀不到（Gmail 掛了、觀主改了名）就只是不貼，信照樣處理
-  let labels = new Map<string, string>();
-  try { labels = await labelIds(); } catch (e) { console.error("labelIds failed", e instanceof Error ? e.message : String(e)); }
-  const labeled: Record<string, number> = {};
-
   const report: DigestItem[] = [];
   const trashedSenders = new Set<string>();
-  let trashed = 0, kept = 0, asked = 0, skipped = 0, pushed = 0;
+  const labeled: Record<string, number> = {};
+  let trashed = 0, filed = 0, cards = 0, skipped = 0, pushed = 0;
   const ruleHits = new Map<number, number>();
+  const now = () => new Date().toISOString();
 
   for (const m of metas) {
     const rule = ruled.get(m.id) ?? null;
     const v = ai.get(m.id) ?? null;
-    const d = decide(m, rule, v);
+    const d = decide(m, rule, v, labels);
     if (!d) { skipped++; continue; }
     const f = parseFrom(m.from);
 
+    // 能直接處理的先處理；Gmail 那一步沒成功就不記，下一輪再試
+    let auto = false;
     if (d.decision === "trash") {
-      try { await trash(m.id); } catch (e) {
-        console.error("trash failed", m.id, e instanceof Error ? e.message : String(e));
-        skipped++; continue;   // 沒刪成就不記，下一輪再試
-      }
+      try { await trash(m.id); } catch (e) { console.error("trash failed", m.id, errMsg(e)); skipped++; continue; }
+    } else if (d.autoFile && d.label && lmap.get(d.label)) {
+      try { await fileAway(m.id, lmap.get(d.label)!); auto = true; }
+      catch (e) { console.error("fileAway failed", m.id, errMsg(e)); }   // 歸檔失敗就退回成卡片
     }
+    const card = d.decision !== "trash" && !auto;
+    const options = card ? fileOptions(d.label, v) : null;
+    const suggest = card ? (v?.nw ?? null) : null;
+
     const row = {
       gmail_id: m.id, thread_id: m.threadId, sender: f.email, sender_name: f.name.slice(0, 120),
       subject: m.subject.slice(0, 300), snippet: m.snippet.slice(0, 400), received_at: m.receivedAt,
       decision: d.decision, source: d.source, reason: (d.reason || "").slice(0, 120),
-      status: d.decision === "ask" ? "open" : "done", label: d.label ?? null,
-      decided_at: d.decision === "ask" ? null : new Date().toISOString(),
+      status: card ? "open" : "done", decided_at: card ? null : now(),
+      label: auto ? d.label : null, options, suggest, summary: (v?.sum ?? "").slice(0, 120) || null,
     };
     const { data: ins, error } = await db.from("mailbot_seen")
       .upsert(row, { onConflict: "gmail_id", ignoreDuplicates: true }).select("id").maybeSingle();
     if (error) { console.error("mailbot_seen insert", error.message); continue; }
     if (!ins) continue;   // 同時有另一輪在跑、已經記過了
     if (rule) ruleHits.set(rule.id, (ruleHits.get(rule.id) ?? 0) + 1);
-    if (d.label) {
-      const lid = labels.get(d.label);
-      if (!lid) console.warn("Gmail 沒有這個標籤，略過：", d.label);
-      else try { await addLabel(m.id, lid); labeled[d.label] = (labeled[d.label] ?? 0) + 1; }
-        catch (e) { console.error("addLabel failed", m.id, e instanceof Error ? e.message : String(e)); }
-    }
 
-    if (d.decision === "trash") { trashed++; trashedSenders.add(f.name.slice(0, 16)); }
-    else if (d.decision === "keep") kept++;
-    else if (d.decision === "report") report.push({ from: m.from, subject: m.subject, sum: v?.sum ?? "" });
-    else {
-      asked++;
-      if (pushed < MAX_ASK_PUSH) {
-        pushed++;
-        await say(askText({ from: m.from, subject: m.subject, snippet: m.snippet, reason: d.reason }),
-          { reply_markup: { inline_keyboard: askButtons(ins.id as number) } });
-      }
+    if (d.decision === "trash") { trashed++; trashedSenders.add(f.name.slice(0, 16)); continue; }
+    if (auto) {
+      filed++; labeled[d.label!] = (labeled[d.label!] ?? 0) + 1;
+      if (d.decision === "report") report.push({ from: m.from, subject: m.subject, sum: v?.sum ?? "" });
+      continue;
+    }
+    cards++;
+    if (pushed < MAX_ASK_PUSH) {
+      pushed++;
+      await say(fileText({ from: m.from, subject: m.subject, snippet: m.snippet, reason: d.reason, sum: v?.sum, ask: d.decision === "ask" }, options!, suggest),
+        { reply_markup: { inline_keyboard: fileButtons(ins.id as number, options!, suggest) } });
     }
   }
 
   for (const [id, n] of ruleHits) {
     const { data: r } = await db.from("mailbot_rules").select("hits").eq("id", id).maybeSingle();
-    await db.from("mailbot_rules").update({ hits: Number(r?.hits ?? 0) + n, last_hit_at: new Date().toISOString() }).eq("id", id);
+    await db.from("mailbot_rules").update({ hits: Number(r?.hits ?? 0) + n, last_hit_at: now() }).eq("id", id);
   }
 
-  const text = digestText(report, { trashed, kept, asked, skipped, trashedSenders: [...trashedSenders], labeled });
-  if (text) await say(asked > pushed ? `${text}\n<i>還有 ${asked - pushed} 封待決沒推，打 /mailask</i>` : text);
-  return { ok: true, scanned: ids.length, fresh: metas.length, trashed, kept, reported: report.length, asked, skipped };
+  const text = digestText(report, { trashed, kept: filed, asked: cards, skipped, trashedSenders: [...trashedSenders], labeled });
+  if (text) await say(cards > pushed ? `${text}\n<i>還有 ${cards - pushed} 張卡沒推，打 /mailask</i>` : text);
+  return { ok: true, scanned: ids.length, fresh: metas.length, trashed, filed, cards, skipped, tidied };
 }
 
 /** 到期清理：三月層 3 個月、五年層 5 年。丟垃圾桶（30 天內撿得回來），不是永久刪。 */
 async function sweep(): Promise<NonNullable<WeeklyStats["sweep"]>> {
   const byLabel: Record<string, number> = {};
   let swept = 0;
-  for (const s of SWEEP) {
+  const { labels } = await loadLabels();
+  for (const s of sweepFor(labels)) {
     if (swept >= SWEEP_MAX) break;
     const ids = await listIds(s.q, SWEEP_MAX - swept);
     for (const id of ids) {
@@ -224,7 +272,10 @@ Deno.serve(async (req) => {
   let job = "";
   try { job = String((await req.json())?.job ?? ""); } catch { /* 空 body */ }
   try {
-    const out = job === "weekly" ? await weekly() : job === "triage" ? await triage() : { ok: false, error: "unknown job" };
+    const out = job === "weekly" ? await weekly()
+      : job === "triage" ? await triage()
+      : job === "tidy" ? await triage(`in:inbox -label:${TODO}`, 100)
+      : { ok: false, error: "unknown job" };
     return Response.json(out);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
