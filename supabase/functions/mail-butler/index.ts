@@ -4,7 +4,7 @@
 //   POST { "job": "weekly" }  每週一 09:00（台北）：產品週報
 //
 // 鑑權與 due-reminder 同一把：x-internal-secret = BROADCAST_INTERNAL_SECRET（fail-closed）。
-// 所有推播只發給 ADMIN_TG_ID。設定步驟：dev/MAIL-BUTLER.md
+// 所有推播只發給 ADMIN_TG_ID，經由私人管家 bot（ADMIN_BOT_TOKEN）。設定步驟：dev/MAIL-BUTLER.md
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { gmailConfigured, listIds, getMeta, trash, type MailMeta } from "../_shared/gmail.ts";
 import {
@@ -16,7 +16,9 @@ import { logUsage } from "../_shared/services.ts";
 import { noThinking } from "../_shared/model-params.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
+// 發訊息用的是觀主私人的管家 bot（ADMIN_BOT_TOKEN），不是對外的卜卦 bot：
+// 「要刪嗎」的按鈕按下去，回呼送到的是發出那則訊息的 bot——只有 admin-tg 接得住。
+const TG = `https://api.telegram.org/bot${Deno.env.get("ADMIN_BOT_TOKEN")}`;
 const ADMIN_TG_ID = Deno.env.get("ADMIN_TG_ID") ?? "8674594142";
 const MODEL = Deno.env.get("MAILBOT_MODEL") ?? "claude-haiku-5-5";
 // 掃描範圍：近 3 天。排程每兩小時一次，3 天是給「排程停了一兩天」的緩衝，不是要回頭掃整個信箱
@@ -173,6 +175,10 @@ async function weekly(): Promise<Record<string, unknown>> {
 }
 
 Deno.serve(async (req) => {
+  if (!Deno.env.get("ADMIN_BOT_TOKEN")) {
+    console.error("ADMIN_BOT_TOKEN 未設定：管家沒有 bot 可以發訊息");
+    return Response.json({ ok: false, error: "ADMIN_BOT_TOKEN not set" }, { status: 500 });
+  }
   const secret = Deno.env.get("BROADCAST_INTERNAL_SECRET");
   if (!secret || req.headers.get("x-internal-secret") !== secret) {
     if (!secret) console.error("BROADCAST_INTERNAL_SECRET 未設定：mail-butler 一律拒絕");

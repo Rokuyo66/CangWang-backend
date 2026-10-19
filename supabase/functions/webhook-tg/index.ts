@@ -16,7 +16,6 @@ import { chat, FAVOR_CAP } from "../_shared/chat.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 import { parseModCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
-import { isMailbotCommand, handleMailbotCommand, handleMailbotCallback } from "../_shared/mailbot-tg.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -263,13 +262,6 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
 
     lines.push("", `<i>台北時間 ${todayTW()}　會話狀態 ${esc(String(ses.state ?? "idle"))}　道緣 ${esc(CHAR_LABELS[ses.character_id] ?? "未結")}</i>`);
     await send(chatId, lines.join("\n"));
-    return;
-  }
-
-  // 信箱管家與週報（觀主專用）。必須擺在 /mail 之前——那支是 startsWith("/mail")，會把 /mailnow 吃掉
-  if (isMailbotCommand(text)) {
-    if (tgId !== (Deno.env.get("ADMIN_TG_ID") ?? "8674594142")) { await send(chatId, "（此為觀主專用。）"); return; }
-    await handleMailbotCommand(db, text, (t, extra) => send(chatId, t, extra));
     return;
   }
 
@@ -741,15 +733,6 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
       mod.action === "hide"
         ? (changed ? `🗑 已下架這則${what}，相關檢舉一併結案。` : `這則${what}先前就已下架，檢舉已結案。`)
         : (changed ? `✋ 已駁回，這則${what}維持顯示。` : `這則${what}本來就在顯示中，檢舉已結案。`));
-    return;
-  }
-
-  // 信箱管家的「要刪嗎」按鈕（觀主專用）
-  if (data.startsWith("mb:")) {
-    if (tgId !== (Deno.env.get("ADMIN_TG_ID") ?? "8674594142")) { await send(chatId, "（此為觀主專用。）"); return; }
-    const mid = (cb.message as { message_id?: number } | undefined)?.message_id;
-    await handleMailbotCallback(db, data, (t, extra) => send(chatId, t, extra),
-      () => mid ? tg("editMessageReplyMarkup", { chat_id: chatId, message_id: mid, reply_markup: { inline_keyboard: [] } }) : Promise.resolve());
     return;
   }
 

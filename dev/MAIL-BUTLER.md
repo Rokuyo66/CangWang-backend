@@ -1,6 +1,8 @@
 # 信箱管家＋產品週報：設定步驟
 
-觀主個人用的 Telegram 管家，接在既有的 bot 上（同一個 `ADMIN_TG_ID`，不用另開 bot）。
+觀主個人用的 Telegram 管家，用**獨立的私人 bot：@JjizhiMailbot**（函式 `admin-tg`），不跟對外的卜卦 bot（`webhook-tg`）共用。
+拆開的理由：改管家不必重新部署對外服務、指令不會撞名、私人信件不流經產品程式、一把 token 出事不會兩邊一起斷。
+這個 bot 只認 `ADMIN_TG_ID` 一人，其他人傳什麼都不回。
 
 | 做什麼 | 什麼時候 | 怎麼做 |
 | --- | --- | --- |
@@ -13,7 +15,7 @@
 **刪除安全線**：AI 要自動刪，必須同時滿足 ① 信心 ≥ 0.85 ② 是廣告型信（促銷／社交／論壇分類，或帶退訂標頭）③ 沒命中守門字（銀行、帳單、驗證碼、政府、合約、建案、綠界…，清單在 `_shared/mailbot.ts` 的 `GUARD`）。任一不符就改成問你。
 **只讀標頭與摘要**，不讀信件內文。
 
-TG 指令（只有觀主能用）：`/mail_help`、`/mailnow`、`/mailask`、`/maillog`（自動刪的可救回）、`/mailrules`、`/mailrule add|del`、`/week`。
+TG 指令（在 @JjizhiMailbot 裡打）：`/mail_help`、`/mailnow`、`/mailask`、`/maillog`（自動刪的可救回）、`/mailrules`、`/mailrule add|del`、`/week`。
 
 ---
 
@@ -47,7 +49,14 @@ npx supabase secrets set GMAIL_CLIENT_SECRET=你的用戶端密碼    --project-
 npx supabase secrets set GMAIL_REFRESH_TOKEN=你的RefreshToken  --project-ref ajogafvzlhqwlxwkfcpn
 ```
 
-其餘沿用既有的：`TG_BOT_TOKEN`、`ADMIN_TG_ID`、`BROADCAST_INTERNAL_SECRET`、`ANTHROPIC_API_KEY`。
+管家 bot 的兩把（BotFather 給的 token；webhook 暗號自己編一串長的英數）：
+
+```powershell
+npx supabase secrets set ADMIN_BOT_TOKEN=BotFather給的token          --project-ref ajogafvzlhqwlxwkfcpn
+npx supabase secrets set ADMIN_TG_WEBHOOK_SECRET=自己編的一串英數    --project-ref ajogafvzlhqwlxwkfcpn
+```
+
+其餘沿用既有的：`ADMIN_TG_ID`、`BROADCAST_INTERNAL_SECRET`、`ANTHROPIC_API_KEY`。
 
 選填：
 
@@ -63,12 +72,21 @@ npx supabase secrets set GMAIL_REFRESH_TOKEN=你的RefreshToken  --project-ref a
 ```powershell
 .\dev\migrate.ps1 -Apply -Only 0091_mail_butler.sql   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
 supabase functions deploy mail-butler --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
-supabase functions deploy webhook-tg  --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
+supabase functions deploy admin-tg    --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
 
 `--no-verify-jwt` 兩支都不能省（理由同 `deploy-howto.md` 第 3 步）。
 
-部署完先在 TG 打 `/mailnow` 試跑一輪、`/week` 看週報，確定都有回應再設排程。
+把 Telegram 接到 admin-tg（一次性；兩處換成你的值）：
+
+```powershell
+Invoke-RestMethod "https://api.telegram.org/bot<ADMIN_BOT_TOKEN>/setWebhook?url=https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/admin-tg&secret_token=<ADMIN_TG_WEBHOOK_SECRET>"
+```
+
+回 `ok : True` 就接上了。接著到 Telegram 打開 @JjizhiMailbot **先按「開始」（/start）**——
+Telegram 規定 bot 不能主動傳訊息給沒按過開始的人，不按的話管家的匯報一封都送不到。
+
+然後打 `/mailnow` 試跑一輪、`/week` 看週報，確定都有回應再設排程。
 
 ## 第 4 步 · 排程（SQL Editor 貼一次）
 

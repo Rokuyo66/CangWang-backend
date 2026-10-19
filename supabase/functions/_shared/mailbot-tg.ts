@@ -1,4 +1,4 @@
-// _shared/mailbot-tg.ts — 信箱管家在 webhook-tg 裡的那一半：觀主的指令與按鈕
+// _shared/mailbot-tg.ts — 信箱管家的 TG 指令與按鈕（由 admin-tg，觀主私人的管家 bot 呼叫）
 //
 //   /mail_help         說明
 //   /mailnow           立刻整理一輪（不等排程）
@@ -9,7 +9,7 @@
 //   /mailrule add 動作 種類 內容   例：/mailrule add trash domain shopee.tw
 //   /week              立刻出一份產品週報
 //
-// 呼叫端（webhook-tg）已確認是觀主才進來；這裡不再驗身分。
+// 呼叫端（admin-tg，觀主私人的管家 bot）已確認是觀主才進來；這裡不再驗身分。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash } from "./gmail.ts";
 import {
