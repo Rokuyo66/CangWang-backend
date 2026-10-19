@@ -19,6 +19,7 @@
 | `PLAN_PINS` | 可釘選回憶 |
 | `PLAN_THREADS` | 心跡同時在記（`_shared/xinji.ts`） |
 | `PLAN_CLIPS` | 語音收藏段數（`_shared/voice.ts`） |
+| `plans.keep_days` | 卦保存天數（資料不是常數，0087；無牒 90 寫在 `cast_keep_days()`） |
 
 另外這幾條也是看方案的：`keptQuota`（卦案記憶檔案）、月誌卷首語的生成鎖、
 全站每日總量上限。
