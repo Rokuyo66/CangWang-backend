@@ -116,18 +116,17 @@ console.log("\n— 各階的成本天花板 vs 售價");
 // 成本天花板越過售價——然後那一階就變成「越重度的用戶虧越多」。
 //
 // 那種虧損不會叫：它看起來像留存很好。所以在這裡問一次。
-await t("每一階的月成本天花板都不超過售價", () => {
-  const sql = readFileSync("supabase/migrations/0058_plans_and_orders.sql", "utf8");
-  const rows = [...sql.matchAll(/\('(guanwei|zhiji|cangwang)',\s*'[^']*',\s*(\d+),\s*(\d+),/g)]
-    .map((m) => ({ id: m[1], twd: Number(m[2]), grant: Number(m[3]) }));
-  if (rows.length !== 3) throw new Error(`在 0058 裡只解出 ${rows.length} 階——那段 insert 被改寫了？`);
+// 2026-10-19：在賣的是 0088 的三條線（舊三階停售，不再檢查——它們不會再有新訂戶）。
+await t("在賣的每一階，月成本天花板都不超過實收", () => {
+  const sql = readFileSync("supabase/migrations/0088_plans_three_lines.sql", "utf8");
+  const rows = [...sql.matchAll(/\('(wengua|gonglue|shendu)',\s*'[^']*',\s*(\d+),\s*(\d+),\s*'[^']*',\s*(\d+),/g)]
+    .map((m) => ({ id: m[1], twd: Number(m[2]), grant: Number(m[3]), tts: Number(m[4]) }));
+  if (rows.length !== 3) throw new Error(`在 0088 裡只解出 ${rows.length} 階——那段 insert 被改寫了？`);
 
   const signPerMonth = SIGN_REWARDS.reduce((a, [ls]) => a + ls, 0) / 7 * 30;
   // 每顆靈石的成本取「最貴的出口」，不取平均：石頭是使用者在挑怎麼花的。
   const perStone = Math.max(...Object.entries(TWD_PER_CALL)
     .map(([k, twd]) => twd / COST[k as keyof typeof COST]));
-  // 朗讀（0059）：只有最高階有免費次數，一次 NT$4.16
-  const freeReadings: Record<string, number> = { guanwei: 0, zhiji: 0, cangwang: 8 };
   // 售價不是實收：營業稅 5%（內含）＋綠界信用卡手續費約 2.75%。收費前沒算進去，
   // 觀微會在「帳上看起來有賺」的狀態下實際虧損。數字是假設，開立發票／簽約後照實改。
   const NET = 1 / 1.05 * (1 - 0.0275);
@@ -137,7 +136,7 @@ await t("每一階的月成本天花板都不超過售價", () => {
     const ai = 30 * (PLAN_CASTS[r.id] * TWD_PER_CALL.extra_cast
                    + PLAN_FOLLOWUPS[r.id] * TWD_PER_CALL.followup
                    + chatQuotaOf(r.id) * TWD_PER_CALL.chat);
-    const ceiling = ai + (r.grant + signPerMonth) * perStone + freeReadings[r.id] * 4.16;
+    const ceiling = ai + (r.grant + signPerMonth) * perStone + r.tts * 4.16   // 免費朗讀一次 NT$4.16（0059）;
     const margin = r.twd * NET - ceiling;
     console.log(`     ${r.id.padEnd(9)} ${PLAN_CASTS[r.id]}/${PLAN_FOLLOWUPS[r.id]}/${chatQuotaOf(r.id)}` +
       `  天花板 ${ceiling.toFixed(0).padStart(4)}  售價 ${String(r.twd).padStart(4)}（實收 ${(r.twd * NET).toFixed(0)}）` +
@@ -146,7 +145,7 @@ await t("每一階的月成本天花板都不超過售價", () => {
   }
   if (bad.length) {
     throw new Error(bad.join("\n       ") +
-      "\n       改額度（PLAN_CASTS／PLAN_FOLLOWUPS／PLAN_CHATS）或改售價（0058 的 insert）。" +
+      "\n       改額度（PLAN_CASTS／PLAN_FOLLOWUPS／PLAN_CHATS）或改售價（update plans）。" +
       "\n       這種虧損不會叫——它看起來像留存很好。");
   }
 });
@@ -154,15 +153,19 @@ await t("每一階的月成本天花板都不超過售價", () => {
 console.log("\n— 方案階梯");
 // 2026-10-08 把無牒閒聊 8→15 時，觀微還是 12：付了錢、每日閒聊反而少三句。
 // 改無牒那一格的人不會想到去看付費那幾格，所以由這裡看。
-await t("持牒每一項額度都不低於無牒，且逐階不減", () => {
-  const order = ["free", "guanwei", "zhiji", "cangwang"];
+// 三條線不是一條梯（攻略的卦比問卦少是設計），所以只問兩件事：
+// 每一階都不低於無牒；深度每一項都不低於問卦與攻略（它是兩邊全開）。
+await t("持牒每一項額度都不低於無牒；深度不低於問卦與攻略", () => {
   const tables: Record<string, (id: string) => number> = {
     起卦: (id) => PLAN_CASTS[id], 追問: (id) => PLAN_FOLLOWUPS[id], 閒聊: (id) => chatQuotaOf(id),
   };
   const bad: string[] = [];
   for (const [name, f] of Object.entries(tables)) {
-    for (let i = 1; i < order.length; i++) {
-      if (f(order[i]) < f(order[i - 1])) bad.push(`${name}：${order[i]} ${f(order[i])} < ${order[i - 1]} ${f(order[i - 1])}`);
+    for (const id of ["wengua", "gonglue", "shendu", "guanwei", "zhiji", "cangwang"]) {
+      if (!(f(id) >= f("free"))) bad.push(`${name}：${id} ${f(id)} < 無牒 ${f("free")}`);
+    }
+    for (const id of ["wengua", "gonglue"]) {
+      if (f("shendu") < f(id)) bad.push(`${name}：深度 ${f("shendu")} < ${id} ${f(id)}`);
     }
   }
   if (bad.length) throw new Error(bad.join("\n       "));

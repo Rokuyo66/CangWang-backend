@@ -107,12 +107,15 @@ select * from (
   -- ⑨ 最高階的免費朗讀次數（0059）
   --    這一欄沒套用的話預設是 0，於是藏往的使用者每念一次都被扣 66 顆靈石，
   --    而方案頁上寫著「每月免費朗讀 8 次」——那是最快收到客訴的一種不一致。
-  select 9, '⑨ 藏往的免費朗讀次數（0059）',
+  --    2026-10-19 起在賣的是三條線（0088），看深度那一列。
+  select 9, '⑨ 深度的免費朗讀次數＋三條線上架（0088）',
          case when coalesce(max(tts_free_readings), 0) > 0
-              then '✅ ' || max(tts_free_readings)::text || ' 次／月'
-              else '❌ 是 0——方案頁寫的與實際扣的會對不上' end,
+                   and (select count(*) from plans where active and id in ('wengua','gonglue','shendu')) = 3
+              then '✅ ' || max(tts_free_readings)::text || ' 次／月，三條線在賣'
+              when coalesce(max(tts_free_readings), 0) = 0 then '❌ 0088 沒套用或朗讀是 0——方案頁寫的與實際扣的會對不上'
+              else '❌ 三條線沒有全部上架' end,
          coalesce(max(tts_free_readings)::text, '—')
-    from plans where id = 'cangwang'
+    from plans where id = 'shendu'
 
   union all
   -- ⑩ 站內信（0060／0061）

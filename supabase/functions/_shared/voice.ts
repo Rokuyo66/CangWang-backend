@@ -32,7 +32,7 @@ const err = (msg: string): VoiceResult => ({ ok: false, msg });
 const ok = (payload: Record<string, unknown>): VoiceResult => ({ ok: true, payload });
 
 /** 收藏格數。免費 3 段足以讓人知道這件事存在，第四段就是付費點。 */
-export const PLAN_CLIPS: Record<string, number> = { free: 3, guanwei: 10, zhiji: 30, cangwang: 100 };
+export const PLAN_CLIPS: Record<string, number> = { free: 3, wengua: 10, gonglue: 30, shendu: 100, guanwei: 10, zhiji: 30, cangwang: 100 };
 export const clipQuotaOf = (plan: string) => PLAN_CLIPS[plan] ?? PLAN_CLIPS.free;
 
 /** 一則收藏最多幾段音檔。長批文會被切段，20 段已經是十來分鐘的東西。 */

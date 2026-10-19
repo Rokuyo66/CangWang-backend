@@ -106,13 +106,14 @@ export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15
 // 2026-10-15：觀微 12→25、知幾 30→50。10-08 把無牒拉到 15 之後，觀微反而比無牒少三句——
 // 付了錢、每日閒聊變少。Haiku 5.5 一則約 NT$0.01，觀微多 13 句一個月約 NT$4。
 // chatQuotaOf 另外保底：持牒的句數永遠不低於無牒（FREE_CHAT_PER_DAY 是環境變數，調高時不必回頭改這張表）。
-export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 25, zhiji: 50, cangwang: 100 };
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, wengua: 15, gonglue: 100, shendu: 100, guanwei: 25, zhiji: 50, cangwang: 100 };
 export const chatQuotaOf = (plan: string) => Math.max(PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY, FREE_CHAT_PER_DAY);
 // 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
 // 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。
-export const PLAN_MEMORIES: Record<string, number> = { free: 6, guanwei: 12, zhiji: 24, cangwang: 40 };
-export const PLAN_TURNS: Record<string, number> = { free: 6, guanwei: 8, zhiji: 12, cangwang: 16 };
-export const PLAN_PINS: Record<string, number> = { free: 0, guanwei: 1, zhiji: 3, cangwang: 5 };
+// 三條線（0088）：攻略賣的就是關係，記憶、輪數、釘選給到跟深度一樣；問卦停在舊觀微那一格。
+export const PLAN_MEMORIES: Record<string, number> = { free: 6, wengua: 12, gonglue: 40, shendu: 40, guanwei: 12, zhiji: 24, cangwang: 40 };
+export const PLAN_TURNS: Record<string, number> = { free: 6, wengua: 8, gonglue: 16, shendu: 16, guanwei: 8, zhiji: 12, cangwang: 16 };
+export const PLAN_PINS: Record<string, number> = { free: 0, wengua: 1, gonglue: 5, shendu: 5, guanwei: 1, zhiji: 3, cangwang: 5 };
 export const memoryQuotaOf = (plan: string) => PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
 export const pinQuotaOf = (plan: string) => PLAN_PINS[plan] ?? PLAN_PINS.free;
 // 探詢輪（角色為了問清楚而反問的那幾句）每日免費額度：不計聊天句數、不扣靈石。
@@ -160,10 +161,15 @@ export function favorTierName(favor: number): string {
 // 之後照常每則 +1，慢慢爬回來。什麼算不喜歡，交給人設與模型自己發揮。
 export const SULK_AT = ROMANCE_AT[4];
 export const FAVOR_SULK = Number(Deno.env.get("FAVOR_SULK") ?? "5");
-export function favorAfter(favor: number, sulk: boolean, cap = FAVOR_CAP): number {
+export function favorAfter(favor: number, sulk: boolean, cap = FAVOR_CAP, fast = false): number {
   if (sulk && favor >= SULK_AT) return favor - FAVOR_SULK;
-  return Math.max(favor, Math.min(cap, favor + FAVOR_PER_CHAT));   // 封頂只擋往上長，不會把已經過頂的扣回來
+  // fast（攻略、深度）＝道緣 ×1.5：好感是整數，所以一則 +1、一則 +2 交替。
+  // 用 favor % 3 決定而不是另存計數：好感本身就是狀態，從任何數字起跳都會收斂到 1、2 交替。
+  const step = fast ? (favor % 3 === 0 ? 1 : 2) * FAVOR_PER_CHAT : FAVOR_PER_CHAT;
+  return Math.max(favor, Math.min(cap, favor + step));   // 封頂只擋往上長，不會把已經過頂的扣回來
 }
+/** 閒聊道緣長得快一半的方案（0088 三條線：攻略與深度） */
+export const FAST_FAVOR_PLANS = new Set(["gonglue", "shendu"]);
 /* 無牒的閒聊好感封頂在第一層門檻前（六六 2026-10-08）。
    閒聊換 Haiku 5.5 之後一則約 NT$0.01，句數已經不是成本問題，不必用句數卡人；
    要卡的是感情線：聊天能把人帶到「快要相熟」，看得到他變溫柔，再往上要靠問卦（起卦 +3、追問 +2，
@@ -1411,7 +1417,7 @@ export async function chat(db: SupabaseClient, p: {
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
   let favorNew = favor;
   if (tier !== "canned") {
-    favorNew = favorAfter(favor, effMarks.sulk, chatFavorCap(p.plan ?? "free"));
+    favorNew = favorAfter(favor, effMarks.sulk, chatFavorCap(p.plan ?? "free"), FAST_FAVOR_PLANS.has(p.plan ?? "free"));
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
   // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。
