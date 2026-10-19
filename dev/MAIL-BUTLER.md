@@ -61,7 +61,7 @@ npx supabase secrets set GMAIL_REFRESH_TOKEN=你的RefreshToken  --project-ref a
 ## 第 3 步 · 上 migration 與部署
 
 ```powershell
-npx supabase db push --project-ref ajogafvzlhqwlxwkfcpn     # 或把 0091_mail_butler.sql 貼進 SQL Editor
+.\dev\migrate.ps1 -Apply -Only 0091_mail_butler.sql   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
 supabase functions deploy mail-butler --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 supabase functions deploy webhook-tg  --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
