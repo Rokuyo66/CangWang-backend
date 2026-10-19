@@ -70,7 +70,8 @@ npx supabase secrets set ADMIN_TG_WEBHOOK_SECRET=自己編的一串英數    --p
 ## 第 3 步 · 上 migration 與部署
 
 ```powershell
-.\dev\migrate.ps1 -Apply -Only 0091_mail_butler.sql   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
+.\dev\migrate.ps1 -Apply -Only 0091_mail_butler.sql
+.\dev\migrate.ps1 -Apply -Only 0092_mailbot_labels.sql   # 期限標籤、明確授權、起始規則   # 本專案一律走 migrate.ps1，不可用 supabase db push（見 deploy-howto.md 第 1 步）
 supabase functions deploy mail-butler --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 supabase functions deploy admin-tg    --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
 ```
@@ -129,3 +130,18 @@ $$);
 | `gmail token 400 invalid_grant` | OAuth 還在「測試中」過了 7 天，或你在 Google 帳號撤銷了授權 | 第 1 步第 3 點改成發布，重做第 5 點換新 token，重設 `GMAIL_REFRESH_TOKEN` |
 | `gmail ... 403` | Gmail API 沒啟用，或 scope 不是 `gmail.modify` | 第 1 步第 2、5 點 |
 | `週報算不出來` | migration 0091 沒上 | 第 3 步 |
+
+## 保留期限標籤（2026-10-19 起）
+
+管家照「要留多久」分類，不照主題。標籤清單在 `_shared/mailbot.ts` 的 `LABELS`，必須與 Gmail 上的名稱逐字一致：
+
+| 層 | 標籤 | 到期 |
+| --- | --- | --- |
+| 三月 | 水電瓦斯、保險通知、帳單繳費 | 3 個月後由週報那一輪丟垃圾桶 |
+| 五年 | 外包收入、保固憑證、產品營運、錄取通知 | 5 年後丟垃圾桶 |
+| 永久 | 合約明細、房產、金鑰序號、重要內容 | 不動 |
+| 待辦 | 要動手的、日期在未來的 | 不動；週報列出件數與最舊天數 |
+
+- 只有「留下來」（回報或留存）的信會貼標籤；規則的 `label` 優先於 AI 的建議，AI 編出清單外的標籤一律丟掉。
+- 到期清理每週一跑一次，一次最多 `MAILBOT_SWEEP_MAX`（預設 300）封，清不完下週繼續。
+- 在 Gmail 新增或改名標籤，要同步改 `LABELS` 與 `SWEEP`，跑 `node dev/mailbot-test.mts`。

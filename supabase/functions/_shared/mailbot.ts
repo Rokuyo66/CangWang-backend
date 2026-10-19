@@ -11,8 +11,34 @@
 //         守門關鍵字（銀行、帳單、驗證碼、政府、合約…）命中的信，AI 再怎麼說刪也只能問。
 
 export type Decision = "report" | "trash" | "keep" | "ask";
-export type Rule = { id: number; kind: "sender" | "domain" | "subject"; pattern: string; action: "trash" | "report" | "keep" };
-export type AiVerdict = { v: Decision; c: number; why: string; sum: string };
+export type Rule = { id: number; kind: "sender" | "domain" | "subject"; pattern: string; action: "trash" | "report" | "keep"; label?: string | null };
+export type AiVerdict = { v: Decision; c: number; why: string; sum: string; lb?: string };
+
+/* ── 保留期限標籤（觀主的 Gmail 標籤，名稱逐字對應）──────────────
+   分類依據不是「主題」而是「要留多久」：
+     三月：原平台查得回來（銀行 App、財政部載具、保險公司官網）→ 3 個月後刪
+     五年：稅務與營運憑證、保固 → 5 年後刪
+     永久：查不回來且還會用到（序號、合約、房產）
+     待辦：要觀主動手的，處理完由他移走；有日期在未來的事（預約、機票）也先放這裡，
+           因為三月是從「收到那天」起算，十月的機票五月訂，八月就會被清掉 */
+export const LABELS = [
+  "三月/水電瓦斯", "三月/保險通知", "三月/帳單繳費",
+  "五年/外包收入", "五年/保固憑證", "五年/產品營運", "五年/錄取通知",
+  "永久/合約明細", "永久/房產", "永久/金鑰序號", "永久/重要內容",
+  "待辦",
+] as const;
+export const isLabel = (s: unknown): s is string => typeof s === "string" && (LABELS as readonly string[]).includes(s);
+
+/** 到期清理：Gmail 搜尋語法裡，巢狀標籤的「/」寫成「-」。 */
+export const SWEEP = [
+  { q: "label:三月-水電瓦斯 older_than:3m", label: "三月/水電瓦斯" },
+  { q: "label:三月-保險通知 older_than:3m", label: "三月/保險通知" },
+  { q: "label:三月-帳單繳費 older_than:3m", label: "三月/帳單繳費" },
+  { q: "label:五年-外包收入 older_than:5y", label: "五年/外包收入" },
+  { q: "label:五年-保固憑證 older_than:5y", label: "五年/保固憑證" },
+  { q: "label:五年-產品營運 older_than:5y", label: "五年/產品營運" },
+  { q: "label:五年-錄取通知 older_than:5y", label: "五年/錄取通知" },
+] as const;
 export type Meta = {
   from: string; subject: string; snippet: string;
   labels: string[]; listUnsubscribe: boolean;
@@ -80,6 +106,15 @@ export const AUTO_TRASH_CONF = 0.85;
 
 /** 決定去處。ai 為 null（模型沒回）時回 null：這封先不處理，下一輪再看——不記錄就不會被當成「看過了」。 */
 export function decide(meta: Meta, rule: Rule | null, ai: AiVerdict | null):
+  { decision: Decision; source: "rule" | "ai" | "guard"; reason: string; label?: string } | null {
+  const d = decideCore(meta, rule, ai);
+  if (!d || (d.decision !== "report" && d.decision !== "keep")) return d;
+  // 留下來的信才貼期限標籤；規則指定的優先，其次 AI 建議的
+  const label = isLabel(rule?.label) ? rule!.label! : isLabel(ai?.lb) ? ai!.lb : undefined;
+  return label ? { ...d, label } : d;
+}
+
+function decideCore(meta: Meta, rule: Rule | null, ai: AiVerdict | null):
   { decision: Decision; source: "rule" | "ai" | "guard"; reason: string } | null {
   const guarded = guardHit(meta);
   if (rule) {
@@ -113,7 +148,22 @@ export const CLASSIFY_SYS = `你是「觀主」的信箱管家。觀主是台灣
 c 是你對這個判斷的信心（0～1）。只有明顯的廣告／電子報才給 trash 高信心；只要有一點可能是觀主要的，就給 ask。
 why 用 12 字內說理由。sum 只在 report 時寫：一句話（30 字內）講觀主要知道什麼、要做什麼。
 
-只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…"}, …]`;
+lb 是保留期限標籤，只在 report 或 keep 時給，從下面挑一個（都不適合就給空字串）。判準是「這封信能不能在別處查回來、還會不會用到」：
+- 三月/帳單繳費：信用卡帳單、扣款與繳費通知、一般消費發票（銀行 App 或財政部載具查得回來）
+- 三月/水電瓦斯：水費、電費、瓦斯費、電信費
+- 三月/保險通知：保費繳費通知（不含保單本身）
+- 五年/產品營運：藏往知來的營運費用與憑證——Anthropic、Supabase、Cloudflare、Google Cloud、Google Play 開發者、綠界的收據與發票。國外服務不開台灣發票，這封信就是唯一憑證
+- 五年/外包收入：外包合作、報酬、扣繳憑單
+- 五年/保固憑證：3C、電腦零件、家電的購買證明
+- 五年/錄取通知：應徵、面試、錄取往來
+- 永久/合約明細：租約、保單本體與條款、勞動或外包合約
+- 永久/房產：建案、預售屋、付款期程、交屋、貸款
+- 永久/金鑰序號：軟體序號、授權證明、字型與素材授權、2FA 備用碼與救援碼
+- 永久/重要內容：證件、公文、健檢報告等查不回來的個人文件
+- 待辦：要觀主動手的，或有未來日期的事（預約、機票、即將到期的金鑰或服務、平台規則變更要配合）
+一次性驗證碼、登入通知、物流進度這類用完即棄的，不給標籤。
+
+只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…","lb":"五年/產品營運"}, …]`;
 
 export function classifyPrompt(items: { from: string; subject: string; snippet: string }[]): string {
   return items.map((m, i) =>
@@ -135,6 +185,7 @@ export function parseClassify(text: string, n: number): (AiVerdict | null)[] {
     if (!["report", "trash", "keep", "ask"].includes(v)) continue;
     const c = Math.max(0, Math.min(1, Number(x?.c ?? 0) || 0));
     out[i] = { v: v as Decision, c, why: String(x?.why ?? "").slice(0, 40), sum: String(x?.sum ?? "").slice(0, 80) };
+    if (isLabel(x?.lb)) out[i]!.lb = x.lb as string;
   }
   return out;
 }
@@ -170,7 +221,7 @@ export function askText(m: { from: string; subject: string; snippet: string; rea
 }
 
 export type DigestItem = { from: string; subject: string; sum: string };
-export type DigestCounts = { trashed: number; kept: number; asked: number; skipped: number; trashedSenders: string[] };
+export type DigestCounts = { trashed: number; kept: number; asked: number; skipped: number; trashedSenders: string[]; labeled?: Record<string, number> };
 
 /** 一輪整理的匯報。沒有要報的、也沒刪東西，就回空字串（不發，免得每兩小時吵一次「沒事」）。 */
 export function digestText(items: DigestItem[], c: DigestCounts): string {
@@ -191,6 +242,8 @@ export function digestText(items: DigestItem[], c: DigestCounts): string {
     tail.push(`🗑 已刪 ${c.trashed} 封${top ? `（${top}${c.trashedSenders.length > 5 ? "…" : ""}）` : ""}`);
   }
   if (c.kept) tail.push(`📥 留存不報 ${c.kept} 封`);
+  const lab = Object.entries(c.labeled ?? {}).filter(([, n]) => n > 0);
+  if (lab.length) tail.push(`🏷 歸檔：${lab.map(([k, n]) => `${esc(k)} ${n}`).join("、")}`);
   if (c.asked) tail.push(`❓ 待你決定 ${c.asked} 封（見上方各則）`);
   if (c.skipped) tail.push(`⏳ ${c.skipped} 封 AI 沒判出來，下一輪再看`);
   if (tail.length) lines.push("", ...tail);
@@ -206,6 +259,8 @@ export type WeeklyStats = {
   casts_by_char: Record<string, number>; casts_by_cat: Record<string, number>;
   by_day: Record<string, number>;
   mail: { trashed: number; reported: number; open: number; rules: number };
+  // 以下由 mail-butler 在發週報當下從 Gmail 算出來（不在 SQL 裡）
+  sweep?: { swept: number; byLabel: Record<string, number>; todo: number; todoOldestDays: number | null };
 };
 
 /** 本週 vs 上週：▲12%／▼5%／持平／新（上週 0）。 */
@@ -254,5 +309,11 @@ export function weeklyText(s: WeeklyStats): string {
     `毛利 NT$ <b>${n(margin)}</b>　靈石消耗 ${n(c.lingshi_spent)}`,
     "",
     `<b>📬 信箱管家</b>　刪 ${n(s.mail?.trashed)}　回報 ${n(s.mail?.reported)}　待決 ${n(s.mail?.open)}　規則 ${n(s.mail?.rules)} 條`,
+    s.sweep && s.sweep.swept
+      ? `🧹 到期清理 ${n(s.sweep.swept)} 封：` + Object.entries(s.sweep.byLabel).filter(([, v]) => v > 0).map(([k, v]) => `${esc(k)} ${n(v)}`).join("、")
+      : null,
+    s.sweep && s.sweep.todo
+      ? `📌 待辦還有 ${n(s.sweep.todo)} 封` + (s.sweep.todoOldestDays !== null ? `，最舊的放了 ${s.sweep.todoOldestDays} 天` : "")
+      : null,
   ].filter((l) => l !== null).join("\n");
 }

@@ -86,5 +86,21 @@ export async function untrash(id: string): Promise<void> {
   await call(`/messages/${id}/untrash`, { method: "POST" });
 }
 
+/** 標籤名稱 → id。觀主在 Gmail 改名或新增標籤時，下一次叫起來就會讀到新的。 */
+export async function labelIds(): Promise<Map<string, string>> {
+  const j = await call(`/labels`);
+  return new Map((j?.labels ?? []).map((l: { name: string; id: string }) => [l.name, l.id]));
+}
+
+export async function addLabel(id: string, labelId: string): Promise<void> {
+  await call(`/messages/${id}/modify`, { method: "POST", body: JSON.stringify({ addLabelIds: [labelId] }) });
+}
+
+/** 收到的時間（毫秒）。算「待辦最舊放了幾天」用。 */
+export async function receivedAt(id: string): Promise<number> {
+  const j = await call(`/messages/${id}?format=minimal`);
+  return Number(j?.internalDate ?? Date.now());
+}
+
 const decodeEntities = (s: string) =>
   s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");

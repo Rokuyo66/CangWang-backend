@@ -89,11 +89,11 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
   }
 
   if (cmd === "mailrules") {
-    const { data } = await db.from("mailbot_rules").select("id, kind, pattern, action, hits")
+    const { data } = await db.from("mailbot_rules").select("id, kind, pattern, action, hits, label")
       .order("action").order("hits", { ascending: false }).limit(80);
     if (!data?.length) { await send("還沒有規則。從「要刪嗎」那幾顆按鈕按出來，或 /mailrule add。"); return; }
     const lines = (data as (Rule & { hits: number })[]).map((r) =>
-      `#${r.id} ${ACTION_LABEL[r.action]}　${KIND_LABEL[r.kind]} <code>${esc(r.pattern)}</code>　命中 ${r.hits}`);
+      `#${r.id} ${ACTION_LABEL[r.action]}　${KIND_LABEL[r.kind]} <code>${esc(r.pattern)}</code>${r.label ? `　🏷${esc(r.label)}` : ""}　命中 ${r.hits}`);
     await send(`<b>📬 信箱規則（${data.length}）</b>\n\n${lines.join("\n")}\n\n<i>刪規則：/mailrule del 編號</i>`);
     return;
   }

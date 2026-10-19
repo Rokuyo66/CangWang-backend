@@ -10,7 +10,7 @@
 
 import {
   parseFrom, matchRule, decide, parseClassify, parseMbCallback, mbCallback,
-  digestText, weeklyText, delta, guardHit, type Rule, type Meta,
+  digestText, weeklyText, delta, guardHit, LABELS, SWEEP, type Rule, type Meta,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -116,6 +116,42 @@ t("週報算得出留存與毛利，空資料不炸", () => {
   });
   for (const k of ["50%（10/20）", "毛利 NT$ <b>500</b>", "師妹 60", "10-07", "準 75%"]) if (!s.includes(k)) throw new Error(`少了「${k}」`);
   weeklyText({ from: "", to: "", cur: {}, prv: {}, retained: 0, casts_by_char: {}, casts_by_cat: {}, by_day: {}, mail: { trashed: 0, reported: 0, open: 0, rules: 0 } });
+});
+
+t("期限標籤：規則指定的優先於 AI 建議", () => {
+  const r: Rule = { id: 5, kind: "sender", pattern: "amy@gmail.com", action: "report", label: "永久/房產" };
+  eq(decide(personal, r, { v: "report", c: 1, why: "", sum: "", lb: "待辦" })?.label, "永久/房產");
+  eq(decide(personal, null, { v: "keep", c: 1, why: "", sum: "", lb: "三月/帳單繳費" })?.label, "三月/帳單繳費");
+});
+
+t("期限標籤：只貼在留下來的信上，刪掉或待問的不貼", () => {
+  eq(decide(promo, null, { v: "trash", c: 0.9, why: "", sum: "", lb: "待辦" })?.label, undefined);
+  eq(decide(personal, null, { v: "ask", c: 0.5, why: "", sum: "", lb: "待辦" })?.label, undefined);
+});
+
+t("期限標籤：模型編出不存在的標籤一律丟掉", () => {
+  const out = parseClassify('[{"i":0,"v":"keep","c":1,"lb":"五年/亂寫"},{"i":1,"v":"report","c":1,"lb":"五年/產品營運"}]', 2);
+  eq(out[0]?.lb, undefined); eq(out[1]?.lb, "五年/產品營運");
+  eq(decide(personal, { id: 1, kind: "sender", pattern: "amy@gmail.com", action: "keep", label: "沒這個" }, null)?.label, undefined);
+});
+
+t("到期清理只碰三月與五年，永久與待辦絕不在清單裡", () => {
+  for (const s of SWEEP) {
+    if (!/^(三月|五年)\//.test(s.label)) throw new Error(`清理清單混進 ${s.label}`);
+    if (!(LABELS as readonly string[]).includes(s.label)) throw new Error(`${s.label} 不是現有標籤`);
+    const want = s.label.startsWith("三月") ? "older_than:3m" : "older_than:5y";
+    if (!s.q.includes(want)) throw new Error(`${s.label} 的期限寫錯：${s.q}`);
+    if (!s.q.includes("label:" + s.label.replace("/", "-"))) throw new Error(`${s.label} 的搜尋語法寫錯：${s.q}`);
+  }
+  const swept = new Set(SWEEP.map((s) => s.label));
+  for (const l of LABELS) if (/^(三月|五年)\//.test(l) && !swept.has(l)) throw new Error(`${l} 沒有到期清理`);
+});
+
+t("週報帶出清理數與待辦", () => {
+  const s = weeklyText({ from: "a", to: "b", cur: {}, prv: {}, retained: 0, casts_by_char: {}, casts_by_cat: {}, by_day: {},
+    mail: { trashed: 0, reported: 0, open: 0, rules: 0 },
+    sweep: { swept: 12, byLabel: { "三月/帳單繳費": 12 }, todo: 3, todoOldestDays: 9 } });
+  for (const k of ["到期清理 12 封", "三月/帳單繳費 12", "待辦還有 3 封", "放了 9 天"]) if (!s.includes(k)) throw new Error(`少了「${k}」`);
 });
 
 setTimeout(() => {

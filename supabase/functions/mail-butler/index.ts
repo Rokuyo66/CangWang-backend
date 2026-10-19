@@ -1,15 +1,15 @@
 // functions/mail-butler/index.ts — 觀主的信箱管家＋產品週報（排程叫起來）
 //
 //   POST { "job": "triage" }  每兩小時：掃收件匣近 3 天沒看過的信 → 規則／AI 分類 → 刪、報、問
-//   POST { "job": "weekly" }  每週一 09:00（台北）：產品週報
+//   POST { "job": "weekly" }  每週一 09:00（台北）：到期清理（三月／五年標籤）＋產品週報
 //
 // 鑑權與 due-reminder 同一把：x-internal-secret = BROADCAST_INTERNAL_SECRET（fail-closed）。
 // 所有推播只發給 ADMIN_TG_ID，經由私人管家 bot（ADMIN_BOT_TOKEN）。設定步驟：dev/MAIL-BUTLER.md
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { gmailConfigured, listIds, getMeta, trash, type MailMeta } from "../_shared/gmail.ts";
+import { gmailConfigured, listIds, getMeta, trash, labelIds, addLabel, receivedAt, type MailMeta } from "../_shared/gmail.ts";
 import {
   matchRule, decide, parseFrom, classifyPrompt, parseClassify, CLASSIFY_SYS,
-  askText, askButtons, digestText, weeklyText,
+  askText, askButtons, digestText, weeklyText, SWEEP,
   type Rule, type AiVerdict, type DigestItem, type WeeklyStats,
 } from "../_shared/mailbot.ts";
 import { logUsage } from "../_shared/services.ts";
@@ -27,6 +27,8 @@ const MAX_PER_RUN = Number(Deno.env.get("MAILBOT_MAX") ?? "60");
 // 一輪最多推幾則「要刪嗎」：一次跳二十則等於沒人會看。多的留在待決清單，/mailask 叫出來
 const MAX_ASK_PUSH = Number(Deno.env.get("MAILBOT_MAX_ASK") ?? "8");
 const BATCH = 25;
+// 到期清理一次最多丟幾封：清不完下週繼續，免得第一次跑撞上函式的時間上限
+const SWEEP_MAX = Number(Deno.env.get("MAILBOT_SWEEP_MAX") ?? "300");
 
 async function tg(method: string, payload: Record<string, unknown>) {
   try {
@@ -79,7 +81,7 @@ async function triage(): Promise<Record<string, unknown>> {
     await say("⚠️ 信箱管家還沒接上 Gmail：GMAIL_CLIENT_ID／GMAIL_CLIENT_SECRET／GMAIL_REFRESH_TOKEN 未設定。見 dev/MAIL-BUTLER.md");
     return { ok: false, error: "gmail not configured" };
   }
-  const { data: rulesRaw } = await db.from("mailbot_rules").select("id, kind, pattern, action");
+  const { data: rulesRaw } = await db.from("mailbot_rules").select("id, kind, pattern, action, label");
   const rules = (rulesRaw ?? []) as Rule[];
 
   const ids = await listIds(QUERY, MAX_PER_RUN);
@@ -110,6 +112,11 @@ async function triage(): Promise<Record<string, unknown>> {
     chunk.forEach((m, k) => ai.set(m.id, vs[k]));
   }
 
+  // 標籤名 → id；讀不到（Gmail 掛了、觀主改了名）就只是不貼，信照樣處理
+  let labels = new Map<string, string>();
+  try { labels = await labelIds(); } catch (e) { console.error("labelIds failed", e instanceof Error ? e.message : String(e)); }
+  const labeled: Record<string, number> = {};
+
   const report: DigestItem[] = [];
   const trashedSenders = new Set<string>();
   let trashed = 0, kept = 0, asked = 0, skipped = 0, pushed = 0;
@@ -132,7 +139,7 @@ async function triage(): Promise<Record<string, unknown>> {
       gmail_id: m.id, thread_id: m.threadId, sender: f.email, sender_name: f.name.slice(0, 120),
       subject: m.subject.slice(0, 300), snippet: m.snippet.slice(0, 400), received_at: m.receivedAt,
       decision: d.decision, source: d.source, reason: (d.reason || "").slice(0, 120),
-      status: d.decision === "ask" ? "open" : "done",
+      status: d.decision === "ask" ? "open" : "done", label: d.label ?? null,
       decided_at: d.decision === "ask" ? null : new Date().toISOString(),
     };
     const { data: ins, error } = await db.from("mailbot_seen")
@@ -140,6 +147,12 @@ async function triage(): Promise<Record<string, unknown>> {
     if (error) { console.error("mailbot_seen insert", error.message); continue; }
     if (!ins) continue;   // 同時有另一輪在跑、已經記過了
     if (rule) ruleHits.set(rule.id, (ruleHits.get(rule.id) ?? 0) + 1);
+    if (d.label) {
+      const lid = labels.get(d.label);
+      if (!lid) console.warn("Gmail 沒有這個標籤，略過：", d.label);
+      else try { await addLabel(m.id, lid); labeled[d.label] = (labeled[d.label] ?? 0) + 1; }
+        catch (e) { console.error("addLabel failed", m.id, e instanceof Error ? e.message : String(e)); }
+    }
 
     if (d.decision === "trash") { trashed++; trashedSenders.add(f.name.slice(0, 16)); }
     else if (d.decision === "keep") kept++;
@@ -159,9 +172,27 @@ async function triage(): Promise<Record<string, unknown>> {
     await db.from("mailbot_rules").update({ hits: Number(r?.hits ?? 0) + n, last_hit_at: new Date().toISOString() }).eq("id", id);
   }
 
-  const text = digestText(report, { trashed, kept, asked, skipped, trashedSenders: [...trashedSenders] });
+  const text = digestText(report, { trashed, kept, asked, skipped, trashedSenders: [...trashedSenders], labeled });
   if (text) await say(asked > pushed ? `${text}\n<i>還有 ${asked - pushed} 封待決沒推，打 /mailask</i>` : text);
   return { ok: true, scanned: ids.length, fresh: metas.length, trashed, kept, reported: report.length, asked, skipped };
+}
+
+/** 到期清理：三月層 3 個月、五年層 5 年。丟垃圾桶（30 天內撿得回來），不是永久刪。 */
+async function sweep(): Promise<NonNullable<WeeklyStats["sweep"]>> {
+  const byLabel: Record<string, number> = {};
+  let swept = 0;
+  for (const s of SWEEP) {
+    if (swept >= SWEEP_MAX) break;
+    const ids = await listIds(s.q, SWEEP_MAX - swept);
+    for (const id of ids) {
+      try { await trash(id); swept++; byLabel[s.label] = (byLabel[s.label] ?? 0) + 1; }
+      catch (e) { console.error("sweep trash failed", id, e instanceof Error ? e.message : String(e)); }
+    }
+  }
+  const todo = await listIds("label:待辦", 500);
+  // 列表是新到舊，最後一封就是最舊的
+  const oldest = todo.length ? await receivedAt(todo[todo.length - 1]).catch(() => null) : null;
+  return { swept, byLabel, todo: todo.length, todoOldestDays: oldest ? Math.floor((Date.now() - oldest) / 86_400_000) : null };
 }
 
 async function weekly(): Promise<Record<string, unknown>> {
@@ -170,8 +201,14 @@ async function weekly(): Promise<Record<string, unknown>> {
     await say(`⚠️ 週報算不出來：${(error?.message ?? "no data").slice(0, 200)}`);
     return { ok: false, error: error?.message };
   }
-  await say(weeklyText(data as WeeklyStats));
-  return { ok: true };
+  const stats = data as WeeklyStats;
+  // 清理失敗不擋週報：週報是給人看的，清理下週還會再跑
+  if (gmailConfigured()) {
+    try { stats.sweep = await sweep(); }
+    catch (e) { console.error("sweep failed", e instanceof Error ? e.message : String(e)); }
+  }
+  await say(weeklyText(stats));
+  return { ok: true, swept: stats.sweep?.swept ?? 0 };
 }
 
 Deno.serve(async (req) => {
