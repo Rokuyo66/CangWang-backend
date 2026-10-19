@@ -436,18 +436,21 @@ export async function rateLimited(db: SupabaseClient, userId: string): Promise<b
 /* ---------- 計費 ---------- */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-export const FREE_CASTS_PER_DAY = Number(Deno.env.get("FREE_CASTS_PER_DAY") ?? "2");
+// 2026-10-19 無牒 2→1（卦與追問）：ai_cost 實測無牒每人每月 NT$22.4，2／2 時持牒要過 9～13% 才回本，
+// 1／1 降到 5～8%。第二卦起 10 顆靈石，簽到每月 171 顆約 17 卦，重度用戶照樣問得到。
+export const FREE_CASTS_PER_DAY = Number(Deno.env.get("FREE_CASTS_PER_DAY") ?? "1");
 // 追問改為「每日額度」而非「每卦額度」：原本每卦免費 2 次、一天 3 卦，等於每天
 // 最多 6 次免費追問；追問是主要互動，這是成本大宗。改成每日 N 次，訂閱方案加碼。
 // 走 env 是為了讓你不必重新部署就能調——上線初期這個數字要邊看數據邊抓。
-export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "2");
+export const FREE_FOLLOWUPS_PER_DAY = Number(Deno.env.get("FREE_FOLLOWUPS_PER_DAY") ?? "1");
 // 各方案每日免費追問次數（未列者比照 free）
 // ⚠ 這幾個數字直接決定各階的成本天花板，改之前先算一次（見 0058 檔頭的表）。
 // 2026-09-22：知幾由 8 降為 5。它原本是照月費 419 訂的，售價改 299 之後
 // 額度沒跟著動，天花板（361）就高過售價——而「越重度的用戶虧越多」這種虧損
 // 會穩定成長，看起來卻像留存很好。
-export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 20 };
-export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, guanwei: 3, zhiji: 5, cangwang: 8 };
+// 2026-10-19 三條線（0088）：問卦 wengua／攻略 gonglue／深度 shendu。舊三階停售，既有訂閱照舊表給
+export const PLAN_FOLLOWUPS: Record<string, number> = { free: FREE_FOLLOWUPS_PER_DAY, wengua: 4, gonglue: 1, shendu: 6, guanwei: 3, zhiji: 5, cangwang: 20 };
+export const PLAN_CASTS: Record<string, number> = { free: FREE_CASTS_PER_DAY, wengua: 4, gonglue: 2, shendu: 5, guanwei: 3, zhiji: 5, cangwang: 8 };
 // 靈石價目已搬到 _shared/prices.ts（資料庫 lingshi_prices，改價＝update 一列）。
 // 原本這裡是四個寫死的 const，於是調一次價要改三支程式、部署三支 function——
 // 摩擦一大，價就不會調，而上線後最該做的事就是照真實成本調價。見 0059。

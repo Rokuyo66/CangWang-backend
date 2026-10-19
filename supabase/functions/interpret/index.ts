@@ -7,7 +7,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAf
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetState } from "../_shared/widget-state.ts";
-import { chat, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatFavorCap, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
@@ -33,6 +33,7 @@ import {
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 import { kindOf, isDormant } from "../_shared/memkind.ts";
+import { castKeepOf, searchCasts, FORTUNE_KEEP_DAYS, FREE_KEEP_DAYS } from "../_shared/keep.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -553,6 +554,8 @@ async function handle(req: Request): Promise<Response> {
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
+        // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
+        ...(await castKeepOf(db, uid).then((k) => ({ castKeepDays: k.days, castKeepGraceUntil: k.graceUntil }))),
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
@@ -603,9 +606,9 @@ async function handle(req: Request): Promise<Response> {
        玉牒的方案表。價格是資料（plans 那張表），所以這裡只是照抄，
        不做任何計算——前端顯示的數字與結帳時送出去的數字必須是同一個來源。 */
     if (body.mode === "plan_list") {
-      const { data: rows } = await db.from("plans")
-        .select("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort")
-        .eq("active", true).order("sort");
+      const planq = (cols: string) => db.from("plans").select(cols).eq("active", true).order("sort");
+      let { data: rows, error: planErr } = await planq("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort, keep_days");
+      if (planErr) ({ data: rows } = await planq("id, label, twd, lingshi_grant, blurb, tts_free_readings, sort"));   // 0087 未跑的兜底
       const plan = await planOf(db, uid);
       const { data: prof } = await db.from("profiles").select("plan_until").eq("id", uid).maybeSingle();
       const { data: ord } = await db.from("orders")
@@ -624,13 +627,25 @@ async function handle(req: Request): Promise<Response> {
           memories: memoryQuotaOf(id),   // 角色長期記憶注入幾則（閒聊用），不是心事
           pins: pinQuotaOf(id),
           threads: threadQuotaOf(id),     // 心事同時記幾件（手帳›心事）。與 memories 是兩回事，方案頁曾混為一談
+          favor_cap: chatFavorCap(id),    // 閒聊能把道緣聊到多高。無牒封頂 299（FREE_CHAT_FAVOR_CAP），持牒不封頂
+          // 卦保存幾天（null＝永久）。0087 未跑時沒有這欄，照舊的 90 天報，不要報成永久
+          keep_days: "keep_days" in (r as Record<string, unknown>) ? (r as { keep_days: number | null }).keep_days : FREE_KEEP_DAYS,
         };
       });
+      // 無牒的同一組數字。plans 表沒有 free 那一列，方案頁要寫「持牒多了什麼」就得有對照
+      const free = {
+        casts: PLAN_CASTS.free, followups: PLAN_FOLLOWUPS.free, chats: chatQuotaOf("free"),
+        memories: memoryQuotaOf("free"), pins: pinQuotaOf("free"), threads: threadQuotaOf("free"),
+        favor_cap: chatFavorCap("free"),
+      };
       return Response.json({
         kind: "ok",
         plans: quotas,
+        free,
         current: plan,
         plan_until: (prof as { plan_until?: string } | null)?.plan_until ?? null,
+        // 卦的保存：無牒天數（方案頁比較列用）、日運天數，以及此人此刻的天數與斷牒緩衝
+        keep: { ...(await castKeepOf(db, uid)), freeDays: FREE_KEEP_DAYS, fortuneDays: FORTUNE_KEEP_DAYS },
         // 有沒有正在跑的定期定額。退訂要去綠界那側辦，畫面上至少要說得出「你有」
         subscription: ord ?? null,
         // 金流沒設好時不要讓人按下去才發現。按鈕該是灰的，不是會爆炸的。
@@ -1273,11 +1288,15 @@ async function handle(req: Request): Promise<Response> {
     }
 
     // 刪除單卦（連同追問、應期紀錄）
+    // 只刪 casts 那一列，追問與應期靠 on delete cascade（0001）跟著走。
+    // 原本先用 service role 依 cast_id 刪 followups／feedback、最後才在 casts 檢查 user_id：
+    // 前兩刀沒有身分檢查，拿到別人的卦號就能抹掉他的追問與印證——印證一沒，
+    // 那一卦也跟著失去永久保存（0087 cast_is_kept），之後被清理刪掉。
     if (body.mode === "delete_cast") {
-      await db.from("followups").delete().eq("cast_id", body.cast_id);
-      await db.from("feedback").delete().eq("cast_id", body.cast_id);
-      const { error } = await db.from("casts").delete().eq("id", body.cast_id).eq("user_id", uid);
-      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+      const { data: gone, error } = await db.from("casts").delete()
+        .eq("id", body.cast_id).eq("user_id", uid).select("id");
+      if (error) return Response.json({ kind: "err" }, { headers: CORS });
+      return Response.json({ kind: (gone ?? []).length ? "ok" : "not_found" }, { headers: CORS });
     }
 
     // 改暱稱
@@ -1396,15 +1415,35 @@ async function handle(req: Request): Promise<Response> {
       }, { headers: CORS });
     }
 
+    // 搜尋舊卦：問句／摘要／追問／卦名，日運不進。每筆附到期時點，前端據此提醒（0087）
+    if (body.mode === "cast_search") {
+      const r = await searchCasts(db, uid, { q: body.q, before: body.before, limit: body.limit });
+      return Response.json(r, { headers: CORS });
+    }
+
     // 卦曆列表
     if (body.mode === "history") {
       // 卦曆、心跡、斷線復原共用：最近三個月的卦（六六 2026-10-05：原本固定撈最近 60 卦，
       // 起卦多的人月曆往前翻就空了）。HISTORY_MAX 是保險，一天問二十卦連問三個月也裝得下。
-      // 三個月與 cleanup_expired_casts 的 90 天對齊：再舊的未印證卦本來就會被清。
+      // 三個月與無牒的 90 天保存對齊。持牒者更舊的卦、已印證或歸進心跡的舊卦都還在，
+      // 不在預設這一包裡：卦曆往前翻時帶 ym 逐月補（見下），搜尋走 cast_search（0087）。
+      // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
+      const cols = "id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)";
+      // ym＝"2026-05"：卦曆翻到三個月窗口之外的那一個月時才帶，只回那個月（台北日界）
+      // 起的卦與應期落在那個月的卦。一次一個月，藏往一年份也不會一次全倒出來。
+      const ym = typeof body.ym === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.ym) ? body.ym : null;
+      if (ym) {
+        const [yy, mm] = ym.split("-").map(Number);
+        const from = new Date(Date.UTC(yy, mm - 1, 1) - 8 * 3600_000);   // 台北該月 1 日 00:00
+        const to = new Date(Date.UTC(yy, mm, 1) - 8 * 3600_000);
+        const dFrom = `${ym}-01`, dTo = new Date(Date.UTC(yy, mm, 1)).toISOString().slice(0, 10);
+        const { data: casts } = await db.from("casts").select(cols).eq("user_id", uid)
+          .or(`and(created_at.gte.${from.toISOString()},created_at.lt.${to.toISOString()}),and(due_date.gte.${dFrom},due_date.lt.${dTo})`)
+          .order("created_at", { ascending: false }).limit(HISTORY_MAX);
+        return Response.json({ kind: "ok", casts: casts ?? [], ym }, { headers: CORS });
+      }
       const since = new Date(); since.setMonth(since.getMonth() - 3);
-      const { data: casts } = await db.from("casts")
-        // thread_id／category：心跡「寫一件心事」要列出還沒歸線、不是日運的卦讓人勾
-        .select("id, question, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, thread_id, category, feedback(verdict, note)")
+      const { data: casts } = await db.from("casts").select(cols)
         .eq("user_id", uid).gte("created_at", since.toISOString())
         .order("created_at", { ascending: false }).limit(HISTORY_MAX);
       return Response.json({ kind: "ok", casts: casts ?? [], since: since.toISOString() }, { headers: CORS });

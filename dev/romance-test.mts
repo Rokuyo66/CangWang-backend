@@ -21,6 +21,11 @@ t("知己可以親吻", !overLevel("daoshi_m", 850, "＊他在你額上輕吻＊
 t("初識說喜歡跳級", overLevel("daoshi_f", 100, "我喜歡你"));
 // 倒扣：只有第六層、只有吐了 [[SULK]]；掉回第五層就不再扣
 t("第六層生氣反扣", favorAfter(960, true) === 955);
+// 攻略／深度道緣 ×1.5（0088）：十則從任何起點都長 14～16
+{ let f = 0; for (let i = 0; i < 10; i++) f = favorAfter(f, false, 999, true); t("快速道緣十則約 +15", f >= 14 && f <= 16); }
+{ let f = 2; for (let i = 0; i < 10; i++) f = favorAfter(f, false, 999, true); t("快速道緣從 2 起也收斂", f - 2 >= 14 && f - 2 <= 16); }
+t("快速道緣也照封頂", favorAfter(298, false, 299, true) === 299);
+t("快速道緣生氣照扣", favorAfter(960, true, 999, true) === 955);
 t("掉回第五層不再扣", favorAfter(948, true) === 949);
 // 無牒閒聊好感封頂在第一層門檻前（299）；持牒不封
 t("無牒頂＝第一層前一格", FREE_CHAT_FAVOR_CAP === 299 && chatFavorCap("free") === 299);

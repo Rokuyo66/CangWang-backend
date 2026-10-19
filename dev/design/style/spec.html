@@ -218,6 +218,9 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
   --cinnabar:#B5402E; --cinnabar-edge:#7E2A1E; --gold:#9A7B3F; --gold-edge:#6B5428;
   --hair:rgba(34,30,26,.14); --shade:rgba(40,28,14,.22);
   --c-m:#50637F; --c-f:#8A5566;
+  /* 站上的「次一階紙」與五行木。這份原型的 --paper-2 是亮紙（按鈕面），跟站上的 --paper-2 不同色；
+     輸入框、保存標籤畫的是站上那一塊，所以另接一個名字。規範頁切主題時兩個都會灌（style/index.html 的 pushMotion）。 */
+  --app-paper-2:#EBE1CC; --wx-木:#4f7a4d;
   --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
   --sans:"Noto Sans TC",system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -547,6 +550,29 @@ td b{font-weight:700}
 .rm .m-press,.rm .m-press.is-down{transform:none!important;transition:filter var(--t-quick) ease!important}
 .rm .m-press.is-down{filter:brightness(.88)}
 
+/* ── 搜尋框與保存標籤（前端 src/base/10-calendar.css 的 .cal-search／.keep-tag／.cal-keep） ── */
+.sr-field{display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;background:var(--app-paper-2);
+  border:1.5px solid var(--hair);border-radius:999px;transition:border-color var(--t-quick) ease}
+.sr-field:focus-within{border-color:var(--ink-faint)}
+.sr-field input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--ink);font:inherit;font-size:14px;padding:9px 0;letter-spacing:.04em}
+.sr-field input::placeholder{color:var(--ink-faint)}
+.sr-field input::-webkit-search-cancel-button{-webkit-appearance:none}
+.sr-go{width:32px;height:32px;display:grid;place-items:center;border:none;background:none;color:var(--ink-soft);cursor:pointer;border-radius:50%}
+.sr-go:hover{color:var(--cinnabar)}
+.sr-go svg{width:18px;height:18px}
+.sr-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--hair)}
+.sr-row .q{font-size:14.5px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-row .m{font-size:11.5px;color:var(--ink-soft);letter-spacing:.04em;margin-top:3px}
+.sr-row .h{font-size:11.5px;color:var(--cinnabar);margin-top:4px;letter-spacing:.04em}
+.sr-row .g{margin-left:auto;font-size:13px;color:var(--cinnabar);letter-spacing:.06em;flex-shrink:0}
+.keep-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;margin-right:6px;vertical-align:1px;background:var(--app-paper-2);color:var(--ink-faint)}
+.keep-tag.kept{background:color-mix(in srgb,var(--wx-木) 16%,transparent);color:var(--wx-木)}
+.keep-tag.soon{background:color-mix(in srgb,var(--cinnabar) 13%,transparent);color:var(--cinnabar);font-weight:700}
+.sr-keep{padding:11px 12px;border-top:1px solid var(--hair);font-size:12px;line-height:1.75;color:var(--ink-soft);letter-spacing:.04em}
+.sr-keep.warn{border:1px solid var(--cinnabar);border-radius:8px;color:var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 8%,transparent)}
+.sr-keep button{border:none;background:none;padding:0 0 0 6px;font:inherit;font-weight:700;color:var(--cinnabar);cursor:pointer;white-space:nowrap}
+.sr-keep button:hover{text-decoration:underline}
+
 /* 規則卡 */
 .rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
 .rule{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:14px 16px}
@@ -701,6 +727,58 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
         </tbody>
       </table></div>
       <p class="note">不在這條的：底線頁籤（廣場「最新／熱門」這類切分頁的 <code>.ptab</code>）與兩段開關（時序｜月曆的硃砂滑塊）。不要另做硃砂實心、細框膠囊或其他顏色的選中態。</p>
+    </div>
+  </section>
+
+  <!-- ══ A · 搜尋框 ══ -->
+  <section id="search">
+    <div class="sec-h">
+      <div class="tag">A 互動回饋 · 通用元件</div>
+      <h2>搜尋框與保存標籤</h2>
+      <p>一格膠囊、一顆放大鏡。按 Enter（手機鍵盤的「搜尋」）或放大鏡才查，不邊打邊查——中文輸入法選字前的拼音也會被送出去。結果每一列前面一顆保存標籤，告訴人這一卦還會留多久；底部一行講規則，該引導持牒的地方給一顆字鈕。點框、打字、按 Enter 試試。</p>
+    </div>
+    <div class="body">
+      <div class="tg-box">
+        <div class="tg-cap"><b>搜尋框</b><span>手帳›卦曆最上面</span></div>
+        <form class="sr-field" id="srDemo" role="search" onsubmit="return false">
+          <input type="search" enterkeyhint="search" maxlength="50" placeholder="搜尋問過的事、卦名" aria-label="搜尋舊卦">
+          <button class="sr-go" type="submit" aria-label="搜尋"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></button>
+        </form>
+        <p class="note" id="srEcho" style="font-size:12px">未查詢</p>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>結果列 · 保存標籤三態</b><span>永久／剩 N 天／快到期（≤14 天）</span></div>
+        <div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag">剩 50 天</span>今年換工作好不好</div><div class="m">2026-09-07 · 師妹</div></div><div class="g">風雷益</div></div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag soon">剩 9 天</span>工作上跟主管的關係</div><div class="m">2026-07-28 · 觀貓</div><div class="h">快到期了。點開印證，或收進心跡，就永久留著。</div></div><div class="g">火澤睽</div></div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag kept">永久</span>去年那份工作的考核</div><div class="m">2026-03-31 · 師妹 · ✅ 已印證</div></div><div class="g">乾為天</div></div>
+        </div>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>規則行 · 依牒切換</b><span>平常一條細線；斷牒寬限期改硃砂框</span></div>
+        <div class="sr-keep">卦留 90 天。印證過、收進心跡的永久保存。持牒可延至一年，藏往永不清理。<button type="button">看玉牒 ›</button></div>
+        <div class="sr-keep warn">玉牒已到期。11/05 前續牒，舊卦照原規格保留；之後只留最近 90 天。<button type="button">續牒 ›</button></div>
+      </div>
+      <div class="tg-spec">
+        <div><b>框</b><i class="tg-sw" style="background:var(--app-paper-2)"></i>--paper-2 底<br>1.5px --hair 框、全圓角</div>
+        <div><b>聚焦</b>框轉 --ink-faint<br>不加外光暈</div>
+        <div><b>字</b>14px · 字距 .04em<br>提示字 --ink-faint</div>
+        <div><b>放大鏡</b>32px 點擊區、18px 圖<br>--ink-soft，滑過硃砂</div>
+        <div><b>保存標籤</b>10px · 圓角 6px<br>剩 N 天＝--paper-2 底、--ink-faint 字</div>
+        <div><b>永久</b><i class="tg-sw" style="background:var(--wx-木)"></i>五行「木」16% 底<br>同色字</div>
+        <div><b>快到期</b><i class="tg-sw" style="background:var(--cinnabar)"></i>硃砂 13% 底、粗體<br>下面加一行硃砂說明</div>
+        <div><b>寬限期</b>硃砂 1px 框、8% 底<br>字鈕「續牒 ›」</div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>情況</th><th>前端寫法</th></tr></thead>
+        <tbody>
+          <tr><td>搜尋框</td><td><code>form.cal-search</code> ＞ <code>input[type=search]</code> ＋ <code>.cal-search-go</code></td></tr>
+          <tr><td>保存標籤</td><td><code>.keep-tag</code>；永久加 <code>.kept</code>，≤14 天加 <code>.soon</code>（天數一律用後端回的 <code>daysLeft</code>）</td></tr>
+          <tr><td>快到期說明</td><td><code>.cal-keep-hint</code></td></tr>
+          <tr><td>規則行</td><td><code>.cal-keep</code>，寬限期加 <code>.warn</code>；字鈕 <code>.cal-keep-plan</code></td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">硃砂只給「快到期」與「寬限期」：那是真的有事要人處理。其餘一律淡色——每一列都標紅，就等於沒有一列是急的。「永久」借五行的木，不另配色，五套主題都有定義。保存天數、14 天的門檻都不寫在畫面裡，數字從後端來（後端 <code>dev/web/CAST-SEARCH-API.md</code>）。</p>
     </div>
   </section>
 
@@ -859,6 +937,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
           <tr><td>彈框內逐行出場</td><td>子元素設 <code>--i: 0, 1, 2…</code></td></tr>
           <tr><td>待機 icon</td><td>套九型之一的 keyframes，時長只用 <code>--idle-s / m / l</code></td></tr>
           <tr><td>偶發</td><td>容器加 <code>data-occ</code>，由排程器加上 <code>.fire</code> 播一次</td></tr>
+          <tr><td>搜尋框、保存標籤</td><td>見上方「搜尋框與保存標籤」那一段的表</td></tr>
         </tbody>
       </table></div>
       <div class="copy-row"><h3 style="margin:0">Token 原始碼</h3><button class="m-press chip" type="button" id="copy">複製</button></div>
@@ -877,6 +956,8 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   // @design:begin proto-motion-js v=1b9d1b52 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
   const MOTION = {"_說明":"時長的 ms 都會乘上速度倍率 k。spec＝規範與原型用的變數名；web＝前端 styles/motion.css 用的變數名（前端加 m- 前綴；press 的時長叫 --m-press-t，因為 --m-press 是按壓進度）。","base":{"k":1,"a":1,"d":3.6,"ov":1.56,"tilt":6},"durations":[{"k":"press","ms":90,"spec":"--t-press","web":"--m-press-t","u":"按下"},{"k":"release","ms":280,"spec":"--t-release","web":"--m-release","u":"放開、切換滑塊"},{"k":"quick","ms":160,"spec":"--t-quick","web":"--m-quick","u":"小狀態變化"},{"k":"exit","ms":220,"spec":"--t-exit","web":"--m-exit","u":"彈框、提示離場；內容溶解（切頁籤）"},{"k":"enter","ms":360,"spec":"--t-enter","web":"--m-enter","u":"彈框、提示入場；進一層／退一層"},{"k":"page","ms":460,"spec":"--t-page","web":"--m-page","u":"頁面切換"},{"k":"hold","ms":700,"spec":"--t-hold","web":"--m-hold","u":"長按蓄力"},{"k":"stagger","ms":45,"spec":"--stagger","web":"--m-stagger","u":"內容逐項間隔"},{"k":"idleS","ms":2400,"spec":"--idle-s","web":"--m-idle-s","u":"待機短週期"},{"k":"idleM","ms":3700,"spec":"--idle-m","web":"--m-idle-m","u":"待機中週期"},{"k":"idleL","ms":6100,"spec":"--idle-l","web":"--m-idle-l","u":"待機長週期（靈石掠光的間隔）"}],"easings":[{"k":"out","v":"cubic-bezier(.22,1,.36,1)","spec":"--e-out","web":"--m-e-out","u":"入場、按下"},{"k":"in","v":"cubic-bezier(.5,0,.75,0)","spec":"--e-in","web":"--m-e-in","u":"離場"},{"k":"spring","v":"cubic-bezier(.34,OV,.64,1)","spec":"--e-spring","web":"--m-e-spring","u":"放開、彈出（唯一允許過衝）"},{"k":"breath","v":"cubic-bezier(.45,0,.55,1)","spec":"--e-breath","web":"--m-e-breath","u":"待機循環"}],"amp":{"_說明":"待機幅度上限，會乘上幅度倍率 a。scale 0.05＝放大 5%（六六 2026-09-29：3% 存在感太低）","move":3,"scale":0.05,"rot":4}};
   // @design:end proto-motion-js
+  /* ── 搜尋框示範：Enter 或放大鏡才「查」 ── */
+  $('srDemo').addEventListener('submit',e=>{e.preventDefault();const q=e.target.querySelector('input').value.trim();$('srEcho').textContent=q?`查詢「${q}」（真的畫面會換成結果列）`:'空的不查，游標留在框裡';});
   /* ── 總控 ── */
   const DEF={k:MOTION.base.k,a:MOTION.base.a,d:MOTION.base.d,ov:MOTION.base.ov};
   for(const key in DEF){ $(key).value=DEF[key]; }
@@ -1580,7 +1661,9 @@ ${eas}
     const map = { ground: T.paper, paper: T.paper, "paper-2": face, "paper-edge": T["paper-edge"], ink: T.ink, "ink-soft": T["ink-soft"], "ink-faint": T["ink-faint"],
       cinnabar: resolve(bs.getPropertyValue("--b-primary-face").trim() || T.cinnabar), "cinnabar-edge": resolve(bs.getPropertyValue("--b-primary-edge").trim()),
       gold: resolve(bs.getPropertyValue("--b-second-face").trim() || T.gold), "gold-edge": resolve(bs.getPropertyValue("--b-second-edge").trim()),
-      hair: T.hair, shade: T.shadow };
+      hair: T.hair, shade: T.shadow,
+      // 站上的次一階紙與五行木（搜尋框、保存標籤）：原型的 --paper-2 是亮紙，站上這一塊另接
+      "app-paper-2": T["paper-2"], "wx-木": T["wx-木"] };
     Object.entries(map).forEach(([k, v]) => { if (v) st.setProperty("--" + k, v); });
     st.colorScheme = DARK[theme] ? "dark" : "light";
     if (d.body) d.body.style.background = T.paper;
