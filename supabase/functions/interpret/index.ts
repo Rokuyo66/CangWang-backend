@@ -551,6 +551,15 @@ async function handle(req: Request): Promise<Response> {
         // 信箱未讀數。與心跡、廣場的紅點一樣由 profile 一起帶回來——
         // 為了一個數字另打一支 API，是把便宜的東西做貴。
         mailUnread: Number((await db.rpc("mail_unread", { p_user: uid })).data ?? 0),
+        // 雲中客的更新日誌（changelog，0074）最新那一則的記號「day#id」。日誌全站一份、不算未讀；
+        // 前端拿它比對這台裝置看過的那一則，新的就在信封與「觀中誌」那格點一下紅點（六六 2026-10-20）。
+        logLatest: await (async () => {
+          try {
+            const { data, error } = await db.from("changelog").select("id, day")
+              .order("day", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+            return error || !data ? null : `${data.day}#${data.id}`;
+          } catch (_) { return null; }
+        })(),
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
