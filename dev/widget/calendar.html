@@ -50,10 +50,10 @@ h1{ font-size:22px; margin:0 0 4px; letter-spacing:.08em }
     background:linear-gradient(180deg, rgba(13,11,8,.65) 0%, rgba(13,11,8,.35) 19%, rgba(13,11,8,0) 42%),
                linear-gradient(180deg, rgba(13,11,8,0) 0%, rgba(13,11,8,0) 30%, rgba(13,11,8,.55) 58%, rgba(13,11,8,.92) 100%) }
 .w .frost{ position:absolute; overflow:hidden; background-color:#0D0B08 }
-.w .frost::before{ content:""; position:absolute; inset:-20px; background-image:var(--bgimg); background-size:cover; background-position:inherit; filter:blur(14px); opacity:var(--op,.6) }
-.w .frost::after{ content:""; position:absolute; inset:0; background:rgba(13,11,8,.62) }
-.w .frost.edge{ box-shadow:inset 1px 0 0 rgba(241,232,216,.10) }
-.w .frost.top{ box-shadow:inset 0 1px 0 rgba(241,232,216,.10) }
+.w .frost::before{ content:""; position:absolute; inset:-48px; background-image:var(--bgimg); background-size:cover; background-position:inherit; filter:blur(22px); opacity:var(--op,.6) }
+.w .frost::after{ content:""; position:absolute; inset:0; background:rgba(13,11,8,.70) }
+.w .frost.edge{ -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 28px); mask-image:linear-gradient(90deg,transparent 0,#000 28px) }
+.w .frost.ftop{ -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 28px); mask-image:linear-gradient(180deg,transparent 0,#000 28px) }
 .lay{ position:absolute; display:flex; flex-direction:column }
 .sh{ text-shadow:0 1px 4px rgba(0,0,0,.6) }
 .top{ height:26px; display:flex; align-items:center; gap:8px; font-size:11.5px; letter-spacing:.06em; white-space:nowrap }
@@ -89,6 +89,9 @@ h1{ font-size:22px; margin:0 0 4px; letter-spacing:.08em }
 
 /* 月格（4×4） */
 .cal{ display:grid; grid-template-columns:repeat(7,22px); column-gap:1px; font-size:10.5px; text-align:center; cursor:pointer }
+.cal.big{ grid-template-columns:repeat(7,1fr); font-size:13px; width:100% }
+.cal.big .d{ height:28px } .cal.big .wd{ height:20px; font-size:11px } .cal.big .mh{ font-size:12.5px; height:22px }
+.cal.big .d.today::before{ width:26px; height:26px }
 .cal .mh{ grid-column:1/-1; text-align:left; font-size:11px; letter-spacing:.08em; color:var(--w-txt2); height:18px }
 .cal .wd{ height:15px; font-size:9.5px; color:var(--w-dim) }
 .cal .d{ height:21px; position:relative; display:flex; align-items:center; justify-content:center; font-variant-numeric:tabular-nums }
@@ -157,14 +160,15 @@ h1{ font-size:22px; margin:0 0 4px; letter-spacing:.08em }
   <div class="rules">
     <div class="card"><h3>三種尺寸放什麼</h3>
       <table>
-        <tr><th></th><th>2×2</th><th>4×2</th><th>4×4</th></tr>
-        <tr><td>場景＋行止</td><td>整張</td><td>左 52%</td><td>上 46%</td></tr>
-        <tr><td>那句話</td><td>✗</td><td>兩行</td><td>兩行</td></tr>
-        <tr><td>宜／忌</td><td>宜</td><td>宜</td><td>宜＋忌</td></tr>
-        <tr><td>今日行程</td><td>下一則一行</td><td>右欄 2 則</td><td>右下 4 則</td></tr>
-        <tr><td>月格</td><td>✗</td><td>✗</td><td>左下</td></tr>
-        <tr><td>談／問印</td><td>問（高夠才加談）</td><td>右欄底</td><td>場景右下</td></tr>
+        <tr><th></th><th>2×2</th><th>4×2</th><th>4×4</th><th>4×6</th></tr>
+        <tr><td>場景＋行止</td><td>整張</td><td>左 52%</td><td>上 46%</td><td>上 38%</td></tr>
+        <tr><td>那句話</td><td>✗</td><td>兩行</td><td>兩行</td><td>兩行</td></tr>
+        <tr><td>宜／忌</td><td>宜</td><td>宜</td><td>宜＋忌</td><td>宜＋忌</td></tr>
+        <tr><td>今日行程</td><td>下一則一行</td><td>右欄 2 則</td><td>右下 4 則</td><td>月格下 4 則</td></tr>
+        <tr><td>月格</td><td>✗</td><td>✗</td><td>左下</td><td>撐滿整寬</td></tr>
+        <tr><td>談／問印</td><td>問（高夠才加談）</td><td>右欄底</td><td>場景右下</td><td>場景右下</td></tr>
       </table>
+      <p>底圖 60% 不透明，壓在墨黑底上。右欄／下欄是同一張圖模糊後再蓋 70% 墨黑，與場景之間 28dp 淡出，不畫分隔線。</p>
       <p>4×2 不放月格：月格要 150dp 高，放了就沒有行止的位子。要月格就拉成 4×4。</p>
     </div>
     <div class="card"><h3>點哪裡去哪裡</h3>
@@ -180,7 +184,7 @@ h1{ font-size:22px; margin:0 0 4px; letter-spacing:.08em }
     </div>
     <div class="card"><h3>行程從哪來</h3>
       <table>
-        <tr><td>手機行事曆</td><td>小工具在手機上直接讀（READ_CALENDAR），只讀今天到明天、只讀顯示中的日曆。<b>不上傳</b>：只有人點了某一則去起卦，那一則的名稱才進問句。</td></tr>
+        <tr><td>手機行事曆</td><td>小工具在手機上直接讀（READ_CALENDAR），只讀今天到明天、只讀顯示中的日曆。<b>沒登入也讀</b>（權限是手機給 App 的，跟帳號無關）；沒登入時點行程先開登入，登入完問句照樣帶入。<b>不上傳</b>：只有人點了某一則去起卦，那一則的名稱才進問句。</td></tr>
         <tr><td>應期</td><td>後端 <code>mode:"widget"</code> 的 <code>agenda.due</code>：未印證、應期落在本月格範圍的卦</td></tr>
         <tr><td>卦曆提醒</td><td><code>agenda.rem</code>：同卦曆的自訂提醒</td></tr>
         <tr><td>節氣日</td><td><code>agenda.jieqi</code>：月格上那一天的數字用金色</td></tr>
@@ -221,6 +225,7 @@ const EVS = [
 ];
 function evs(max){
   if (S.n === "0") return [];
+  if (S.st === "out") return (S.perm === "1" ? EVS.filter(e => !e.due) : []).slice(0, S.n === "1" ? 1 : max);
   if (S.n === "1") return [EVS[2]].slice(0,max);
   const l = S.perm === "1" ? EVS : EVS.filter(e => e.due);
   return l.slice(0, max);
@@ -233,12 +238,11 @@ function stanceHtml(size){
 const yj = (ji) => S.st === "ke" ? `<div class="yj sh"><span class="y">宜 小成　修造　會友</span>${ji?`<span class="j">忌 遠行　爭訟</span>`:""}</div>` : "";
 const topRow = (wide) => `<div class="top sh" data-go="重整：點頂列小字＝手動更新"><span>${S.st==="out"?"幾知觀":wide?"丙午年 戊戌月 丁卯日":"丁卯日"}</span><span class="jq">${S.st==="out"?"":wide?"寒露·第13日":"寒露"}</span>${S.st==="out"?"":`<span class="pill" data-go="就地簽到：簽完整顆收掉">簽到</span>`}</div>`;
 function evRows(max){
-  if (S.st === "out") return "";
   const l = evs(max);
   let h = "";
   for (const e of l) {
     if (e.due) h += `<div class="ev" data-go="應期 → 開那一卦，直接印證"><span class="due">應期</span><span class="tt">${e.title.replace(/應期$/,"")}</span></div>`;
-    else h += `<div class="ev" data-go="開問事，問句帶入「關於「${e.title}」，」"><span class="t ${e.all?"all":""}">${e.t}</span><span class="bar" style="background:${e.c}"></span><span class="tt">${e.title}</span></div>`;
+    else h += `<div class="ev" data-go="${S.st==="out"?`開 App 登入；登入後問句帶入「關於「${e.title}」，」`:`開問事，問句帶入「關於「${e.title}」，」`}"><span class="t ${e.all?"all":""}">${e.t}</span><span class="bar" style="background:${e.c}"></span><span class="tt">${e.title}</span></div>`;
   }
   if (S.perm === "0" && l.length < max) h += `<div class="ev link" data-go="開 App 問行事曆權限"><span class="t all">＋</span><span class="tt">連結手機行事曆 ›</span></div>`;
   else if (!l.length) h += `<div class="ev empty" data-go="開問事（空白問句）"><span class="t all">今日</span><span class="tt">無行程 · 有事想問 ›</span></div>`;
@@ -249,7 +253,7 @@ const seals = (cls, talk=true) => `<div class="seals">${talk?`<div class="seal t
 
 function w22(){
   const e = evs(1)[0];
-  const next = S.st !== "out" && e ? `<div class="ev sh" style="height:18px;margin-top:4px" data-go="${e.due?"應期 → 開那一卦":"開問事，帶入這則行程"}">${e.due?`<span class="due">應期</span>`:`<span class="t ${e.all?"all":""}" style="width:auto">${e.t}</span>`}<span class="tt">${e.title.replace(/應期$/,"")}</span></div>` : "";
+  const next = e ? `<div class="ev sh" style="height:18px;margin-top:4px" data-go="${e.due?"應期 → 開那一卦":"開問事，帶入這則行程"}">${e.due?`<span class="due">應期</span>`:`<span class="t ${e.all?"all":""}" style="width:auto">${e.t}</span>`}<span class="tt">${e.title.replace(/應期$/,"")}</span></div>` : "";
   return `<div><div class="cap">2×2 · 170×170</div><div class="w" style="width:170px;height:170px">
     <div class="scene" ></div>
     <div class="lay" style="inset:12px 14px 14px 16px">${topRow(false)}<div class="grow"></div>
@@ -259,15 +263,15 @@ function w22(){
 function w42(){
   return `<div><div class="cap">4×2 · 360×170</div><div class="w" style="width:360px;height:170px">
     <div class="scene" style="background-position:30% 38%"></div>
-    <div class="frost edge" style="left:52%;top:0;right:0;bottom:0;background-position:30% 38%"></div>
+    <div class="frost edge" style="left:calc(52% - 28px);top:0;right:0;bottom:0;background-position:30% 38%"></div>
     <div class="lay" style="left:16px;top:12px;bottom:14px;width:calc(52% - 26px)">${topRow(false)}<div class="grow"></div>${stanceHtml(30)}${yj(false)}</div>
     <div class="lay" style="left:calc(52% + 12px);top:10px;bottom:12px;right:12px">
-      ${dayHead()}<div style="margin-top:4px">${evRows(S.st==="out"?0:2)}</div><div class="grow"></div>
-      <div style="display:flex;align-items:flex-end;justify-content:space-between">${S.st!=="out"&&evs(9).length>2?`<span class="more" data-go="開手機的行事曆">還有 ${evs(9).length-2} 則</span>`:"<span></span>"}${seals("s36")}</div>
+      ${dayHead()}<div style="margin-top:4px">${evRows(2)}</div><div class="grow"></div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between">${evs(9).length>2?`<span class="more" data-go="開手機的行事曆">還有 ${evs(9).length-2} 則</span>`:"<span></span>"}${seals("s36")}</div>
     </div>
   </div></div>`;
 }
-function grid(){
+function grid(big){
   // 2026-10：1 日週四
   const first = 4, days = 31, dots = { 3:["ev"], 9:["ev"], 14:["ev","du"], 20:["ev","du"], 21:["ev"], 27:["du"], 30:["ev"] }, jq = { 8:1, 23:1 };
   let h = `<div class="mh">十月 · 戊戌月</div>` + "日一二三四五六".split("").map(c => `<div class="wd">${c}</div>`).join("");
@@ -275,20 +279,33 @@ function grid(){
   for (let d = 1; d <= days; d++) {
     const wd = (first + d - 1) % 7, cls = ["d"];
     if (wd === 0 || wd === 6) cls.push("we"); if (jq[d]) cls.push("jq"); if (d === 20) cls.push("today");
-    const ds = S.st === "out" ? [] : (dots[d] || []).filter(k => k === "du" || S.perm === "1");
+    const ds = (dots[d] || []).filter(k => k === "du" ? S.st !== "out" : S.perm === "1");
     h += `<div class="${cls.join(" ")}"><span>${d}</span>${ds.map(k => `<i class="dot ${k}"></i>`).join("")}</div>`;
   }
-  return `<div class="cal" data-go="月格 → 手帳›卦曆">${h}</div>`;
+  return `<div class="cal${big?" big":""}" data-go="月格 → 手帳›卦曆">${h}</div>`;
 }
 function w44(){
   return `<div><div class="cap">4×4 · 360×360</div><div class="w" style="width:360px;height:360px">
     <div class="scene" ></div>
-    <div class="frost top" style="left:0;right:0;top:46%;bottom:0;background-position:50% 90%"></div>
+    <div class="frost ftop" style="left:0;right:0;top:calc(46% - 28px);bottom:0;background-position:50% 90%"></div>
     <div class="lay" style="left:16px;right:14px;top:12px;height:calc(46% - 22px)">${topRow(true)}<div class="grow"></div>
       <div style="display:flex;align-items:flex-end;gap:10px"><div style="flex:1;min-width:0">${stanceHtml(30)}${yj(true)}</div>${seals("")}</div></div>
     <div class="lay" style="left:14px;right:12px;top:calc(46% + 10px);bottom:12px;flex-direction:row;gap:14px">
       ${grid()}
-      <div style="flex:1;min-width:0;display:flex;flex-direction:column">${dayHead()}<div style="margin-top:6px">${evRows(S.st==="out"?0:4)}</div></div>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">${dayHead()}<div style="margin-top:6px">${evRows(4)}</div></div>
+    </div>
+  </div></div>`;
+}
+function w46(){
+  return `<div><div class="cap">4×6 豎屏整頁 · 360×580</div><div class="w" style="width:360px;height:580px">
+    <div class="scene" style="background-position:50% 30%"></div>
+    <div class="frost ftop" style="left:0;right:0;top:calc(38% - 28px);bottom:0;background-position:50% 90%"></div>
+    <div class="lay" style="left:16px;right:14px;top:12px;height:calc(38% - 20px)">${topRow(true)}<div class="grow"></div>
+      <div style="display:flex;align-items:flex-end;gap:10px"><div style="flex:1;min-width:0">${stanceHtml(38)}${yj(true)}</div>${seals("")}</div></div>
+    <div class="lay" style="left:16px;right:16px;top:calc(38% + 10px);bottom:14px">
+      ${grid(true)}
+      <div style="height:1px;background:rgba(241,232,216,.10);margin:10px 0 8px"></div>
+      ${dayHead()}<div style="margin-top:6px">${evRows(4)}</div>
     </div>
   </div></div>`;
 }
@@ -296,7 +313,7 @@ function render(){
   document.documentElement.style.setProperty("--seal", S.pal);
   document.documentElement.style.setProperty("--op", S.op);
   document.documentElement.style.setProperty("--on-seal", onSeal(S.pal));
-  document.getElementById("desk").innerHTML = w22() + w42() + w44();
+  document.getElementById("desk").innerHTML = w22() + w42() + w44() + w46();
 }
 document.querySelector(".ctl").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-k]"); if (!b) return;
