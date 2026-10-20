@@ -180,3 +180,49 @@ export async function receivedAt(id: string): Promise<number> {
 
 const decodeEntities = (s: string) =>
   s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+/* ── Google 試算表（客服紀錄表）─────────────────────────────
+   同一把 OAuth token，多一個 scope：https://www.googleapis.com/auth/drive.file
+   ——只碰「管家自己建立的檔案」，讀不到觀主雲端硬碟裡的任何其他東西。
+   授權步驟見 mailbot/README.md「客服紀錄表」。 */
+
+const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
+
+async function gcall(url: string, init: RequestInit = {}) {
+  const res = await fetch(url, {
+    ...init,
+    headers: { authorization: `Bearer ${await accessToken()}`, "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error(`sheets ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+/** 建一份新試算表：凍結標題列、指定欄設成勾選框。回 { id, url }。 */
+export async function createSheet(title: string, headers: string[], checkboxCol: number): Promise<{ id: string; url: string }> {
+  const j = await gcall(SHEETS, { method: "POST", body: JSON.stringify({
+    properties: { title, locale: "zh_TW", timeZone: "Asia/Taipei" },
+    sheets: [{ properties: { title: "客服", gridProperties: { frozenRowCount: 1 } } }],
+  }) });
+  const id = j.spreadsheetId as string, sheetId = j.sheets?.[0]?.properties?.sheetId ?? 0;
+  await gcall(`${SHEETS}/${id}/values/${encodeURIComponent("客服!A1")}?valueInputOption=RAW`, {
+    method: "PUT", body: JSON.stringify({ values: [headers] }),
+  });
+  await gcall(`${SHEETS}/${id}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [
+    { setDataValidation: { range: { sheetId, startRowIndex: 1, endRowIndex: 5000, startColumnIndex: checkboxCol, endColumnIndex: checkboxCol + 1 },
+      rule: { condition: { type: "BOOLEAN" }, showCustomUi: true } } },
+    { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: "userEnteredFormat.textFormat.bold" } },
+  ] }) });
+  return { id, url: j.spreadsheetUrl as string };
+}
+
+export async function appendRows(id: string, rows: (string | boolean)[][]): Promise<void> {
+  await gcall(`${SHEETS}/${id}/values/${encodeURIComponent("客服!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    method: "POST", body: JSON.stringify({ values: rows }),
+  });
+}
+
+export async function readRange(id: string, range: string): Promise<unknown[][]> {
+  const j = await gcall(`${SHEETS}/${id}/values/${encodeURIComponent(range)}`);
+  return (j.values ?? []) as unknown[][];
+}

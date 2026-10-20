@@ -14,6 +14,7 @@ import {
   isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
   reminderDue, reminderText, upcomingText, taipeiDate, classifyPrompt, isSupport, parseSupport,
   parseCharges, toTwd, monthlyText, parseNews, newsText, type ChargeRow,
+  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -340,6 +341,34 @@ t("政府消息：沒有新的就說沒有；連結與標題轉義", () => {
 });
 
 t("新按鈕 R（提醒處理好了）解析得回來", () => { eq(parseMbCallback("mb:R:5"), { op: "R", id: 5 }); });
+
+// ── 客服紀錄表 ──
+const tk = { id: 7, received_at: "2026-10-20T03:30:00Z", cat: "bug", platform: "app", urgent: true,
+  sender: "a@b.com", subject: "=HYPERLINK(\"x\")", summary: "+1 心事卦顯示未知", thread_id: "abc" };
+t("客服單：一列對齊標題、台北時間、已排除是 FALSE 勾選框", () => {
+  const r = ticketRow(tk);
+  eq(r.length, TICKET_HEADERS.length);
+  eq([r[0], r[1], r[2], r[3], r[4]], ["T-0007", "2026-10-20 11:30", "程式問題", "App", "急"]);
+  eq(r[TICKET_DONE_COL], false); eq(TICKET_HEADERS[TICKET_DONE_COL], "已排除");
+  eq(r[8], "https://mail.google.com/mail/u/0/#inbox/abc");
+});
+
+t("客服單：用戶寫的 = + - @ 開頭一律加 ' 擋掉，不會被當成公式執行", () => {
+  const r = ticketRow(tk);
+  eq(r[6], "'=HYPERLINK(\"x\")"); eq(r[7], "'+1 心事卦顯示未知");
+  eq(ticketRow({ ...tk, subject: "正常主旨" })[6], "正常主旨");
+});
+
+t("客服單：數得出還沒排除幾件（標題列不算）", () => {
+  eq(countOpen([["已排除"], ["FALSE"], ["TRUE"], ["true"], []]), { open: 2, total: 4 });
+  eq(countOpen([["已排除"]]), { open: 0, total: 0 });
+});
+
+t("客服：平台不認得的歸不明；編號補零", () => {
+  eq(parseSupport('{"cat":"bug","platform":"ios","reply":"x"}')?.platform, "unknown");
+  eq(parseSupport('{"cat":"bug","platform":"tg","reply":"x"}')?.platform, "tg");
+  eq(ticketNo(12345), "T-12345");
+});
 
 setTimeout(() => {
   console.log(`\n${pass} 過、${fail} 敗`);

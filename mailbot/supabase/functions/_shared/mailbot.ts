@@ -488,6 +488,7 @@ export const SUPPORT_SYS = `你是占卜 App「藏往知來」（幾知觀）的
 讀用戶寄到客服信箱的信，輸出：
 - cat：bug／billing／refund／account／feature／praise／other 其一
 - urgent：付款出錯、重複扣款、帳號被盜、無法登入、提到要投訴或法律 → true；其餘 false
+- platform：用戶在哪裡遇到的：web（網頁）／app（Android App）／tg（Telegram）／unknown（信裡看不出來）
 - sum：一句話（30 字內）講用戶遇到什麼、要什麼
 - reply：回信草稿，繁體中文，客氣、簡短、具體。規則：
   ・先回應他說的事，不要套話
@@ -496,16 +497,21 @@ export const SUPPORT_SYS = `你是占卜 App「藏往知來」（幾知觀）的
   ・不提任何內部細節（模型、伺服器、程式）
   ・結尾署名「藏往知來 客服」
 
-只輸出 JSON，不要任何其他字：{"cat":"bug","urgent":false,"sum":"…","reply":"…"}`;
+只輸出 JSON，不要任何其他字：{"cat":"bug","urgent":false,"platform":"app","sum":"…","reply":"…"}`;
 
-export function parseSupport(text: string): { cat: string; urgent: boolean; sum: string; reply: string } | null {
+export const PLATFORMS: Record<string, string> = { web: "網頁", app: "App", tg: "Telegram", unknown: "不明" };
+
+export type SupportVerdict = { cat: string; urgent: boolean; platform: string; sum: string; reply: string };
+
+export function parseSupport(text: string): SupportVerdict | null {
   const m = String(text ?? "").match(/\{[\s\S]*\}/);
   if (!m) return null;
   try {
     const j = JSON.parse(m[0]);
     const reply = String(j?.reply ?? "").trim();
     if (!reply) return null;
-    return { cat: j?.cat in SUPPORT_CATS ? j.cat : "other", urgent: j?.urgent === true, sum: String(j?.sum ?? "").slice(0, 80), reply: reply.slice(0, 3000) };
+    return { cat: j?.cat in SUPPORT_CATS ? j.cat : "other", urgent: j?.urgent === true,
+      platform: j?.platform in PLATFORMS ? j.platform : "unknown", sum: String(j?.sum ?? "").slice(0, 80), reply: reply.slice(0, 3000) };
   } catch { return null; }
 }
 
@@ -614,4 +620,37 @@ export function newsText(items: NewsItem[]): string {
   if (!items.length) return "🛫 <b>航空城・客運園區</b>：近期政府網站沒有新公告。";
   return ["🛫 <b>航空城・客運園區 政府消息</b>", "",
     ...items.map((x) => `• <a href="${esc(x.url)}">${esc(x.title)}</a>${x.date ? `（${esc(x.date.slice(5))}）` : ""}\n　${esc(x.sum)}`)].join("\n");
+}
+
+/* ── 客服紀錄表（Google 試算表）─────────────────────────────
+   資料庫 mailbot_tickets 是正本，試算表是給觀主看、給 Claude 查的副本。
+   「已排除」是觀主在表上勾的——Claude 查問題時只讀沒勾的列，查過的不重查。 */
+
+export const TICKET_HEADERS = ["編號", "收到時間", "類別", "平台", "急", "用戶", "主旨", "摘要", "Gmail", "已排除", "備註"];
+export const TICKET_DONE_COL = 9;   // 「已排除」在第 10 欄（0 起算 9）＝ J 欄
+
+export type Ticket = {
+  id: number; received_at: string; cat: string; platform: string; urgent: boolean;
+  sender: string; subject: string; summary: string; thread_id: string;
+};
+
+export const ticketNo = (id: number) => `T-${String(id).padStart(4, "0")}`;
+
+/** 一張單 → 試算表的一列。時間用台北；已排除給 FALSE（表上是勾選框）；公式字元開頭的一律加 ' 擋掉，免得用戶信裡的「=…」被當成公式。 */
+export function ticketRow(t: Ticket): (string | boolean)[] {
+  const safe = (v: string) => /^[=+\-@]/.test(v) ? "'" + v : v;
+  const at = new Date(Date.parse(t.received_at) + 8 * 3600_000).toISOString().slice(0, 16).replace("T", " ");
+  return [
+    ticketNo(t.id), at, (SUPPORT_CATS[t.cat] ?? t.cat).replace(/^\S+\s/, ""), PLATFORMS[t.platform] ?? t.platform,
+    t.urgent ? "急" : "", safe(t.sender), safe(t.subject), safe(t.summary),
+    `https://mail.google.com/mail/u/0/#inbox/${t.thread_id}`, false, "",
+  ];
+}
+
+/** 表上「已排除」那一欄讀回來（第一列是標題）→ 還沒排除幾件。 */
+export function countOpen(doneCol: unknown[][]): { open: number; total: number } {
+  const rows = doneCol.slice(1);
+  const total = rows.length;
+  const done = rows.filter((r) => String(r?.[0] ?? "").toUpperCase() === "TRUE").length;
+  return { open: total - done, total };
 }

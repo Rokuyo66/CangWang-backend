@@ -12,6 +12,7 @@
 //   /due               接下來的到期日
 //   /bills             這個月到目前的帳單與訂閱
 //   /news              立刻查一次航空城／客運園區的政府消息
+//   /tickets           客服紀錄：還沒排除幾件＋試算表連結
 //   （一般句子）        用說的改規則，例：「以後蝦皮的信都刪掉」→ 確認卡 → 按 ✅ 才生效
 //
 // 呼叫端（admin-tg，觀主私人的管家 bot）已確認是觀主才進來；這裡不再驗身分。
@@ -22,7 +23,7 @@ import {
   ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate,
   KIND_LABEL, ACTION_LABEL, type Rule, type RuleOp,
 } from "./mailbot.ts";
-import { chargesOf } from "./extras.ts";
+import { chargesOf, ticketSummary } from "./extras.ts";
 
 type Send = (text: string, extra?: Record<string, unknown>) => Promise<unknown>;
 
@@ -41,13 +42,14 @@ export const MAILBOT_HELP =
   "<code>/week</code>　立刻出產品週報（從產品專案送來）\n" +
   "<code>/due</code>　接下來的到期日（每天 9 點後，前一天和當天會自動提醒）\n" +
   "<code>/bills</code>　這個月的帳單與訂閱（每月 1 號自動出上個月的）\n" +
-  "<code>/news</code>　航空城、客運園區的政府消息（每週一自動）\n\n" +
+  "<code>/news</code>　航空城、客運園區的政府消息（每週一自動）\n" +
+  "<code>/tickets</code>　客服紀錄：還沒排除幾件、打開試算表\n\n" +
   "🎧 寄到客服信箱的信：一律推卡，回信草稿會先寫好放在 Gmail，看過再自己送出。\n\n" +
   "💬 <b>也可以直接用說的改規則</b>，例如：\n" +
   "「以後蝦皮的信都刪掉」「Anthropic 的收據放五年/產品營運」「104 的信不要再刪了」\n" +
   "我會先回一張確認卡，按 ✅ 才生效。";
 
-const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week|due|bills|news)(@\w+)?(\s|$)/;
+const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week|due|bills|news|tickets)(@\w+)?(\s|$)/;
 export const isMailbotCommand = (text: string) => MAILBOT_CMD.test(text);
 
 // 產品週報在產品專案（CangWang-backend 的 weekly-report），由它自己讀產品數據、經管家 bot 送過來。
@@ -99,6 +101,12 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
     const month = taipeiDate().slice(0, 7);
     const [cur, prev] = await chargesOf(db, month);
     await send(monthlyText(`${month}（到今天）`, cur, prev));
+    return;
+  }
+
+  if (cmd === "tickets") {
+    try { await send(await ticketSummary(db), { disable_web_page_preview: true }); }
+    catch (e) { await send(`讀不到客服紀錄表：${esc(e instanceof Error ? e.message : String(e))}\n<i>多半是試算表授權還沒設好，見 mailbot/README.md「客服紀錄表」</i>`); }
     return;
   }
 

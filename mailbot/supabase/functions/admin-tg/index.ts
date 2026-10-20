@@ -41,6 +41,7 @@ const COMMANDS = [
   { command: "due", description: "接下來的到期日" },
   { command: "bills", description: "這個月的帳單與訂閱" },
   { command: "news", description: "航空城・客運園區政府消息" },
+  { command: "tickets", description: "客服紀錄表" },
   { command: "mail_help", description: "說明" },
 ];
 

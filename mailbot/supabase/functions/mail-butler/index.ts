@@ -18,7 +18,7 @@ import {
   type Rule, type AiVerdict, type DigestItem, type MailWeek,
 } from "../_shared/mailbot.ts";
 import {
-  SUPPORT_ADDRESS, recordReminder, sendDueReminders, handleSupport, recordCharges, sendMonthlyIfDue, sendNews,
+  SUPPORT_ADDRESS, recordReminder, sendDueReminders, handleSupport, recordCharges, sendMonthlyIfDue, sendNews, syncTickets,
 } from "../_shared/extras.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -133,6 +133,7 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
   if (out.ok === false) return out;
   try { out.reminders = await sendDueReminders(db, say); } catch (e) { console.error("reminders failed", errMsg(e)); }
   try { out.monthly = await sendMonthlyIfDue(db, say); } catch (e) { console.error("monthly failed", errMsg(e)); }
+  out.tickets = await syncTickets(db);
   return out;
 }
 
@@ -213,7 +214,7 @@ async function triageMail(query: string, max: number): Promise<Record<string, un
       ? [...(labels.includes(SUPPORT_LABEL) ? [SUPPORT_LABEL] : []), ...fileOptions(d.label, v)].filter((x, i, a) => a.indexOf(x) === i).slice(0, 3)
       : fileOptions(d.label, v);
     const suggest = !card ? null : support && !labels.includes(SUPPORT_LABEL) ? SUPPORT_LABEL : (v?.nw ?? null);
-    const sup = card && support ? await handleSupport(m) : null;
+    const sup = card && support ? await handleSupport(db, m) : null;
 
     const row = {
       gmail_id: m.id, thread_id: m.threadId, sender: f.email, sender_name: f.name.slice(0, 120),

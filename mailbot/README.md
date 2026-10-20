@@ -189,6 +189,22 @@ $$);
 
 ---
 
+## 客服紀錄表（Google 試算表）
+
+每封寄到客服信箱的信記一張單（`mailbot_tickets`，正本），每輪整理時同步到試算表「藏往知來 客服紀錄」（第一次同步自動建立）。
+欄位：編號｜收到時間｜類別｜平台｜急｜用戶｜主旨｜摘要｜Gmail｜**已排除**（勾選框）｜備註。
+處理好的在「已排除」打勾。要 Claude 查客服問題：跟它說「看客服表」，它只讀沒勾的列，查過的不重查。`/tickets` 看還沒排除幾件。
+
+授權（一次性）：試算表要多一個 scope `https://www.googleapis.com/auth/drive.file`——只碰管家自己建的檔案，讀不到雲端硬碟裡其他東西。
+
+1. Google Cloud → API 和服務 → 程式庫 → 啟用 **Google Sheets API**
+2. Google Auth Platform → 資料存取權 → 新增範圍 → 手動貼 `https://www.googleapis.com/auth/drive.file` → 更新 → 儲存
+3. OAuth Playground（齒輪勾 Use your own OAuth credentials）→ 左下輸入框貼兩個 scope（空白隔開）：
+   `https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/drive.file` → Authorize → Exchange → 複製新的 refresh token
+4. 管家專案 → Edge Functions → Secrets → 更新 `GMAIL_REFRESH_TOKEN`
+
+授權前進來的客服單不會掉：它們先存在資料庫，授權好之後下一輪自動補寫到表上。
+
 ## 出錯時
 
 管家出錯會直接推一則 ⚠️ 到 TG。
@@ -205,7 +221,7 @@ $$);
 ## 開發
 
 - 測試：`node mailbot/dev/mailbot-test.mts`
-- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則）、`0003_reminders_bills_news.sql`（提醒、帳單、政府消息），都貼進管家專案的 SQL Editor 跑
+- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則）、`0003_reminders_bills_news.sql`（提醒、帳單、政府消息）、`0004_tickets.sql`（客服紀錄），都貼進管家專案的 SQL Editor 跑
 - 型別檢查：`deno check mailbot/supabase/functions/mail-butler/index.ts mailbot/supabase/functions/admin-tg/index.ts`
 - 這個資料夾**不准 import 產品的檔案**（`supabase/functions/_shared/*`）：兩邊分開部署，import 了就把產品程式一起帶上管家專案。
 - 在 Gmail 新增或改名固定標籤，要同步改 `mailbot.ts` 的 `LABELS`；自建的走 TG 按鈕即可。
