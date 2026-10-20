@@ -59,7 +59,15 @@ async function classify(metas: MailMeta[], labels: string[], extra: string[]): P
         messages: [{ role: "user", content: classifyPrompt(metas) }],
       }),
     });
-    if (!res.ok) throw new Error(`anthropic ${res.status} ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200);
+      // 金鑰過期、被刪、額度用完：每一輪都會靜靜失敗，信全部卡在「AI 沒判出來」。這種要大聲說
+      if (res.status === 401 || res.status === 403) {
+        await say(`⚠️ 管家的 Anthropic 金鑰失效（${res.status}）：信件暫時無法分類，規則照常運作。\n` +
+          `到 console.anthropic.com 開一把新的（到期選 Never），更新管家專案的 ANTHROPIC_API_KEY 即可，不必重新部署。`);
+      }
+      throw new Error(`anthropic ${res.status} ${body}`);
+    }
     const data = await res.json();
     const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
     // 用量只記 log：這個專案沒有產品的 ai_usage 表，也不該把私人用量混進產品成本
