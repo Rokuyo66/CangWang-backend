@@ -77,9 +77,12 @@ export async function handleSupport(db: SupabaseClient, m: MailMeta): Promise<{ 
       gmail_id: m.id, thread_id: m.threadId, received_at: m.receivedAt, cat: r.cat, platform: r.platform, urgent: r.urgent,
       sender: f.email, subject: m.subject.slice(0, 200), summary: r.sum,
     }, { onConflict: "gmail_id" }).select("id").single();
+    // 立刻寫進客服表，卡片上直接附連結；寫不成也不擋卡片，下一輪會補
+    const synced = await syncTickets(db);
+    const sheetLine = synced.url && t ? `\n📋 已記入<a href="${synced.url}">客服紀錄表</a>（${ticketNo(t.id)}）` : t ? `\n📋 ${ticketNo(t.id)} 已記錄，下一輪寫進客服表` : "";
     return {
       head: `🎧 <b>客服來信</b>${t ? ` ${ticketNo(t.id)}` : ""}　${SUPPORT_CATS[r.cat] ?? r.cat}　${PLATFORMS[r.platform] ?? ""}${r.urgent ? "　🚨 <b>急</b>" : ""}\n` +
-        (drafted ? `📝 回信草稿已放在 <a href="${link}">這串信</a> 裡，看過、改過再自己送出` : "⚠️ 草稿沒寫成，請直接到 Gmail 回"),
+        (drafted ? `📝 回信草稿已放在 <a href="${link}">這串信</a> 裡，看過、改過再自己送出` : "⚠️ 草稿沒寫成，請直接到 Gmail 回") + sheetLine,
       sum: r.sum,
     };
   } catch (e) {
@@ -89,15 +92,19 @@ export async function handleSupport(db: SupabaseClient, m: MailMeta): Promise<{ 
 }
 
 /** 還沒寫進試算表的客服單補寫過去；試算表第一次用時自動建立。失敗不拋（授權沒設好時每輪安靜重試）。 */
-export async function syncTickets(db: SupabaseClient): Promise<{ synced: number; error?: string }> {
-  const { data: rows } = await db.from("mailbot_tickets")
-    .select("id, received_at, cat, platform, urgent, sender, subject, summary, thread_id").eq("synced", false).order("id").limit(50);
-  if (!rows?.length) return { synced: 0 };
+export async function syncTickets(db: SupabaseClient): Promise<{ synced: number; url?: string; error?: string }> {
   try {
+    // 一張單都沒有就別先建空表
+    const { count } = await db.from("mailbot_tickets").select("id", { count: "exact", head: true });
+    if (!count) return { synced: 0 };
+    // 先拿表（第一次會建新表，並把所有單標成未同步——所以要在撈未同步之前）
     const sheet = await ticketSheet(db);
-    await appendRows(sheet.id, (rows as Ticket[]).map(ticketRow));
+    const { data: rows } = await db.from("mailbot_tickets")
+      .select("id, received_at, cat, platform, urgent, sender, subject, summary, thread_id").eq("synced", false).order("id").limit(50);
+    if (!rows?.length) return { synced: 0, url: sheet.url };
+    await appendRows(sheet.id, sheet.sheetId, (rows as Ticket[]).map(ticketRow), TICKET_DONE_COL);
     await db.from("mailbot_tickets").update({ synced: true }).in("id", rows.map((r) => r.id));
-    return { synced: rows.length };
+    return { synced: rows.length, url: sheet.url };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error("syncTickets failed", error);
@@ -105,13 +112,18 @@ export async function syncTickets(db: SupabaseClient): Promise<{ synced: number;
   }
 }
 
-/** 客服紀錄表：存在 mailbot_state，沒有就建一份。 */
-export async function ticketSheet(db: SupabaseClient, create = true): Promise<{ id: string; url: string }> {
-  const { data } = await db.from("mailbot_state").select("value").eq("key", "ticket_sheet").maybeSingle();
+// 第一版（ticket_sheet）把勾選框一次套到 5000 列，空格子都成了 FALSE：計數錯、新列接到第 1001 列。
+// 換新的 key：第一次會建一份新表、所有單重寫一遍；舊表留在雲端硬碟，觀主要刪再刪。
+const SHEET_KEY = "ticket_sheet_v2";
+
+/** 客服紀錄表：存在 mailbot_state，沒有就建一份（並把所有單標成要重寫）。 */
+export async function ticketSheet(db: SupabaseClient, create = true): Promise<{ id: string; url: string; sheetId: number }> {
+  const { data } = await db.from("mailbot_state").select("value").eq("key", SHEET_KEY).maybeSingle();
   if (data?.value) return JSON.parse(data.value);
   if (!create) throw new Error("客服紀錄表還沒建立（第一封客服信同步時會自動建）");
-  const sheet = await createSheet("藏往知來 客服紀錄", TICKET_HEADERS, TICKET_DONE_COL);
-  await db.from("mailbot_state").upsert({ key: "ticket_sheet", value: JSON.stringify(sheet), updated_at: new Date().toISOString() });
+  const sheet = await createSheet("藏往知來 客服紀錄", TICKET_HEADERS);
+  await db.from("mailbot_state").upsert({ key: SHEET_KEY, value: JSON.stringify(sheet), updated_at: new Date().toISOString() });
+  await db.from("mailbot_tickets").update({ synced: false }).gt("id", 0);
   return sheet;
 }
 
@@ -122,7 +134,7 @@ export async function ticketSummary(db: SupabaseClient): Promise<string> {
   try { sheet = await ticketSheet(db, false); }
   catch { return `🎧 客服紀錄表還沒建立。${unsynced ? `有 ${unsynced} 張單等著寫進去——` : ""}第一封客服信進來、授權設好之後會自動建。`; }
   const col = String.fromCharCode(65 + TICKET_DONE_COL);
-  const { open, total } = countOpen(await readRange(sheet.id, `客服!${col}1:${col}5000`));
+  const { open, total } = countOpen(await readRange(sheet.id, `客服!A1:${col}5000`));
   return `🎧 <b>客服紀錄</b>　還沒排除 <b>${open}</b> 件／共 ${total} 件` +
     (unsynced ? `\n⏳ ${unsynced} 張還沒同步到表上（下一輪補）` : "") +
     `\n<a href="${sheet.url}">打開客服紀錄表</a>\n<i>處理好的在「已排除」打勾；要 Claude 查，跟它說「看客服表」，它只會讀沒勾的。</i>`;

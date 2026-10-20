@@ -647,10 +647,10 @@ export function ticketRow(t: Ticket): (string | boolean)[] {
   ];
 }
 
-/** 表上「已排除」那一欄讀回來（第一列是標題）→ 還沒排除幾件。 */
-export function countOpen(doneCol: unknown[][]): { open: number; total: number } {
-  const rows = doneCol.slice(1);
-  const total = rows.length;
-  const done = rows.filter((r) => String(r?.[0] ?? "").toUpperCase() === "TRUE").length;
-  return { open: total - done, total };
+/** 表上 A～「已排除」欄讀回來 → 還沒排除幾件。只算編號是 T- 開頭的列：
+ *  標題列、空列、觀主自己加的筆記列都不算。 */
+export function countOpen(rows: unknown[][]): { open: number; total: number } {
+  const tickets = rows.filter((r) => /^T-\d+$/.test(String(r?.[0] ?? "")));
+  const done = tickets.filter((r) => String(r?.[TICKET_DONE_COL] ?? "").toUpperCase() === "TRUE").length;
+  return { open: tickets.length - done, total: tickets.length };
 }

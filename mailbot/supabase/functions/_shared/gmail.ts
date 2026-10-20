@@ -197,8 +197,10 @@ async function gcall(url: string, init: RequestInit = {}) {
   return res.json();
 }
 
-/** 建一份新試算表：凍結標題列、指定欄設成勾選框。回 { id, url }。 */
-export async function createSheet(title: string, headers: string[], checkboxCol: number): Promise<{ id: string; url: string }> {
+/** 建一份新試算表：標題列粗體、凍結。回 { id, url, sheetId }。
+ *  勾選框不在這裡一次套整欄：套上去的空格子會變成 FALSE，Google 就把那幾千列都當成資料——
+ *  計數會錯、新的列還會被接到最底下。勾選框改由 appendRows 只套在剛寫進去的那幾列。 */
+export async function createSheet(title: string, headers: string[]): Promise<{ id: string; url: string; sheetId: number }> {
   const j = await gcall(SHEETS, { method: "POST", body: JSON.stringify({
     properties: { title, locale: "zh_TW", timeZone: "Asia/Taipei" },
     sheets: [{ properties: { title: "客服", gridProperties: { frozenRowCount: 1 } } }],
@@ -208,18 +210,24 @@ export async function createSheet(title: string, headers: string[], checkboxCol:
     method: "PUT", body: JSON.stringify({ values: [headers] }),
   });
   await gcall(`${SHEETS}/${id}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [
-    { setDataValidation: { range: { sheetId, startRowIndex: 1, endRowIndex: 5000, startColumnIndex: checkboxCol, endColumnIndex: checkboxCol + 1 },
-      rule: { condition: { type: "BOOLEAN" }, showCustomUi: true } } },
     { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
       cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: "userEnteredFormat.textFormat.bold" } },
   ] }) });
-  return { id, url: j.spreadsheetUrl as string };
+  return { id, url: j.spreadsheetUrl as string, sheetId };
 }
 
-export async function appendRows(id: string, rows: (string | boolean)[][]): Promise<void> {
-  await gcall(`${SHEETS}/${id}/values/${encodeURIComponent("客服!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+/** 接在最後一列之後，並把 checkboxCol 那一欄（只限剛寫的這幾列）設成勾選框。 */
+export async function appendRows(id: string, sheetId: number, rows: (string | boolean)[][], checkboxCol: number): Promise<void> {
+  const j = await gcall(`${SHEETS}/${id}/values/${encodeURIComponent("客服!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: "POST", body: JSON.stringify({ values: rows }),
   });
+  // updatedRange 長這樣：'客服'!A5:K7 → 第 5～7 列
+  const m = /![A-Z]+(\d+):[A-Z]+(\d+)$/.exec(String(j?.updates?.updatedRange ?? ""));
+  if (!m) return;
+  await gcall(`${SHEETS}/${id}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [
+    { setDataValidation: { range: { sheetId, startRowIndex: Number(m[1]) - 1, endRowIndex: Number(m[2]), startColumnIndex: checkboxCol, endColumnIndex: checkboxCol + 1 },
+      rule: { condition: { type: "BOOLEAN" }, showCustomUi: true } } },
+  ] }) });
 }
 
 export async function readRange(id: string, range: string): Promise<unknown[][]> {

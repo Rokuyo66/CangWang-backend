@@ -359,9 +359,12 @@ t("客服單：用戶寫的 = + - @ 開頭一律加 ' 擋掉，不會被當成�
   eq(ticketRow({ ...tk, subject: "正常主旨" })[6], "正常主旨");
 });
 
-t("客服單：數得出還沒排除幾件（標題列不算）", () => {
-  eq(countOpen([["已排除"], ["FALSE"], ["TRUE"], ["true"], []]), { open: 2, total: 4 });
-  eq(countOpen([["已排除"]]), { open: 0, total: 0 });
+t("客服單：只數 T- 開頭的列；空白勾選框、標題、筆記列都不算（10/20 那個 1000 件的 bug）", () => {
+  const row = (no: string, done: string) => [no, "", "", "", "", "", "", "", "", done, ""];
+  const blank = ["", "", "", "", "", "", "", "", "", "FALSE"];   // 只有勾選框的空列
+  eq(countOpen([TICKET_HEADERS, row("T-0001", "FALSE"), row("T-0002", "TRUE"), row("T-0003", "true"), ...Array(997).fill(blank), ["我的筆記"]]),
+    { open: 1, total: 3 });
+  eq(countOpen([TICKET_HEADERS]), { open: 0, total: 0 });
 });
 
 t("客服：平台不認得的歸不明；編號補零", () => {
