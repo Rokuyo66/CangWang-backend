@@ -31,12 +31,12 @@ interface Palette {
 
 /* App 同一組的六個色（card／line／ink／dim／gold／seal）來自 dev/design/tokens.json，跟 App、Palette.java 是同一份。
    背板（paper）與材質（texture）是這個原型自己的，只在這裡。 */
-// @design:begin widget-colors v=c952025f #4abb725f（由後端 dev/design/tokens.json 產生，不要手改）
+// @design:begin widget-colors v=6ef7a53a #58388b97（由後端 dev/design/tokens.json 產生，不要手改）
 const APP_COLORS: Record<string, { mode: "light" | "dark"; card: string; line: string; ink: string; dim: string; gold: string; seal: string }> = {
-  xuan: { mode: "light", card: "#F2EBDA", line: "#E0D4B8", ink: "#272320", dim: "#8A7E6C", gold: "#D59F62", seal: "#B5402E" },   // 宣紙
-  night: { mode: "dark", card: "#15120E", line: "#0D0A08", ink: "#ECE3D1", dim: "#857B68", gold: "#C4A164", seal: "#D86A52" },   // 夜觀
+  xuan: { mode: "light", card: "#F2EBDA", line: "#E0D4B8", ink: "#1C1917", dim: "#746958", gold: "#D59F62", seal: "#B5402E" },   // 宣紙
+  night: { mode: "dark", card: "#15120E", line: "#0D0A08", ink: "#ECE3D1", dim: "#C1A776", gold: "#C4A164", seal: "#D86A52" },   // 夜觀
   bamboo: { mode: "light", card: "#E7E9D8", line: "#A9B096", ink: "#12210F", dim: "#3C5D3E", gold: "#5C8A2E", seal: "#916B36" },   // 竹簡
-  cinnabar: { mode: "dark", card: "#220907", line: "#4E1A15", ink: "#FAE2E0", dim: "#A2756E", gold: "#E0913F", seal: "#E34234" },   // 硃砂
+  cinnabar: { mode: "dark", card: "#220907", line: "#4E1A15", ink: "#FAE2E0", dim: "#DDA59C", gold: "#E0913F", seal: "#E34234" },   // 硃砂
   porcelain: { mode: "light", card: "#F5F8FC", line: "#A6BFDF", ink: "#001F52", dim: "#1456B8", gold: "#307FD5", seal: "#144190" },   // 青花
 };
 // @design:end widget-colors
