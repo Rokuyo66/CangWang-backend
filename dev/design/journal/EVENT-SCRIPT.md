@@ -1,5 +1,10 @@
 # 道緣事件劇本格式（character_events.scenes／choices）
 
+**寫稿用稿紙：https://claude.ai/artifact/WviCnZhrUbFrYSHeBE9bh9**（原始檔 `dev/design/journal/sheet.html`）。
+一章一張：章頭、兩個稱號（他的身分＋你的稱號）、逐幕表格、自動檢查（幕數、選項指向、分支結尾、voice_hint 不寫親密），
+下方直接輸出 `scenes` 與那一列的其他欄位。內容存在稿紙的資料庫（`chapters` 集合，一章一筆，id＝`角色_c章`），
+狀態標「定稿」後 Claude 用 ArtifactData 讀走、寫成 migration。下面是格式本身的說明。
+
 **試演台：網址加 `?preview=editor`**（前端 `src/story/editor.js`）。一幕一張卡，下拉選場景、誰說話、立繪、選項跳到哪；
 按「▶ 試演」用正式事件畫面演（不打後端、不發獎），草稿存在瀏覽器。寫好按「複製 scenes」，
 貼到 Supabase → Table Editor → `character_events` → 那一列（大師兄第一章是 `daoshi_m_c1`）的 `scenes` 欄；

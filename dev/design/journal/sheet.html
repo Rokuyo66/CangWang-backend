@@ -1,0 +1,551 @@
+<title>道緣劇本稿紙</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 版面：左側目錄（章）＋右側一章的稿紙（章頭、兩個稱號、逐幕表格、檢查、輸出）。
+   色碼取自美術規範 tokens.json：淺色＝宣紙，深色＝夜觀。 */
+:root{
+  --paper:#F2EBDA; --paper-2:#EBE1CC; --edge:#E0D4B8;
+  --ink:#272320; --ink-soft:#5A5045; --ink-faint:#8A7E6C;
+  --hair:rgba(34,30,26,.13); --shadow:rgba(60,48,30,.18);
+  --cinnabar:#B5402E; --cinnabar-soft:rgba(181,64,46,.13); --gold:#9a6a2e;
+  --ok:#4f7a4d; --warn:#9a7b3f; --field:#FBF7EE;
+  --f-display:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#15120E; --paper-2:#2F2923; --edge:#0D0A08;
+  --ink:#ECE3D1; --ink-soft:#B3A78F; --ink-faint:#857B68;
+  --hair:rgba(236,227,209,.2); --shadow:rgba(0,0,0,.5);
+  --cinnabar:#D86A52; --cinnabar-soft:rgba(216,106,82,.16); --gold:#C4A164;
+  --ok:#7fae6e; --warn:#CE9764; --field:#201C17; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --paper:#15120E; --paper-2:#2F2923; --edge:#0D0A08;
+  --ink:#ECE3D1; --ink-soft:#B3A78F; --ink-faint:#857B68;
+  --hair:rgba(236,227,209,.2); --shadow:rgba(0,0,0,.5);
+  --cinnabar:#D86A52; --cinnabar-soft:rgba(216,106,82,.16); --gold:#C4A164;
+  --ok:#7fae6e; --warn:#CE9764; --field:#201C17; color-scheme:dark }
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--paper);color:var(--ink);font:14px/1.6 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 60px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--cinnabar);outline-offset:2px}
+.wrap{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:28px}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+header.top{max-width:1320px;margin:0 auto 18px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px}
+header.top h1{font-size:26px;font-weight:900;letter-spacing:.08em}
+header.top .sub{color:var(--ink-faint);font-size:13px}
+.save{margin-left:auto;font-size:12px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.save.err{color:var(--cinnabar)}
+.banner{max-width:1320px;margin:0 auto 14px;padding:8px 12px;border:1px dashed var(--warn);color:var(--warn);font-size:13px;border-radius:4px}
+
+/* 目錄 */
+.rail{display:flex;flex-direction:column;gap:18px;min-width:0}
+.rail h3{font-size:13px;letter-spacing:.2em;color:var(--gold);font-weight:600}
+.chlist{display:flex;flex-direction:column;gap:4px}
+.ch{display:grid;grid-template-columns:1fr auto;gap:2px 8px;text-align:left;background:none;border:0;border-left:3px solid transparent;padding:6px 8px;cursor:pointer;border-radius:0 4px 4px 0}
+.ch:hover{background:var(--paper-2)}
+.ch.on{border-left-color:var(--cinnabar);background:var(--paper-2)}
+.ch b{font-family:var(--f-display);font-weight:600}
+.ch small{grid-column:1/-1;color:var(--ink-faint);font-family:var(--f-mono);font-size:11px}
+.pill{font-size:11px;padding:0 7px;border-radius:9px;border:1px solid var(--hair);color:var(--ink-soft);white-space:nowrap;align-self:center}
+.pill.draft{color:var(--ink-faint)} .pill.review{color:var(--warn);border-color:var(--warn)}
+.pill.final{color:var(--ok);border-color:var(--ok)} .pill.temp{color:var(--cinnabar);border-color:var(--cinnabar)}
+.newch{display:grid;grid-template-columns:1fr 64px;gap:6px}
+.newch button{grid-column:1/-1}
+.rules{font-size:13px;color:var(--ink-soft);display:flex;flex-direction:column;gap:6px;padding:0;margin:0;list-style:none}
+.rules li{padding-left:12px;position:relative}
+.rules li::before{content:"";position:absolute;left:0;top:.7em;width:5px;height:1px;background:var(--gold)}
+
+/* 表單 */
+.field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.field>span{font-size:12px;color:var(--ink-faint);letter-spacing:.05em}
+.field>span em{font-style:normal;color:var(--ink-faint);opacity:.8}
+input[type=text],input[type=number],select,textarea{width:100%;background:var(--field);border:1px solid var(--edge);border-radius:4px;padding:6px 8px;min-width:0}
+textarea{resize:vertical;line-height:1.7}
+.btn{background:var(--paper-2);border:1px solid var(--edge);border-bottom-width:3px;border-radius:5px;padding:5px 12px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--ink-faint)}
+.btn.primary{background:var(--cinnabar);border-color:var(--cinnabar);color:#fff}
+.btn.ghost{background:none;border-color:transparent}
+.btn.sm{padding:1px 8px;font-size:12px;border-bottom-width:2px}
+.btn:disabled{opacity:.45;cursor:default}
+
+.main{min-width:0;display:flex;flex-direction:column;gap:22px}
+.sec{display:flex;flex-direction:column;gap:12px}
+.sec>h2{font-size:17px;font-weight:600;display:flex;align-items:baseline;gap:10px}
+.sec>h2 small{font-family:var(--f-body);font-size:12px;color:var(--ink-faint);font-weight:400}
+.grid{display:grid;gap:10px 14px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.grid .wide{grid-column:1/-1}
+.titles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:700px){.titles{grid-template-columns:minmax(0,1fr)}}
+.tcard{border:1px solid var(--edge);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--paper-2)}
+.tcard h3{font-size:15px}
+.tcard h3 small{font-family:var(--f-body);font-weight:400;font-size:12px;color:var(--ink-faint);margin-left:6px}
+
+/* 逐幕 */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hair)}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:6px 12px;cursor:pointer;color:var(--ink-soft)}
+.tab.on{border-bottom-color:var(--cinnabar);color:var(--ink);font-weight:500}
+.scroll{overflow-x:auto}
+.scenes{display:flex;flex-direction:column;gap:0;min-width:0}
+.srow{display:grid;grid-template-columns:72px 150px 130px 120px minmax(0,1fr) 150px 30px;gap:8px;align-items:start;padding:10px 0;border-bottom:1px solid var(--hair)}
+.srow.head{font-size:12px;color:var(--ink-faint);padding:4px 0;letter-spacing:.05em}
+.srow.narr textarea{text-align:center;color:var(--ink-soft)}
+.srow.me .who select{color:var(--gold)}
+.num{font-family:var(--f-mono);font-size:12px;color:var(--ink-faint);display:flex;flex-direction:column;gap:4px}
+.num b{font-size:15px;color:var(--ink)}
+.cell{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cell textarea{font-family:var(--f-display);font-size:15px;min-height:64px}
+.cell label.ck{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ink-soft)}
+.ops{display:flex;flex-direction:column;gap:2px}
+.ops button{background:none;border:0;cursor:pointer;color:var(--ink-faint);padding:2px;line-height:1}
+.ops button:hover{color:var(--cinnabar)}
+.choices{grid-column:2/-2;display:flex;flex-direction:column;gap:6px;border-left:2px solid var(--gold);padding:2px 0 2px 10px}
+.choices>span{font-size:12px;color:var(--gold);letter-spacing:.1em}
+.crow{display:grid;grid-template-columns:70px minmax(0,2fr) minmax(0,1fr) 170px 28px;gap:6px;align-items:center}
+.crow input,.crow select{padding:3px 6px;font-size:13px}
+.addrow{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px}
+@media (max-width:900px){
+  .srow.head{display:none}
+  .srow{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .srow .num{grid-column:1/2;flex-direction:row;align-items:center}
+  .srow .ops{grid-column:2/3;flex-direction:row;justify-content:flex-end}
+  .srow .text{grid-column:1/-1;order:5}
+  .srow .go{grid-column:1/-1;order:6}
+  .choices{grid-column:1/-1;order:7}
+  .crow{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .crow .lbl{grid-column:1/-1}
+}
+
+/* 預覽 */
+.stage{background:var(--paper-2);border:1px solid var(--edge);border-radius:6px;padding:20px 18px;display:flex;flex-direction:column;gap:14px;max-width:560px}
+.place{align-self:center;font-family:var(--f-display);letter-spacing:.3em;color:var(--gold);font-size:13px;padding:6px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);width:100%;text-align:center}
+.line{font-family:var(--f-display);font-size:15px;white-space:pre-wrap}
+.line .sp{display:block;font-family:var(--f-body);font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
+.line.me .sp{color:var(--gold)}
+.line.narr{text-align:center;color:var(--ink-soft);font-size:14px}
+.opts{display:flex;flex-direction:column;gap:6px}
+.opt{border:1px solid var(--edge);border-radius:5px;padding:6px 10px;font-family:var(--f-display);background:var(--paper)}
+.opt small{color:var(--ink-faint);margin-left:6px;font-family:var(--f-mono);font-size:11px}
+.endmark{align-self:center;color:var(--ink-faint);font-size:12px;letter-spacing:.3em}
+
+/* 檢查與輸出 */
+.checks{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+.checks li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;font-size:13px}
+.checks .lv{font-size:11px;text-align:center;border-radius:3px;padding:1px 0;align-self:start}
+.lv.e{background:var(--cinnabar-soft);color:var(--cinnabar)} .lv.w{color:var(--warn);border:1px solid var(--warn)} .lv.o{color:var(--ok);border:1px solid var(--ok)}
+pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;padding:10px;font:12px/1.5 var(--f-mono);max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+.outhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.outhead b{font-size:13px}
+.empty{padding:40px 0;color:var(--ink-faint);font-family:var(--f-display)}
+.status{display:flex;gap:6px;flex-wrap:wrap}
+.status button{border:1px solid var(--edge);background:none;border-radius:12px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--ink-soft)}
+.status button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="top">
+  <h1>道緣劇本稿紙</h1>
+  <span class="sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</span>
+  <span class="save" id="save">連線中…</span>
+</header>
+<div class="banner" id="banner" hidden></div>
+<div class="wrap">
+  <aside class="rail">
+    <section class="sec">
+      <h3>目錄</h3>
+      <div class="chlist" id="chlist"></div>
+    </section>
+    <section class="sec">
+      <h3>新開一章</h3>
+      <div class="newch">
+        <select id="nc-char" aria-label="角色"></select>
+        <input id="nc-no" type="number" min="1" value="1" aria-label="第幾章">
+        <button class="btn" id="nc-go">開這一章</button>
+      </div>
+    </section>
+    <section class="sec">
+      <h3>寫的時候記得</h3>
+      <ul class="rules">
+        <li>一章 6～10 幕，至少一處選項（通常 3 個）。</li>
+        <li>以對話為主。旁白一句帶過，置中淡色。</li>
+        <li>你選的那句會留在下一句上方，不必再寫「你說：……」。</li>
+        <li>場景跟上一幕不同＝換場：黑場、打地名、立繪先收起。</li>
+        <li>分支各自寫到結尾，每條最後一幕勾「到此結束」。</li>
+        <li>兩種 voice_hint 只寫立場、稱謂、在意的事，<b>不寫親密程度</b>。換身分、換稱呼不會讓他變熱絡。</li>
+        <li>記憶是他之後聊天會引用的一句，寫成他記得的那件事。</li>
+        <li>門檻：初識 0・相熟 300・相知 500・知己 800。</li>
+      </ul>
+    </section>
+  </aside>
+  <main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main>
+</div>
+
+<script>
+const CHARS = { daoshi_m:"大師兄", daoshi_f:"師妹", lingshou:"觀貓" };
+const BGS = { guanmen:"觀門", cangjingge:"藏經閣", dadian:"大殿", zhongting:"中庭", langxia:"廊下",
+  qianting:"前廳", xiangfang:"廂房", zaofang:"灶房", houyuan:"後院", wuji:"屋脊", cangshu:"藏書（舊 key）", houshan:"後山（舊 key）" };
+const STATUS = { draft:"草稿", review:"待看", final:"定稿", temp:"暫用" };
+const TIERS = [[0,"初識"],[300,"相熟"],[500,"相知"],[800,"知己"]];
+const INTIMATE = /親密|喜歡|愛你|愛意|曖昧|撒嬌|熱絡|親近|心動|依戀|戀/;
+
+let db = null, chapters = {}, cur = null, view = "write";
+const dirty = new Set(), timers = {}, rev = {};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+function blank(cid, no) {
+  return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
+    require_favor: (TIERS[no - 1] || TIERS[3])[0], require_event: no > 1 ? `${cid}_c${no - 1}` : "",
+    reward_lingshi: 0, reward_avatar: "", reward_memory: "",
+    char_title: { label: "", voice_hint: "", desc: "" },
+    player_title: { id: "", label: "", call_as: "", voice_hint: "" },
+    status: "draft", note: "", scenes: [{ bg: "guanmen", text: "" }], updated_at: "" };
+}
+
+/* ── 存檔：db（只有擁有者與編輯者能寫）；連不上就先存這台瀏覽器 ── */
+const LS = "script-sheet-drafts";
+const lsRead = () => { try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch (e) { return {}; } };
+const lsWrite = () => { try { localStorage.setItem(LS, JSON.stringify(chapters)); } catch (e) {} };
+function setSave(t, err) { const el = $("save"); el.textContent = t; el.classList.toggle("err", !!err); }
+
+function touch(id) {
+  const c = chapters[id]; if (!c) return;
+  c.updated_at = new Date().toISOString();
+  rev[id] = (rev[id] || 0) + 1;
+  dirty.add(id); setSave("有未存的修改…");
+  clearTimeout(timers[id]);
+  timers[id] = setTimeout(() => flush(id), 900);
+  if (id === cur) { paintChecks(); paintOut(); if (view === "preview") paintPreview(); }
+}
+async function flush(id) {
+  const c = chapters[id]; if (!c) return;
+  if (!db) { lsWrite(); dirty.delete(id); setSave("已存在這台瀏覽器"); return; }
+  try {
+    setSave("存檔中…");
+    const r = rev[id];
+    await db.collection("chapters").doc(id).set(JSON.parse(JSON.stringify(c)));
+    if (rev[id] !== r) return;   // 存的這段時間又改了：留著 dirty，等下一次存
+    dirty.delete(id);
+    setSave("已存檔 " + new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }));
+  } catch (e) {
+    setSave(e && e.code === "invalid_argument" ? "你沒有寫入權限：這裡只能看" : "存檔失敗，稍後會再試", true);
+    if (e && e.code !== "invalid_argument") timers[id] = setTimeout(() => flush(id), 5000);
+  }
+}
+
+/* ── 目錄 ── */
+function paintRail() {
+  const list = Object.values(chapters).sort((a, b) =>
+    a.character_id.localeCompare(b.character_id) || a.chapter - b.chapter);
+  $("chlist").innerHTML = list.length ? list.map((c) => `
+    <button class="ch${c.id === cur ? " on" : ""}" data-open="${esc(c.id)}">
+      <b>${esc(CHARS[c.character_id] || c.character_id)}・第${c.chapter}章 ${esc(c.title || "（未命名）")}</b>
+      <span class="pill ${esc(c.status)}">${STATUS[c.status] || c.status}</span>
+      <small>${esc(c.id)}・${(c.scenes || []).length} 幕・道緣 ${c.require_favor || 0}</small>
+    </button>`).join("") : `<div class="empty" style="padding:8px 0">還沒有任何一章。</div>`;
+}
+$("nc-char").innerHTML = Object.entries(CHARS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+$("chlist").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openCh(b.dataset.open); });
+$("nc-go").addEventListener("click", () => {
+  const cid = $("nc-char").value, no = Math.max(1, parseInt($("nc-no").value, 10) || 1);
+  const id = `${cid}_c${no}`;
+  if (!chapters[id]) { chapters[id] = blank(cid, no); touch(id); }
+  openCh(id);
+});
+function openCh(id) { cur = id; view = "write"; paintRail(); paintMain(); }
+
+/* ── 一章 ── */
+const sel = (opts, v) => Object.entries(opts).map(([k, t]) => `<option value="${esc(k)}"${k === v ? " selected" : ""}>${esc(t)}</option>`).join("");
+function whoOf(s) {
+  if (s.me) return "me";
+  if (s.who) return s.who;
+  const hit = Object.entries(CHARS).find(([, n]) => n === s.speaker);
+  if (hit) return hit[0];
+  return s.speaker ? "other" : "narr";
+}
+function portraitOf(s) { return !("portrait" in s) ? "keep" : s.portrait === null ? "none" : s.portrait; }
+const label = (s, i) => `#${i + 1}${s.id ? " " + s.id : ""}`;
+
+function paintMain() {
+  const c = chapters[cur]; if (!c) { $("main").innerHTML = `<div class="empty">從左邊選一章，或新開一章。</div>`; return; }
+  const tierOpts = TIERS.map(([v, n]) => `<option value="${v}"${+c.require_favor === v ? " selected" : ""}>${n} ${v}</option>`).join("");
+  $("main").innerHTML = `
+  <section class="sec">
+    <h2>${esc(CHARS[c.character_id])}・第${c.chapter}章 <small>${esc(c.id)}</small></h2>
+    <div class="status" id="status">${Object.entries(STATUS).map(([k, v]) =>
+      `<button data-st="${k}" class="${c.status === k ? "on" : ""}">${v}</button>`).join("")}</div>
+    <div class="grid">
+      <label class="field"><span>章名</span><input type="text" id="f-title" data-k="title" value="${esc(c.title)}" placeholder="例：代理"></label>
+      <label class="field"><span>道緣門檻</span><select id="f-favor" data-k="require_favor" data-num>${tierOpts}</select></label>
+      <label class="field"><span>前一章 <em>（要先了結）</em></span><input type="text" id="f-prev" data-k="require_event" value="${esc(c.require_event)}" placeholder="章首留空"></label>
+      <label class="field"><span>靈石</span><input type="number" id="f-ls" min="0" data-k="reward_lingshi" data-num value="${+c.reward_lingshi || 0}"></label>
+      <label class="field"><span>頭像 <em>（r01～r13，沒有就空）</em></span><input type="text" id="f-av" data-k="reward_avatar" value="${esc(c.reward_avatar)}"></label>
+      <label class="field wide"><span>一句摘要 <em>（目錄上那一行）</em></span><input type="text" id="f-sum" data-k="summary" value="${esc(c.summary)}" placeholder="例：觀裡的卦書少了一冊。他為此一直沒接那個位子。"></label>
+      <label class="field wide"><span>他會記住的一句話 <em>（了結後寫進記憶，聊天時會引用）</em></span><input type="text" id="f-mem" data-k="reward_memory" value="${esc(c.reward_memory)}" placeholder="例：護道人在觀門外聽過銅鈴響的那一夜"></label>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>兩個稱號 <small>了結這章時一起發</small></h2>
+    <div class="titles">
+      <div class="tcard">
+        <h3>他的新身分<small>你眼中的他・character_titles</small></h3>
+        <label class="field"><span>顯示的字</span><input type="text" id="t-c-label" data-t="char_title.label" value="${esc(c.char_title.label)}" placeholder="例：掌門師兄"></label>
+        <label class="field"><span>這個身分的說明 <em>（卡片上那一句）</em></span><input type="text" id="t-c-desc" data-t="char_title.desc" value="${esc(c.char_title.desc)}"></label>
+        <label class="field"><span>聲口 voice_hint <em>（立場、稱謂、在意的事）</em></span><textarea id="t-c-voice" rows="2" data-t="char_title.voice_hint">${esc(c.char_title.voice_hint)}</textarea></label>
+      </div>
+      <div class="tcard">
+        <h3>你的新稱號<small>他眼中的你・player_titles</small></h3>
+        <label class="field"><span>顯示的字 <em>（廣場、道籍上那個）</em></span><input type="text" id="t-p-label" data-t="player_title.label" value="${esc(c.player_title.label)}" placeholder="例：執卷人"></label>
+        <label class="field"><span>他怎麼叫你 call_as <em>（空白＝照舊叫暱稱）</em></span><input type="text" id="t-p-call" data-t="player_title.call_as" value="${esc(c.player_title.call_as)}"></label>
+        <label class="field"><span>聲口 voice_hint</span><textarea id="t-p-voice" rows="2" data-t="player_title.voice_hint">${esc(c.player_title.voice_hint)}</textarea></label>
+      </div>
+    </div>
+    <label class="field"><span>給 Claude 的備註 <em>（美術需求、還沒想好的地方）</em></span><textarea id="f-note" rows="2" data-k="note">${esc(c.note)}</textarea></label>
+  </section>
+  <section class="sec">
+    <div class="tabs"><button class="tab${view === "write" ? " on" : ""}" data-view="write">逐幕編寫</button><button class="tab${view === "preview" ? " on" : ""}" data-view="preview">預覽演出</button></div>
+    <div id="body"></div>
+  </section>
+  <section class="sec"><h2>檢查</h2><ul class="checks" id="checks"></ul></section>
+  <section class="sec"><h2>輸出 <small>貼進 Supabase › character_events 那一列</small></h2><div id="out"></div></section>`;
+  paintBody(); paintChecks(); paintOut();
+}
+
+function paintBody() { if (view === "preview") paintPreview(); else paintScenes(); }
+
+function paintScenes() {
+  const c = chapters[cur], ss = c.scenes;
+  const targets = (self) => `<option value="">下一幕</option>` + ss.map((s, j) =>
+    `<option value="${j}"${j === self ? " disabled" : ""}>${esc(label(s, j))} ${esc((s.text || "").replace(/\n/g, " ").slice(0, 12))}</option>`).join("");
+  const toIdx = (to) => to == null || to === "" ? "" : typeof to === "number" ? String(to - 1) : String(ss.findIndex((s) => s.id === to));
+  const whoOpts = { narr: "旁白", ...CHARS, me: "你", other: "其他人" };
+  const pOpts = { keep: "沿用上一幕", AUTO: "這章的角色", none: "收起", ...CHARS };
+  $("body").innerHTML = `<div class="scroll"><div class="scenes">
+    <div class="srow head"><span>幕</span><span>場景／地名</span><span>誰說</span><span>立繪</span><span>台詞</span><span>演完往哪</span><span></span></div>
+    ${ss.map((s, i) => {
+      const w = whoOf(s);
+      return `<div class="srow ${w === "narr" ? "narr" : w === "me" ? "me" : ""}" data-i="${i}">
+        <div class="num"><b>${i + 1}</b><input type="text" id="s${i}-id" data-f="id" value="${esc(s.id)}" placeholder="代號" aria-label="這一幕的代號"></div>
+        <div class="cell"><select id="s${i}-bg" data-f="bg" aria-label="場景">${sel({ "": i ? "（同上一幕）" : "（無）", ...BGS }, s.bg || "")}</select>
+          <input type="text" id="s${i}-place" data-f="place" value="${esc(s.place)}" placeholder="地名（換場時打）"></div>
+        <div class="cell who"><select id="s${i}-who" data-f="who" aria-label="誰說">${sel(whoOpts, w)}</select>
+          ${w === "other" ? `<input type="text" id="s${i}-sp" data-f="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
+        <div class="cell"><select id="s${i}-pt" data-f="portrait" aria-label="立繪">${sel(pOpts, portraitOf(s))}</select></div>
+        <div class="cell text"><textarea id="s${i}-text" data-f="text" rows="3" placeholder="${w === "narr" ? "旁白，一句帶過" : "「台詞」，換行就是下一句"}">${esc(s.text)}</textarea>
+          <div><button class="btn sm" data-addch>＋選項</button></div></div>
+        <div class="cell go">${(s.choices || []).length ? `<span style="font-size:12px;color:var(--ink-faint)">看選項</span>` :
+          `<select id="s${i}-next" data-f="next" aria-label="演完往哪">${targets(i).replace(`value="${toIdx(s.next)}"`, `value="${toIdx(s.next)}" selected`)}</select>`}
+          <label class="ck"><input type="checkbox" id="s${i}-end" data-f="end"${s.end ? " checked" : ""}> 到此結束</label></div>
+        <div class="ops"><button data-mv="-1" aria-label="上移">▲</button><button data-mv="1" aria-label="下移">▼</button><button data-del aria-label="刪掉這一幕">✕</button></div>
+          ${(s.choices || []).length ? `<div class="choices"><span>選項</span>${s.choices.map((ch, k) => `
+            <div class="crow" data-k="${k}">
+              <input type="text" id="s${i}c${k}-key" data-cf="key" value="${esc(ch.key)}" placeholder="key" aria-label="選項代號">
+              <input class="lbl" type="text" id="s${i}c${k}-label" data-cf="label" value="${esc(ch.label)}" placeholder="選項的字" aria-label="選項的字">
+              <input type="text" id="s${i}c${k}-hint" data-cf="hint" value="${esc(ch.hint)}" placeholder="小字提示（可空）" aria-label="提示">
+              <select id="s${i}c${k}-to" data-cf="to" aria-label="選了跳到">${targets(i).replace(`value="${toIdx(ch.to)}"`, `value="${toIdx(ch.to)}" selected`)}</select>
+              <button class="btn ghost sm" data-delch="${k}" aria-label="刪掉這個選項">✕</button>
+            </div>`).join("")}</div>` : ""}
+      </div>`; }).join("")}
+  </div></div>
+  <div class="addrow"><button class="btn" data-add="say">＋一幕對話</button><button class="btn" data-add="narr">＋一句旁白</button><button class="btn" data-add="me">＋你說的話</button>
+    <button class="btn ghost" id="imp">貼上 scenes 匯入…</button></div>
+  <div id="impbox" hidden class="sec" style="margin-top:10px">
+    <label class="field"><span>把 Supabase 那一列的 scenes 整段貼進來（會蓋掉這一章現在的幕）</span><textarea id="imptext" rows="6" style="font-family:var(--f-mono);font-size:12px"></textarea></label>
+    <div style="display:flex;gap:8px"><button class="btn primary" id="impgo">匯入</button><button class="btn" id="impx">取消</button><span id="imperr" style="color:var(--cinnabar);font-size:13px"></span></div>
+  </div>`;
+}
+
+/* 跳到哪一幕：選到沒有代號的幕就自動給一個 s<n> */
+function ref(j) {
+  const ss = chapters[cur].scenes;
+  if (j === "" || j == null) return undefined;
+  const s = ss[+j]; if (!s) return undefined;
+  if (!s.id) s.id = "s" + (+j + 1);
+  return s.id;
+}
+
+$("main").addEventListener("input", (e) => {
+  const c = chapters[cur]; if (!c) return;
+  const t = e.target;
+  if (t.dataset.k) { c[t.dataset.k] = t.hasAttribute("data-num") ? (+t.value || 0) : t.value; touch(cur); if (t.dataset.k === "title") paintRail(); return; }
+  if (t.dataset.t) { const [o, k] = t.dataset.t.split("."); c[o][k] = t.value; touch(cur); return; }
+  const row = t.closest(".srow"); if (!row) return;
+  const s = c.scenes[+row.dataset.i];
+  if (t.dataset.cf) {
+    const ch = s.choices[+t.closest(".crow").dataset.k];
+    if (t.dataset.cf === "to") { const v = ref(t.value); if (v) ch.to = v; else delete ch.to; touch(cur); paintScenes(); return; }
+    ch[t.dataset.cf] = t.value; touch(cur); return;
+  }
+  const f = t.dataset.f; if (!f) return;
+  if (f === "text" || f === "place" || f === "speaker" || f === "id") {
+    const old = s[f]; s[f] = t.value; if (!t.value) delete s[f];
+    if (f === "id" && old) for (const x of c.scenes) { if (x.next === old) x.next = t.value || undefined; for (const ch of x.choices || []) if (ch.to === old) ch.to = t.value || undefined; }
+    touch(cur); return;
+  }
+});
+$("main").addEventListener("change", (e) => {
+  const c = chapters[cur]; if (!c) return;
+  const t = e.target, row = t.closest(".srow");
+  if (!row || t.dataset.cf) return;
+  const s = c.scenes[+row.dataset.i], f = t.dataset.f;
+  if (f === "bg") { if (t.value) s.bg = t.value; else delete s.bg; }
+  else if (f === "who") {
+    delete s.me; delete s.who; delete s.speaker;
+    if (t.value === "me") s.me = true; else if (CHARS[t.value]) s.who = t.value; else if (t.value === "other") s.speaker = "";
+  }
+  else if (f === "portrait") { if (t.value === "keep") delete s.portrait; else s.portrait = t.value === "none" ? null : t.value; }
+  else if (f === "next") { const v = ref(t.value); if (v) s.next = v; else delete s.next; }
+  else if (f === "end") { if (t.checked) s.end = true; else delete s.end; }
+  else return;
+  touch(cur); paintScenes();
+});
+$("main").addEventListener("click", (e) => {
+  const c = chapters[cur]; if (!c) return;
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.st) { c.status = t.dataset.st; touch(cur); paintRail(); $("status").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === t)); return; }
+  if (t.dataset.view) { view = t.dataset.view; paintMain(); return; }
+  if (t.dataset.add) {
+    const s = t.dataset.add === "narr" ? { text: "" } : t.dataset.add === "me" ? { me: true, text: "" } : { who: c.character_id, text: "" };
+    c.scenes.push(s); touch(cur); paintScenes(); paintRail();
+    const ta = $(`s${c.scenes.length - 1}-text`); if (ta) ta.focus(); return;
+  }
+  if (t.id === "imp") { $("impbox").hidden = false; $("imptext").focus(); return; }
+  if (t.id === "impx") { $("impbox").hidden = true; return; }
+  if (t.id === "impgo") {
+    try {
+      const v = JSON.parse($("imptext").value);
+      if (!Array.isArray(v) || !v.every((x) => x && typeof x === "object")) throw 0;
+      c.scenes = v; touch(cur); paintScenes(); paintRail();
+    } catch (err) { $("imperr").textContent = "看不懂這段：要是一個 [ … ] 陣列，一幕一個 { }。"; }
+    return;
+  }
+  const row = t.closest(".srow"); if (!row) return;
+  const i = +row.dataset.i, s = c.scenes[i];
+  if (t.hasAttribute("data-addch")) { (s.choices = s.choices || []).push({ key: "c" + (s.choices.length + 1), label: "" }); delete s.next; }
+  else if (t.dataset.delch != null) { s.choices.splice(+t.dataset.delch, 1); if (!s.choices.length) delete s.choices; }
+  else if (t.dataset.mv) { const j = i + +t.dataset.mv; if (j < 0 || j >= c.scenes.length) return; [c.scenes[i], c.scenes[j]] = [c.scenes[j], c.scenes[i]]; }
+  else if (t.hasAttribute("data-del")) {
+    if (c.scenes.length === 1) return;
+    if ((s.text || "").trim() && !t.classList.contains("arm")) { t.classList.add("arm"); t.textContent = "刪?"; t.style.color = "var(--cinnabar)"; return; }
+    c.scenes.splice(i, 1);
+  } else return;
+  touch(cur); paintScenes(); paintRail();
+});
+
+/* ── 預覽：照正式事件畫面的規則演一遍（文字版） ── */
+function paintPreview() {
+  const c = chapters[cur]; let lastBg = null, html = "";
+  c.scenes.forEach((s, i) => {
+    if (s.bg && s.bg !== lastBg) { html += `<div class="place">${esc(s.place || BGS[s.bg] || s.bg)}</div>`; lastBg = s.bg; }
+    const w = whoOf(s);
+    const name = w === "me" ? "你" : CHARS[w] || s.speaker || "";
+    const titleNote = w === c.character_id && c.char_title.label ? `・${c.char_title.label}` : "";
+    html += w === "narr" ? `<div class="line narr">${esc(s.text)}</div>`
+      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${esc(s.text)}</div>`;
+    if ((s.choices || []).length) html += `<div class="opts">${s.choices.map((ch) =>
+      `<div class="opt">${esc(ch.label || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}<small>→ ${esc(ch.to || "下一幕")}</small></div>`).join("")}</div>`;
+    if (s.end) html += `<div class="endmark">— 此路到此 —</div>`;
+  });
+  $("body").innerHTML = `<div class="stage">${html || `<div class="line narr">還沒有任何一幕。</div>`}</div>
+    <p style="font-size:12px;color:var(--ink-faint);margin:6px 0 0">這是文字版預覽。實際的立繪、換場黑場，到正式站網址加 <code>?preview=editor</code> 貼上 scenes 試演。</p>`;
+}
+
+/* ── 檢查 ── */
+function checks(c) {
+  const out = [], E = (t) => out.push(["e", t]), W = (t) => out.push(["w", t]);
+  const ss = c.scenes, ids = new Set(ss.map((s) => s.id).filter(Boolean));
+  if (!c.title.trim()) E("章名還沒寫。");
+  const n = ss.filter((s) => (s.text || "").trim()).length;
+  if (n < 6) W(`現在 ${n} 幕有字；一章建議 6～10 幕。`); else if (n > 10) W(`${n} 幕，比建議的 10 幕多。`);
+  ss.forEach((s, i) => { if (!(s.text || "").trim()) E(`第 ${i + 1} 幕沒有台詞。`); });
+  const nch = ss.reduce((a, s) => a + (s.choices || []).length, 0);
+  if (!nch) W("整章沒有選項。進度記的是最後一個選項的 key，至少要有一處。");
+  ss.forEach((s, i) => (s.choices || []).forEach((ch, k) => {
+    if (!(ch.label || "").trim()) E(`第 ${i + 1} 幕的第 ${k + 1} 個選項沒有字。`);
+    if (!(ch.key || "").trim()) E(`第 ${i + 1} 幕的第 ${k + 1} 個選項沒有 key。`);
+    if (ch.to && !ids.has(ch.to)) E(`第 ${i + 1} 幕的選項跳到「${ch.to}」，找不到這一幕。`);
+  }));
+  ss.forEach((s, i) => { if (s.next && !ids.has(s.next)) E(`第 ${i + 1} 幕往「${s.next}」，找不到這一幕。`); });
+  const ids2 = ss.map((s) => s.id).filter(Boolean); if (new Set(ids2).size !== ids2.length) E("有兩幕用了同一個代號。");
+  const branch = ss.some((s) => (s.choices || []).some((ch) => ch.to));
+  if (branch && !ss.some((s) => s.end)) W("有分支，但沒有任何一幕勾「到此結束」：前一條會一路演到另一條去。");
+  ss.forEach((s, i) => {
+    const w = whoOf(s);
+    if (w === "narr" && (s.text || "").length > 60) W(`第 ${i + 1} 幕的旁白有 ${(s.text || "").length} 字，旁白一句帶過就好。`);
+    if (/你說[：:]/.test(s.text || "")) W(`第 ${i + 1} 幕寫了「你說：」。你選的話會自動留在下一句上方，不必再寫。`);
+  });
+  if (!ss[0] || !ss[0].bg) W("第一幕沒有場景。");
+  if (!c.char_title.label.trim() && !c.player_title.label.trim()) W("兩個稱號都還空著（每章一個他的身分、一個你的稱號）。");
+  else { if (!c.char_title.label.trim()) W("他的新身分還空著。"); if (!c.player_title.label.trim()) W("你的新稱號還空著。"); }
+  if (c.char_title.label && !c.char_title.voice_hint.trim()) W("他的新身分沒有 voice_hint：換上之後他的口氣不會變。");
+  for (const [k, v] of [["他的新身分", c.char_title.voice_hint], ["你的新稱號", c.player_title.voice_hint]])
+    if (INTIMATE.test(v || "")) E(`${k}的 voice_hint 寫到了親密程度（「${(v.match(INTIMATE) || [""])[0]}」）。只寫立場、稱謂、在意的事。`);
+  if (!c.reward_memory.trim()) W("沒有寫他會記住的那句話。");
+  if (c.reward_avatar && !/^r\d\d$/.test(c.reward_avatar)) W("頭像 key 的格式是 r01～r13；新的頭像要前端先有。");
+  if (c.chapter > 1 && !c.require_event) W("不是第一章，但沒有填前一章。");
+  return out;
+}
+function paintChecks() {
+  const el = $("checks"); if (!el) return;
+  const list = checks(chapters[cur]);
+  el.innerHTML = list.length ? list.map(([lv, t]) => `<li><span class="lv ${lv}">${lv === "e" ? "要改" : "留意"}</span><span>${esc(t)}</span></li>`).join("")
+    : `<li><span class="lv o">可以</span><span>沒有問題。寫完把狀態改成「定稿」。</span></li>`;
+}
+
+/* ── 輸出：scenes（照 EVENT-SCRIPT.md 的格式）＋那一列其他欄位 ── */
+function cleanScenes(ss) {
+  return ss.map((s) => { const o = {}; for (const k of ["id", "bg", "place", "portrait", "who", "speaker", "me", "text", "choices", "next", "end"]) {
+    if (!(k in s) || s[k] === undefined || s[k] === "") continue;
+    if (k === "choices") { const cs = s.choices.filter((ch) => (ch.label || "").trim()).map((ch) => { const x = { key: ch.key, label: ch.label }; if (ch.hint) x.hint = ch.hint; if (ch.to) x.to = ch.to; return x; }); if (cs.length) o.choices = cs; continue; }
+    o[k] = s[k]; } return o; });
+}
+function rowText(c) {
+  const ptId = c.player_title.id || (c.player_title.label ? "（新稱號：Claude 建 player_titles 時給 id）" : "");
+  return [
+    ["id", c.id], ["character_id", c.character_id], ["chapter", c.chapter], ["seq", c.chapter],
+    ["title", c.title], ["summary", c.summary], ["require_favor", c.require_favor], ["require_event", c.require_event],
+    ["reward_lingshi", c.reward_lingshi], ["reward_avatar", c.reward_avatar], ["reward_title", c.char_title.label],
+    ["reward_memory", c.reward_memory], ["reward_player_title", ptId], ["choices", "（清空：選項已寫在幕裡）"],
+  ].map(([k, v]) => `${k.padEnd(20)} ${v ?? ""}`).join("\n");
+}
+function paintOut() {
+  const el = $("out"); if (!el) return;
+  const c = chapters[cur], sc = JSON.stringify(cleanScenes(c.scenes), null, 2);
+  el.innerHTML = `
+    <div class="outhead"><b>scenes</b><button class="btn sm" data-copy="o-sc">複製</button></div><pre class="out" id="o-sc">${esc(sc)}</pre>
+    <div class="outhead" style="margin-top:12px"><b>其他欄位</b><button class="btn sm" data-copy="o-row">複製</button></div><pre class="out" id="o-row">${esc(rowText(c))}</pre>`;
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-copy]"); if (!b) return;
+  const pre = $(b.dataset.copy);
+  try { await navigator.clipboard.writeText(pre.textContent); b.textContent = "已複製"; }
+  catch (err) { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "已選取，按複製"; }
+  setTimeout(() => { b.textContent = "複製"; }, 1600);
+});
+
+/* ── 開場 ── */
+function apply(list) {
+  for (const d of list) if (!dirty.has(d.id)) chapters[d.id] = d;
+  paintRail();
+  if (cur && chapters[cur] && !dirty.has(cur) && !document.activeElement?.closest?.("#main")) paintMain();
+}
+(async () => {
+  const drafts = lsRead();
+  try { db = window.claude && claude.use ? await claude.use("db") : null; } catch (e) { db = null; }
+  if (!db) {
+    chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
+    $("banner").hidden = false;
+    $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
+    return;
+  }
+  db.collection("chapters").onSnapshot((snap) => {
+    apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
+    if (!dirty.size) setSave("已同步");
+  }, () => setSave("雲端存檔斷線，重新整理頁面", true));
+})();
+</script>
