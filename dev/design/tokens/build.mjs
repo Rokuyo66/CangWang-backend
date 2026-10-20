@@ -119,6 +119,18 @@ const gen = {
     return L.join("\n");
   },
 
+  // 前端：墊圖兩組（styles/hall.css 的 --bd-*；規範頁「六 墊圖」）。scene＝觀堂這種字少的頁，text＝信件、卜卦、廣場這種字多的頁
+  webBackdrop: () => {
+    const B = T.backdrop || {}, L = [":root{"];
+    for (const set of ["scene", "text"]) {
+      const b = B[set]; if (!b) continue;
+      L.push(`  --bd-${set}-h:${b.h}px; --bd-${set}-op-l:${b.opL / 100}; --bd-${set}-op-d:${b.opD / 100};`);
+      L.push(`  --bd-${set}-mid:${b.mid}%; --bd-${set}-mid-a:${b.midA / 100}; --bd-${set}-blur:${b.blur}px; --bd-${set}-pad:${b.pad}%;`);
+    }
+    L.push("}");
+    return L.join("\n");
+  },
+
   // 前端：給 JS 用的同一份數字（src/app/design-tokens.js 整檔）
   webJs: () => {
     const o = { version: T.version, themes: Object.fromEntries(THEMES.map((t) => [meta(t).key, { name: meta(t).name, dark: !!meta(t).dark }])),
@@ -173,6 +185,7 @@ const TARGETS = [
   { side: "back", file: "dev/widget/entry.ts", c: "//", regions: { "widget-colors": gen.widgetTs } },
   { side: "web", file: "src/base/00-tokens-themes.css", c: "/*", regions: Object.fromEntries(THEMES.map((t) => [`theme-${t}`, () => gen.theme(t)])) },
   { side: "web", file: "src/styles/motion.css", c: "/*", regions: { motion: gen.webMotion, buttons: gen.webButtons, seg: gen.webSeg } },
+  { side: "web", file: "src/styles/hall.css", c: "/*", regions: { backdrop: gen.webBackdrop } },
   { side: "web", file: "src/app/design-tokens.js", c: "//", regions: { "design-js": gen.webJs } },
   { side: "web", file: "android/app/src/main/java/com/cangwang/jizhiguan/widget/Palette.java", c: "//", regions: { palette: gen.java } },
 ];

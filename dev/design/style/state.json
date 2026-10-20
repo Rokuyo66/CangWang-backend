@@ -5,9 +5,9 @@
       "paper": "#F2EBDA",
       "paper-2": "#EBE1CC",
       "paper-edge": "#E0D4B8",
-      "ink": "#272320",
-      "ink-soft": "#5A5045",
-      "ink-faint": "#8A7E6C",
+      "ink": "#1C1917",
+      "ink-soft": "#37312A",
+      "ink-faint": "#746958",
       "hair": "rgba(34,30,26,.13)",
       "shadow": "rgba(60,48,30,.18)",
       "cinnabar": "#B5402E",
@@ -24,8 +24,8 @@
       "paper-2": "#2F2923",
       "paper-edge": "#0D0A08",
       "ink": "#ECE3D1",
-      "ink-soft": "#B3A78F",
-      "ink-faint": "#857B68",
+      "ink-soft": "#D5C8AE",
+      "ink-faint": "#C1A776",
       "hair": "rgba(236,227,209,.25)",
       "shadow": "rgba(0,0,0,.5)",
       "cinnabar": "#D86A52",
@@ -60,8 +60,8 @@
       "paper-2": "#69120C",
       "paper-edge": "#4E1A15",
       "ink": "#FAE2E0",
-      "ink-soft": "#D3A69F",
-      "ink-faint": "#A2756E",
+      "ink-soft": "#FBD1CB",
+      "ink-faint": "#DDA59C",
       "hair": "rgba(250,226,224,0.3)",
       "shadow": "rgba(0,0,0,0.65)",
       "cinnabar": "#E34234",
@@ -370,7 +370,130 @@
       "at": "2026-10-03T08:00:00Z",
       "applied": true,
       "note": "12 項色碼（夜觀 6、竹簡 6）已套用到前端 main（web #87），基準更新"
+    },
+    {
+      "at": "2026-10-20T15:16:02.421Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "ink",
+          "name": "墨",
+          "from": "#272320",
+          "to": "#1C1917"
+        },
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#5A5045",
+          "to": "#37312A"
+        },
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#8A7E6C",
+          "to": "#746958"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#B3A78F",
+          "to": "#D5C8AE"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#857B68",
+          "to": "#C1A776"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#D3A69F",
+          "to": "#FBD1CB"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#A2756E",
+          "to": "#DDA59C"
+        },
+        {
+          "kind": "bd",
+          "set": "text",
+          "tn": "墊圖・字多的頁",
+          "key": "mid",
+          "name": "清楚段到哪裡",
+          "unit": "%",
+          "from": 40,
+          "to": 50
+        },
+        {
+          "kind": "bd",
+          "set": "text",
+          "tn": "墊圖・字多的頁",
+          "key": "midA",
+          "name": "清楚段的濃度",
+          "unit": "%",
+          "from": 80,
+          "to": 30
+        },
+        {
+          "kind": "bd",
+          "set": "text",
+          "tn": "墊圖・字多的頁",
+          "key": "blur",
+          "name": "模糊",
+          "unit": "px",
+          "from": 0,
+          "to": 1
+        }
+      ]
+    },
+    {
+      "at": "2026-10-20T16:00:00Z",
+      "applied": true,
+      "note": "7 項色碼（宣紙墨三階、夜觀與硃砂淡墨兩階）與字多頁墊圖（清楚段 50%、濃度 30%、模糊 1px）已套用到前端，基準更新"
     }
   ],
-  "savedAt": "2026-10-03T06:56:31.359Z"
+  "savedAt": "2026-10-20T15:16:02.421Z",
+  "backdrop": {
+    "scene": {
+      "h": 560,
+      "opL": 30,
+      "opD": 42,
+      "mid": 40,
+      "midA": 80,
+      "blur": 0,
+      "pad": 0
+    },
+    "text": {
+      "h": 560,
+      "opL": 30,
+      "opD": 42,
+      "mid": 50,
+      "midA": 30,
+      "blur": 1,
+      "pad": 0
+    }
+  }
 }

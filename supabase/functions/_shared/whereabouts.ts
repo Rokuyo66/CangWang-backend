@@ -18,6 +18,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 export const PLACES: Record<string, string> = {
   guanmen: "觀門", qianting: "前廳", dadian: "大殿", zhongting: "中庭", langxia: "廊下",
   xiangfang: "廂房", zaofang: "灶房", houyuan: "後院", wuji: "屋脊", cangjingge: "藏經閣",
+  kezhan: "山下客棧",   // 廣場的底圖（六六 2026-10-20：師兄他們偶爾出門晃過去）——權重都只給 1，偶爾才撞見
 };
 
 /** 時段：n 深夜 0–5／d 清晨 5–9／m 上午 9–12／z 午間 12–14／a 午後 14–18／e 傍晚 18–22／l 夜 22–24 */
@@ -42,6 +43,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下喝茶",     bands: "za", w: 4 },
     { place: "zhongting",  doing: "在中庭看天色",   bands: "de", w: 2 },
     { place: "guanmen",    doing: "在觀門送客",     bands: "ma", w: 1 },
+    { place: "kezhan",     doing: "下山到客棧打聽消息", bands: "ae", w: 1 },
     { place: "xiangfang",  doing: "在廂房擦劍",     bands: "el", w: 2 },
     { place: "xiangfang",  doing: "還沒睡",         bands: "nl", w: 5 },
   ],
@@ -55,6 +57,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下縫補",     bands: "a",  w: 2 },
     { place: "dadian",     doing: "在大殿上香",     bands: "de", w: 3 },
     { place: "guanmen",    doing: "在觀門收信",     bands: "m",  w: 2 },
+    { place: "kezhan",     doing: "下山到客棧採買", bands: "ma", w: 1 },
     { place: "cangjingge", doing: "在藏經閣整理帳冊", bands: "a", w: 1 },
     { place: "xiangfang",  doing: "在燈下抄經",     bands: "nl", w: 5 },
   ],
@@ -68,6 +71,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下舔爪",     bands: "zae", w: 3 },
     { place: "zaofang",    doing: "在灶房門口蹲著", bands: "ze", w: 3 },
     { place: "qianting",   doing: "在前廳帳簿上趴著", bands: "ma", w: 2 },
+    { place: "kezhan",     doing: "溜去客棧討魚吃", bands: "ze", w: 1 },
     { place: "xiangfang",  doing: "在廂房窩著",     bands: "nl", w: 2 },
   ],
 };
