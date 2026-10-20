@@ -204,6 +204,66 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 .dlg-row{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .toast{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;translate:-50% 0;z-index:60;background:#1E1A16;color:#F4EFE6;border-radius:999px;padding:8px 18px;font-size:13px}
 .toast[hidden]{display:none}
+
+/* ── 墊圖：頁面最上面那張襯底的場景圖（站上 styles/hall.css 的 .hall-bg）──
+   手機框裡照站上的 CSS 像素畫（390 寬），再整個縮小擺進來：圖帶高 560、字級、留白都是真的數字，看到的比例就是站上的比例。 */
+.bd-grid{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:980px){.bd-grid{grid-template-columns:minmax(0,1fr)}}
+.bd-ctl{display:flex;flex-direction:column;gap:12px}
+.bd-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 52px;gap:10px;align-items:center;font-size:13px}
+.bd-row span{color:var(--c-soft)}
+.bd-row small{display:block;font-size:11.5px;color:var(--c-faint);line-height:1.5}
+.bd-row input[type=range]{width:100%;accent-color:var(--c-accent)}
+.bd-row output{font-family:var(--f-mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+.bd-row.changed span::after{content:"已改";margin-left:6px;font-size:10.5px;color:var(--c-warn);border:1px solid currentColor;border-radius:999px;padding:0 5px}
+.bd-pick{display:flex;gap:6px}
+.bd-pick button{flex:1;border:1px solid var(--c-line);background:var(--c-panel);border-radius:999px;padding:6px 10px;font-size:13px;letter-spacing:.06em}
+.bd-pick button[aria-pressed="true"]{background:var(--c-ink);color:var(--c-panel);border-color:var(--c-ink)}
+.bd-phones{display:flex;flex-wrap:wrap;gap:18px}
+.bd-wrap{display:flex;flex-direction:column;gap:6px;flex:none}
+.bd-wrap figcaption{font-size:12px;color:var(--c-soft);letter-spacing:.06em}
+.bd-wrap figcaption b{color:var(--c-ink);font-weight:500}
+.bd-clip{width:calc(390px * var(--bd-s, .82));height:calc(800px * var(--bd-s, .82));border-radius:22px;overflow:hidden;border:6px solid #1c1814;box-sizing:content-box}
+.bd-ph{width:390px;height:800px;transform:scale(var(--bd-s, .82));transform-origin:0 0;position:relative;isolation:isolate;overflow:hidden;
+  background:var(--paper);color:var(--ink);font-family:var(--f-disp)}
+.bd-img{position:absolute;z-index:-1;left:0;right:0;top:0;height:calc(var(--h) * 1px);background:center 34% / cover no-repeat;opacity:var(--op);
+  filter:blur(calc(var(--blur) * 1px));
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,var(--midA)) calc(var(--mid) * 1%),transparent 100%);
+          mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,var(--midA)) calc(var(--mid) * 1%),transparent 100%)}
+/* 頂列：有底圖時換成 50% 黑漸層＋淺色字（站上 hall.css 同一條） */
+.bd-tb{height:52px;display:flex;align-items:center;gap:8px;padding:0 14px;background:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.28) 55%,transparent);color:var(--bd-on);font-size:11px;letter-spacing:.06em}
+.bd-tb .d{margin-right:auto;line-height:1.35;text-shadow:0 1px 3px rgba(0,0,0,.45)}
+.bd-tb .p{border:1px solid color-mix(in srgb,var(--bd-on) 45%,transparent);border-radius:30px;padding:4px 10px;font-size:11px}
+.bd-col{margin:0 14px;border-radius:16px;padding:6px 12px 12px;background:color-mix(in srgb,var(--paper) calc(var(--pad) * 1%),transparent)}
+/* 信件 */
+.bd-mh{display:flex;align-items:center;justify-content:space-between;padding:14px 2px 10px}
+.bd-mh h4{margin:0;font-size:16px;letter-spacing:.5em;font-weight:700}
+.bd-mh span{font-size:11px;color:var(--ink-soft);border:1px solid var(--hair);border-radius:30px;padding:4px 10px}
+.bd-tabs{display:flex;gap:6px;margin-bottom:6px}
+.bd-tabs i{flex:1;text-align:center;font-style:normal;font-size:13px;letter-spacing:.12em;padding:7px 0;border-radius:30px;background:var(--paper-2);color:var(--ink-faint)}
+.bd-tabs i.on{background:var(--ink);color:var(--paper)}
+.bd-mail{display:grid;grid-template-columns:40px minmax(0,1fr);gap:4px 10px;padding:12px 2px;border-bottom:1px solid var(--hair)}
+.bd-mail .av{grid-row:span 3;width:40px;height:40px;border-radius:50%;background:var(--paper-edge)}
+.bd-mail .t{font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px}
+.bd-mail .t em{font-style:normal;font-size:10px;color:var(--cinnabar);border:1px solid var(--cinnabar);border-radius:4px;padding:0 4px}
+.bd-mail .x{font-size:12px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bd-mail .m{font-size:11px;color:var(--ink-faint)}
+/* 問事 */
+.bd-ask{text-align:center;padding-top:130px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.bd-ask h4{margin:0;font-size:34px;letter-spacing:.2em;font-weight:700}
+.bd-ask .s{font-size:13px;letter-spacing:.3em;color:var(--ink-soft)}
+.bd-ask .q{width:100%;margin-top:26px;padding:10px 0;border-bottom:1px solid var(--hair);font-size:18px;color:var(--ink-faint)}
+.bd-ask .h{font-size:12px;color:var(--ink-soft);letter-spacing:.06em}
+.bd-ask .seg{display:flex;gap:4px;padding:4px;border-radius:30px;background:var(--paper-2);font-size:13px;margin-top:14px}
+.bd-ask .seg i{font-style:normal;padding:6px 14px;border-radius:30px;color:var(--ink-soft)}
+.bd-ask .seg i.on{background:var(--ink);color:var(--paper)}
+.bd-ask .go{margin-top:8px;padding:12px 46px;border-radius:30px;background:var(--ink);color:var(--paper);letter-spacing:.5em;font-size:15px}
+/* 觀堂 */
+.bd-hall{padding-top:18px}
+.bd-hall h4{margin:0;font-size:24px;letter-spacing:.2em;font-weight:700}
+.bd-hall .s{font-size:13px;color:var(--ink-soft);margin-top:2px}
+.bd-hall .c{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.bd-hall .c div{height:150px;border-radius:14px;background:var(--paper-2);border:1px solid var(--paper-edge);display:flex;align-items:flex-end;padding:10px;font-size:14px;font-weight:500}
 </style>
 
 <div id="root"></div>
@@ -218,13 +278,28 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
      saved：上一次存檔時的樣子，用來判斷「有沒有還沒存的修改」。存檔＝把整份頁面連同這包狀態重新發佈。 */
   const STATE = JSON.parse(document.getElementById("spec-state").textContent);
   const clone = (x) => JSON.parse(JSON.stringify(x));
-  let cur = clone({ themes: STATE.themes, buttons: STATE.buttons });
+  // backdrop：墊圖兩組（scene 字少的頁＝觀堂、text 字多的頁）；STATE.bdBase 是站上現值（tokens.json 的 backdrop）
+  const BD_KEYS = [
+    ["h", "圖帶的高", "px", 240, 900, 10, "從畫面最頂端往下，圖鋪多高"],
+    ["opL", "淺色主題的濃度", "%", 0, 60, 1, "宣紙、竹簡、青花"],
+    ["opD", "深色主題的濃度", "%", 0, 70, 1, "夜觀、硃砂：暗紙上同一個數字看起來比較淡"],
+    ["mid", "清楚段到哪裡", "%", 0, 95, 1, "圖帶的這個位置以前還算清楚，之後一路淡到 0"],
+    ["midA", "清楚段的濃度", "%", 0, 100, 1, "在「清楚段到哪裡」那一點還剩多少"],
+    ["blur", "模糊", "px", 0, 12, 0.5, "把圖的細節糊掉，字比較不會被紋理吃掉"],
+    ["pad", "內容後面墊紙", "%", 0, 95, 1, "字的那一欄後面墊一層紙色；0＝不墊"],
+  ];
+  const BD_SETS = [["text", "字多的頁"], ["scene", "觀堂（字少）"]];
+  const bdDefault = () => ({ h: 560, opL: 30, opD: 42, mid: 40, midA: 80, blur: 0, pad: 0 });
+  STATE.bdBase = STATE.bdBase || { scene: bdDefault(), text: bdDefault() };
+  let cur = clone({ themes: STATE.themes, buttons: STATE.buttons, backdrop: STATE.backdrop || STATE.bdBase });
+  let bdSet = "text";
+  const BD_IMG = "/*BDIMG*/";
   const saved = clone(cur);
   let theme = "xuan";
   try { const t = localStorage.getItem("spec-theme"); if (STATE.themes[t]) theme = t; } catch (e) {}
 
   /* 主題清單、色碼說明、按鈕四型與算式：全部來自 dev/design/tokens.json（唯一真相），不在這裡另寫一份。 */
-  // @design:begin spec-design v=1b9d1b52 #fbbfe93b（由後端 dev/design/tokens.json 產生，不要手改）
+  // @design:begin spec-design v=c952025f #fbbfe93b（由後端 dev/design/tokens.json 產生，不要手改）
   const DESIGN = {"version":"v4・2026-10-05（統一 token 檔）","themes":{"order":["xuan","night","bamboo","cinnabar","porcelain"],"meta":{"xuan":{"name":"宣紙","key":"paper","css":":root","dark":false},"night":{"name":"夜觀","key":"night","css":"[data-theme=\"night\"]","dark":true},"bamboo":{"name":"竹簡","key":"bamboo","css":"[data-theme=\"bamboo\"]","dark":false},"cinnabar":{"name":"硃砂","key":"cinnabar","css":"[data-theme=\"cinnabar\"]","dark":true},"porcelain":{"name":"青花","key":"porcelain","css":"[data-theme=\"porcelain\"]","dark":false}},"tokens":[{"g":"紙與墨","k":"paper","n":"紙","u":"頁面底色。全站最大的一塊顏色。"},{"g":"紙與墨","k":"paper-2","n":"次一階紙","u":"卡片、頁籤未選、輸入框、靈石膠囊的底。淺色主題比紙深一階，深色主題比紙亮一階。"},{"g":"紙與墨","k":"paper-edge","n":"紙邊","u":"卡片框、文字按鈕的框與側邊（厚度）。"},{"g":"紙與墨","k":"ink","n":"墨","u":"主要文字、標題、頁籤選中的底。"},{"g":"紙與墨","k":"ink-soft","n":"淡墨","u":"次要文字、說明、頂列膠囊的字。"},{"g":"紙與墨","k":"ink-faint","n":"極淡墨","u":"日期、圖示、頁籤未選的字、提示。"},{"g":"紙與墨","k":"hair","n":"細線","u":"分隔線、頂列膠囊與圖示鈕的框。帶透明度。"},{"g":"紙與墨","k":"shadow","n":"影","u":"按鈕落地的軟影、浮起的卡片。帶透明度。"},{"g":"強調","k":"cinnabar","n":"硃砂","u":"行動色：主按鈕、刪除、數字強調、紅點、滑過。只給「這裡有一件事要你處理」的東西。"},{"g":"強調","k":"cinnabar-soft","n":"硃砂淡底","u":"硃砂的淡底（選中列、提示底）。帶透明度。"},{"g":"強調","k":"gold","n":"金","u":"小標、日期、節氣、稱號；次按鈕的面。"},{"g":"五行","k":"wx-木","n":"木","u":"分類籤；應期「準」。"},{"g":"五行","k":"wx-火","n":"火","u":"分類籤；應期「不準」。"},{"g":"五行","k":"wx-土","n":"土","u":"分類籤；應期「部分準」。"},{"g":"五行","k":"wx-金","n":"金（五行）","u":"分類籤。"},{"g":"五行","k":"wx-水","n":"水","u":"分類籤。"}],"values":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#272320","ink-soft":"#5A5045","ink-faint":"#8A7E6C","hair":"rgba(34,30,26,.13)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#2F2923","paper-edge":"#0D0A08","ink":"#ECE3D1","ink-soft":"#B3A78F","ink-faint":"#857B68","hair":"rgba(236,227,209,.25)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#E7E9D8","paper-2":"#D9E1C1","paper-edge":"#A9B096","ink":"#12210F","ink-soft":"#21321A","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#220907","paper-2":"#69120C","paper-edge":"#4E1A15","ink":"#FAE2E0","ink-soft":"#D3A69F","ink-faint":"#A2756E","hair":"rgba(250,226,224,0.3)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#001F52","ink-soft":"#2A477A","ink-faint":"#1456B8","hair":"rgba(0,31,82,.16)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}}},"buttons":{"_說明":"按鈕四型與兩段開關。linked＝照下面算式從主題色碼推；false 時 custom[主題][元件][零件] 單獨設值。face 的 LIGHTFACE＝淺色主題用亮一階的紙、深色主題用 --paper-2。值是物件 {l,d} 時淺色／深色主題各一條。","linked":true,"custom":{},"types":[{"k":"primary","n":"主按鈕","web":".btn.primary","d":"一個畫面最重要的那一個動作（起卦、收下、確定）。硃砂實心、深硃砂側邊。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","text":"#FFF8F0"}},{"k":"second","n":"次按鈕","web":".btn.second","d":"同一畫面裡第二重要、但仍是「做一件事」的動作。金實心、深金側邊。","link":{"face":"var(--gold)","border":"var(--gold)","edge":"color-mix(in srgb, var(--gold) 65%, black)","text":"#FFF8F0"}},{"k":"text","n":"文字按鈕","web":".btn","d":"取消、再想想、返回以外的一般選擇。亮一階的紙面，紙邊框與側邊同色連成一體；滑過時框與字轉硃砂。","link":{"face":"LIGHTFACE","border":"var(--paper-edge)","edge":"var(--paper-edge)","text":"var(--ink)"},"hover":{"border":"var(--cinnabar)","text":"var(--cinnabar)"}},{"k":"danger","n":"危險按鈕","web":".btn.fill","d":"刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 60%, black)","text":"#FFF8F0"}},{"k":"seg","n":"兩段開關","stage":"seg","web":"--seg-","d":"時序｜月曆這種二選一的開關。凹下去的軌道＋一塊有厚度的硃砂滑塊，滑動時擠扁再彈回。深色主題的軌道比紙更深、凹槽陰影用黑，不從墨推。","parts":[["track","軌道"],["groove","凹槽陰影"],["knob","滑塊"],["knob-edge","滑塊厚度"],["on","選中的字"],["off","沒選的字"]],"link":{"track":{"l":"color-mix(in srgb, var(--ink) 6%, var(--paper-2))","d":"color-mix(in srgb, black 38%, var(--paper))"},"groove":{"l":"color-mix(in srgb, var(--ink) 20%, transparent)","d":"rgba(0,0,0,.62)"},"knob":"var(--cinnabar)","knob-edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","on":"#FFF8F0","off":"var(--ink-soft)"}}],"parts":[["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]]}};
   // @design:end spec-design
   const THEMES = DESIGN.themes.order.map((t) => [t, DESIGN.themes.meta[t].name]);
@@ -272,6 +347,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       st.setProperty(`--b-${b.k}-${p}`, v);
     }));
     pushMotion();
+    bdPaint();
     refreshDirty();
   }
 
@@ -287,11 +363,15 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       const x = a.buttons.custom?.[t]?.[bt.k]?.[p] || "", y = b.buttons.custom?.[t]?.[bt.k]?.[p] || "";
       if (norm(x) !== norm(y) && y) out.push({ kind: "btn", theme: t, tn, key: bt.k, name: bt.n + "・" + pn, part: p, from: x || "（連動）", to: y });
     })));
+    BD_SETS.forEach(([s, sn]) => BD_KEYS.forEach(([k, n, u]) => {
+      const x = a.backdrop?.[s]?.[k], y = b.backdrop?.[s]?.[k];
+      if (x !== y) out.push({ kind: "bd", set: s, tn: "墊圖・" + sn, key: k, name: n, unit: u, from: x, to: y });
+    }));
     return out;
   }
   const norm = (c) => { try { return c ? fmt(parse(c)) : ""; } catch (e) { return c; } };
   const unsaved = () => diffList(saved, cur);
-  const pending = () => diffList({ themes: STATE.baseline, buttons: { linked: true, custom: {} } }, cur);
+  const pending = () => diffList({ themes: STATE.baseline, buttons: { linked: true, custom: {} }, backdrop: STATE.bdBase }, cur);
 
   function refreshDirty() {
     const u = unsaved(), p = pending();
@@ -320,7 +400,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     <div class="wrap">
       <nav class="nav" aria-label="章節">
         <a href="#color">色彩</a><a href="#buttons">按鈕</a><a href="#layout">版面與留白</a>
-        <a href="#diff">App 與網頁</a><a href="#motion">動態</a><a href="#pending">待套用</a>
+        <a href="#diff">App 與網頁</a><a href="#motion">動態</a><a href="#backdrop">墊圖</a><a href="#pending">待套用</a>
       </nav>
       <main>
         <section class="sec" id="color">
@@ -422,8 +502,21 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
           <iframe class="motion-frame" id="motionFrame" title="動態規範"></iframe>
         </section>
 
+        <section class="sec" id="backdrop">
+          <div><div class="sec-k">六　墊圖</div><h2>頁面最上面那張襯底的圖</h2></div>
+          <p class="lead">觀堂的場景圖、問事與信件的桌案圖都是這一種：從畫面最頂端鋪下來，淡淡的，往下自然淡出；圖上的頂列換成黑漸層＋淺色字。字少的頁（觀堂）與字多的頁（問事、搖卦、批文、信件）各一組數字——字多的頁要更淡、更早淡掉，或在字後面墊一層紙，字才不會被圖吃掉。</p>
+          <p class="note">右邊三支手機照站上的 CSS 像素畫（390 寬、圖帶 ${STATE.bdBase.scene.h}px 起跳），縮小擺進來；上面切主題，這裡跟著換。示範圖是 Sence/10.Table.webp 縮小版。改了存檔後在「待套用」拿說明。</p>
+          <div class="bd-grid">
+            <div class="panel bd-ctl">
+              <div class="bd-pick" role="group" aria-label="調哪一組">${BD_SETS.map(([s, n]) => `<button data-bdset="${s}" aria-pressed="${s === bdSet}">${n}</button>`).join("")}</div>
+              <div id="bdRows">${bdRows()}</div>
+            </div>
+            <div class="bd-phones" id="bdPhones">${bdPhones()}</div>
+          </div>
+        </section>
+
         <section class="sec" id="pending">
-          <div><div class="sec-k">六　待套用</div><h2>已存檔、還沒上站的修改</h2></div>
+          <div><div class="sec-k">七　待套用</div><h2>已存檔、還沒上站的修改</h2></div>
           ${pendingHtml()}
         </section>
       </main>
@@ -439,6 +532,43 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     { const bx = document.querySelectorAll(".btn-types")[0]; if (bx) bx.innerHTML = BTN.map(btnCard).join(""); }
     tabsInit();
     motionInit();
+  }
+
+  /* ── 墊圖 ── */
+  function bdRows() {
+    const v = cur.backdrop[bdSet], b = STATE.bdBase[bdSet];
+    return BD_KEYS.map(([k, n, u, mn, mx, st, hint]) => `<label class="bd-row${v[k] !== b[k] ? " changed" : ""}" data-bdrow="${k}">
+      <span>${esc(n)}<small>${esc(hint)}　站上 ${esc(b[k])}${esc(u)}</small></span>
+      <input type="range" id="bd-${k}" data-bd="${k}" min="${mn}" max="${mx}" step="${st}" value="${v[k]}">
+      <output for="bd-${k}">${v[k]}${u}</output></label>`).join("");
+  }
+  const MAILS = [["夜裡的瓦", "護道人好：那晚你上來時，我正披頭散髮地吃糕，實在失禮。你別笑，我在這…", "師妹・10/19"],
+    ["灶房的事", "灶房那件事，不必跟師妹說。方子是她的，火候是我看錯。第三籠塌得最少…", "大師兄・10/4"],
+    ["本喵只是睡在上面", "哼。那本冊子墊起來剛好，紙有太陽的味道。本喵只是睡在上面，沒有在看…", "觀貓・10/1"]];
+  const bdTop = () => `<div class="bd-tb"><span class="d">丙午年・戊戌月・丁卯日<br>農曆九月十一・寒露</span><span class="p">✉</span><span class="p">💎 388</span></div>`;
+  function bdPhones() {
+    const ph = (set, cap, body) => `<figure class="bd-wrap" style="margin:0"><div class="bd-clip"><div class="bd-ph" data-bdph="${set}">
+      <div class="bd-img" style="background-image:url('${BD_IMG}')"></div>${bdTop()}${body}</div></div>
+      <figcaption><b>${cap}</b>・${set === "text" ? "字多的頁" : "觀堂（字少）"}</figcaption></figure>`;
+    const mail = `<div class="bd-col"><div class="bd-mh"><span>‹ 返回</span><h4>站內信</h4><span>全部已讀</span></div>
+      <div class="bd-tabs"><i class="on">全部</i><i>觀中誌</i><i>來信</i><i>通知</i></div>
+      ${MAILS.map(([t, x, m]) => `<div class="bd-mail"><i class="av"></i><div class="t"><em>來信</em>${t}</div><div class="x">${x}</div><div class="m">${m}</div></div>`).join("")}</div>`;
+    const ask = `<div class="bd-col bd-ask"><h4>問事</h4><div class="s">— 靜心，述你所惑 —</div><div class="q">例：這段關係能否安穩？</div>
+      <div class="h">焚香淨身，有助提升占卜準確度。</div><div class="seg"><i class="on">搖卦</i><i>報三數</i><i>手動排盤</i></div><div class="go">起卦</div></div>`;
+    const hall = `<div class="bd-col bd-hall"><h4>觀堂</h4><div class="s">今日在觀的人・寒露第十三日</div><div class="c"><div>大師兄</div><div>師妹</div><div>觀貓</div></div></div>`;
+    return ph("text", "信件", mail) + ph("text", "問事", ask) + ph("scene", "觀堂", hall);
+  }
+  /* 把兩組數字灌進手機框（CSS 變數）。深色主題用 opD、淺色用 opL；頂列淺色字：淺色主題借紙、深色主題的墨本來就是淺色（同 hall.css 的 --tb-on） */
+  function bdPaint() {
+    const T = cur.themes[theme];
+    document.querySelectorAll("[data-bdph]").forEach((el) => {
+      const v = cur.backdrop[el.dataset.bdph];
+      const st = el.style;
+      st.setProperty("--h", v.h); st.setProperty("--op", (DARK[theme] ? v.opD : v.opL) / 100);
+      st.setProperty("--mid", v.mid); st.setProperty("--midA", v.midA / 100);
+      st.setProperty("--blur", v.blur); st.setProperty("--pad", v.pad);
+      st.setProperty("--bd-on", DARK[theme] ? T.ink : T.paper);
+    });
   }
 
   function tokRows(T) {
@@ -500,6 +630,8 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       <pre class="brief" id="brief">${esc(brief(p))}</pre>`;
   }
   function chgHtml(c) {
+    if (c.kind === "bd") return `<div class="chg"><span class="tag">${esc(c.tn)}</span><b>${esc(c.name)}</b> <code>${esc(c.key)}</code>
+      <span class="from">${esc(c.from)}${esc(c.unit)}</span>→<span class="to">${esc(c.to)}${esc(c.unit)}</span></div>`;
     if (c.kind === "link") return `<div class="chg"><b>按鈕</b> ${c.to ? "改回與基礎色碼連動" : "與基礎色碼斷開，改為單獨設定"}</div>`;
     return `<div class="chg"><span class="tag">${esc(c.tn)}</span><b>${esc(c.name)}</b>${c.kind === "token" ? ` <code>--${esc(c.key)}</code>` : ""}
       <span class="from"><i style="background:${esc(c.from)}"></i>${esc(norm(c.from) || c.from)}</span>→<span class="to"><i style="background:${esc(c.to)}"></i>${esc(norm(c.to))}</span></div>`;
@@ -519,6 +651,12 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     if (link || btn.length) {
       s += `2. tokens.json 的 buttons：linked＝${cur.buttons.linked ? "true（照規範算式從色碼推）" : "false（各主題單獨設定，寫進 custom[主題][元件][零件]）"}。\n`;
       btn.forEach((c) => { s += `   ${c.tn}・${c.name}：${norm(c.to)}\n`; });
+    }
+    const bd = p.filter((c) => c.kind === "bd");
+    if (bd.length) {
+      s += `2b. tokens.json 的 backdrop（墊圖）改成：\n`;
+      BD_SETS.forEach(([set, sn]) => { if (bd.some((c) => c.set === set)) s += `   ${set}（${sn}）：` + JSON.stringify(cur.backdrop[set]) + `\n`; });
+      s += `   前端目前兩組都吃 styles/hall.css 的 .hall-bg（寫死的數字）；第一次套用時要把它改成吃 token（觀堂用 scene、問事／搖卦／批文／信件的 #deskBg 用 text），生成器補一個落點。\n`;
     }
     s += `3. 跑 node dev/design/tokens/build.mjs --web <前端 repo>：前端主題色碼、按鈕、兩段開關、動態 token、小工具 Palette.java、規範頁、動態原型一起改。\n`;
     s += `   再把 dev/design/style/state.json 的 themes／buttons 設成跟 tokens.json 一樣（沒有待套用），跑 node dev/design/style/build.mjs，重新發佈規範。\n`;
@@ -551,6 +689,14 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     }));
     root.addEventListener("input", (e) => {
       const t = e.target, id = t.id || "";
+      if (t.dataset.bd) {   // 墊圖的滑桿
+        const k = t.dataset.bd, v = Number(t.value), u = BD_KEYS.find((x) => x[0] === k)[2];
+        cur.backdrop[bdSet][k] = v;
+        t.nextElementSibling.textContent = v + u;
+        t.closest(".bd-row").classList.toggle("changed", v !== STATE.bdBase[bdSet][k]);
+        bdPaint(); refreshDirty();
+        return;
+      }
       if (id.startsWith("c-")) {
         const k = id.slice(2), a = parse(cur.themes[theme][k]).a, o = parse(t.value); o.a = a;
         const v = fmt(o); setTok(k, v); const tx = $("#t-" + CSS.escape(k)); if (tx) tx.value = v;
@@ -583,6 +729,13 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       }
     });
     root.addEventListener("click", (e) => {
+      const bs = e.target.closest("[data-bdset]");
+      if (bs) {
+        bdSet = bs.dataset.bdset;
+        root.querySelectorAll("[data-bdset]").forEach((b) => b.setAttribute("aria-pressed", String(b === bs)));
+        $("#bdRows").innerHTML = bdRows();
+        return;
+      }
       const r = e.target.closest("[data-reset]");
       if (r) { const k = r.dataset.reset, v = STATE.baseline[theme][k]; setTok(k, v); const y = scrollY; render(); scrollTo(0, y); return; }
       if (e.target.id === "saveBtn") return askSave();
@@ -634,7 +787,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     let art = null;
     try { art = window.claude && window.claude.use ? await window.claude.use("artifact") : null; } catch (e) { art = null; }
     if (!art) { toast("這個檢視不能存檔（沒有編輯權限，或不在 claude.ai 裡開）"); return; }
-    const next = { ...STATE, themes: cur.themes, buttons: cur.buttons, savedAt: new Date().toISOString(),
+    const next = { ...STATE, themes: cur.themes, buttons: cur.buttons, backdrop: cur.backdrop, savedAt: new Date().toISOString(),
       history: [...(STATE.history || []), { at: new Date().toISOString(), changes: unsaved().map((c) => ({ ...c })) }] };
     const json = JSON.stringify(next).replace(/</g, "\\u003c");
     const html = SKEL + SRC.title + "\n" + SRC.fonts + "\n" + SRC.style + '\n<div id="root"></div>\n<template id="motionSrc">' + SRC.motion +

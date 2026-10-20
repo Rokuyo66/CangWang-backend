@@ -19,10 +19,16 @@ state.version = tokens.version;
 state.baseline = tokens.themes.values;
 if (!state.themes) state.themes = tokens.themes.values;
 if (!state.buttons) state.buttons = { linked: tokens.buttons.linked, custom: tokens.buttons.custom };
+// 墊圖（2026-10-20）：基準＝tokens.json 的 backdrop；state.json 沒有待套用的就等於基準
+state.bdBase = tokens.backdrop ? { scene: tokens.backdrop.scene, text: tokens.backdrop.text } : null;
+if (!state.backdrop && state.bdBase) state.backdrop = JSON.parse(JSON.stringify(state.bdBase));
+// 墊圖示範用的那張桌案圖（Sence/10.Table.webp 縮成 600 寬）：artifact 只能載自己帶的圖，內嵌成 data URI
+const bdImg = "data:image/webp;base64," + readFileSync(join(here, "backdrop-sample.webp")).toString("base64");
 
 if (!page.includes("<!--MOTION-->") || !page.includes("/*STATE*/")) throw new Error("index.html 少了 <!--MOTION--> 或 /*STATE*/ 佔位");
+if (!page.includes("/*BDIMG*/")) throw new Error("index.html 少了 /*BDIMG*/ 佔位（墊圖示範的圖）");
 if (motion.includes("</template>")) throw new Error("動態規範裡有 </template>，會把嵌入切斷");
 const json = JSON.stringify(state).replace(/</g, "\\u003c");   // JSON 放在 <script> 裡：不能出現 </script>
-const out = page.replace("<!--MOTION-->", () => motion).replace("/*STATE*/", () => json);
+const out = page.replace("<!--MOTION-->", () => motion).replace("/*STATE*/", () => json).replace("/*BDIMG*/", () => bdImg);
 writeFileSync(join(here, "spec.html"), out);
 console.log(`✅ dev/design/style/spec.html  ${(Buffer.byteLength(out) / 1024).toFixed(0)} KB`);

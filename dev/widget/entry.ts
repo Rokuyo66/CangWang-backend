@@ -31,7 +31,7 @@ interface Palette {
 
 /* App 同一組的六個色（card／line／ink／dim／gold／seal）來自 dev/design/tokens.json，跟 App、Palette.java 是同一份。
    背板（paper）與材質（texture）是這個原型自己的，只在這裡。 */
-// @design:begin widget-colors v=1b9d1b52 #4abb725f（由後端 dev/design/tokens.json 產生，不要手改）
+// @design:begin widget-colors v=c952025f #4abb725f（由後端 dev/design/tokens.json 產生，不要手改）
 const APP_COLORS: Record<string, { mode: "light" | "dark"; card: string; line: string; ink: string; dim: string; gold: string; seal: string }> = {
   xuan: { mode: "light", card: "#F2EBDA", line: "#E0D4B8", ink: "#272320", dim: "#8A7E6C", gold: "#D59F62", seal: "#B5402E" },   // 宣紙
   night: { mode: "dark", card: "#15120E", line: "#0D0A08", ink: "#ECE3D1", dim: "#857B68", gold: "#C4A164", seal: "#D86A52" },   // 夜觀

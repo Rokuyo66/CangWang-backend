@@ -9,6 +9,7 @@
 | --- | --- |
 | **token（唯一真相）** | `tokens.json`；生成器 `tokens/build.mjs` |
 | **美術規範（總）** | `style/`：五套主題色碼（可即時改、可存檔）、按鈕、版面與留白（App／手機／網頁三組數字）、App 與網頁差異，並嵌入下面的動態規範。原始檔 `style/index.html`（清單與算式讀 `tokens.json`），`style/state.json` 只放「改了還沒套用」的值與歷史，`node dev/design/style/build.mjs` 產出 `style/spec.html`。發佈在 https://claude.ai/artifact/SiQre47unz6og8MP5Yu3Nt |
+| **墊圖** | 規範頁「六　墊圖」：頁面最上面那張襯底的場景圖，兩組數字（`scene` 觀堂、`text` 字多的頁），基準在 `tokens.json` 的 `backdrop`。**前端還沒吃這組 token**（觀堂與桌案底圖都還是 `styles/hall.css` 的 `.hall-bg` 寫死的數字）；第一次套用時補一個生成器落點 |
 | **動態＋元件規範（主）** | `motion/prototype.html`：可點的原型（token 讀 `tokens.json`）。Token、按下與放開（有厚度的元件）、通用 TAG 頁籤、彈框與頁面、待機、強調、規則卡。同一份發佈在 https://claude.ai/artifact/EqkEtiWmrMhEPfn8VMjAZL |
 | 道緣事件劇本格式 | `journal/EVENT-SCRIPT.md`（試演台：前端網址加 `?preview=editor`） |
 | 心跡／手帳 | `xinji/`、`journal/` |
