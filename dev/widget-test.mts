@@ -177,5 +177,27 @@ await t("不回額度：問卦鈕上標不出剩幾卦", async () => {
   }
 });
 
+/* ---------- 行事曆（agenda） ---------- */
+
+await t("agenda：只標未印證的應期、不含日運，提醒照帶，節氣日算得出", async () => {
+  const ym = today.slice(0, 7);
+  const db = fakeDb({
+    profiles: [{ id: U, owned_themes: [] }],
+    casts: [
+      { id: "c1", user_id: U, question: "年底前能換工作嗎", due_date: `${ym}-15`, category: "事業" },
+      { id: "c2", user_id: U, question: "已印證那卦", due_date: `${ym}-16`, category: "事業" },
+      { id: "c3", user_id: U, question: "去年的", due_date: "2001-01-01", category: "事業" },
+    ],
+    feedback: [{ id: "f2", cast_id: "c2", verdict: 1 }],
+    reminders: [{ id: "r1", user_id: U, date: `${ym}-18`, time: "14:00:00", title: "回診" }],
+  }) as any;
+  const w = await widgetState(db, { userId: U, themePrices: PRICES }) as any;
+  eq(w.agenda.due.length, 1, "應期只該有一則（已印證、範圍外的不標）");
+  eq(w.agenda.due[0].castId, "c1", "應期要帶卦號，點了開那一卦");
+  eq(w.agenda.rem[0].time, "14:00", "提醒時間截到分");
+  eq(w.agenda.from, `${ym}-01`, "範圍從本月 1 日起");
+  ok(w.agenda.jieqi.length >= 2, "一個月至少兩個交節日");
+});
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 過 ${fail} 失敗\n`);
 process.exit(fail ? 1 : 0);

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小工具行事曆原型</title>
+<!--
+  dev/widget/calendar.html — 桌面小工具「今日行止＋行事曆」原型（2026-10-20）
+  1 CSS px＝1 dp。尺寸照 One UI 桌面實際格子：2×2＝170²、4×2＝360×170、4×4＝360×360。
+  字色是「字幕那組淺色」壓在場景暗處上（同 widget_almanac.xml），只有「問」印與今日圈吃配色的印記色。
+  Android 實作：android/.../widget/AlmanacWidget.java、CalendarData.java、widget_almanac.xml。
+  兩邊數字一起改。
+-->
+<style>
+:root{
+  --bg:#1b1a18; --fg:#ece6da; --fg2:#a39c90; --line:#3a3731;
+  /* 小工具字幕色（寫死：壓在暗處上，不跟主題） */
+  --w-txt:#F1E8D8; --w-txt2:rgba(241,232,216,.80); --w-dim:rgba(236,227,211,.62);
+  --w-gold:#E0BF7E; --w-gold2:#C9A86A; --w-ink:#0D0B08;
+  --seal:#B5402E; --on-seal:#FFF6EE;
+}
+:root:not([data-theme="light"]){ color-scheme:dark }
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --bg:#efe9de; --fg:#272320; --fg2:#6f665a; --line:#d8cfbe } }
+:root[data-theme="dark"]{ --bg:#1b1a18; --fg:#ece6da; --fg2:#a39c90; --line:#3a3731 }
+*{ box-sizing:border-box }
+body{ margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "Noto Serif TC","Songti TC",serif; }
+main{ max-width:1180px; margin:0 auto; padding:24px 16px 64px }
+h1{ font-size:22px; margin:0 0 4px; letter-spacing:.08em }
+.sub{ color:var(--fg2); font-size:13px; margin:0 0 20px }
+.ctl{ display:flex; flex-wrap:wrap; gap:10px 18px; margin:0 0 22px; font-size:13px }
+.ctl label{ color:var(--fg2); margin-right:6px }
+.ctl .grp{ display:flex; align-items:center; gap:4px; flex-wrap:wrap }
+.ctl button{ font:inherit; font-size:12.5px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer }
+.ctl button.on{ background:var(--fg); color:var(--bg); border-color:var(--fg) }
+
+/* 桌布：模擬手機桌面 */
+.desk{ border-radius:22px; padding:22px; background:
+  radial-gradient(120% 80% at 20% 0%, #3b4a5a 0%, rgba(0,0,0,0) 60%),
+  radial-gradient(100% 80% at 100% 100%, #4a3a33 0%, rgba(0,0,0,0) 60%), #161a1f;
+  display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start; overflow:hidden }
+.cap{ font-size:12px; color:#b9b3a8; margin:0 0 6px; letter-spacing:.06em }
+
+/* ── 小工具本體 ── */
+.w{ position:relative; border-radius:20px; overflow:hidden; color:var(--w-txt); font-family:"Noto Serif TC",serif;
+    box-shadow:0 6px 24px rgba(0,0,0,.35); user-select:none; flex-shrink:0 }
+.w .scene{ position:absolute; inset:0; background:linear-gradient(160deg,#2A2419,#0D0B08);
+    background-size:cover; background-position:50% 38% }
+.w .scene::after{ content:""; position:absolute; inset:0;
+    background:linear-gradient(180deg, rgba(13,11,8,.65) 0%, rgba(13,11,8,.35) 19%, rgba(13,11,8,0) 42%),
+               linear-gradient(180deg, rgba(13,11,8,0) 0%, rgba(13,11,8,0) 30%, rgba(13,11,8,.55) 58%, rgba(13,11,8,.92) 100%) }
+.w .frost{ position:absolute; overflow:hidden }
+.w .frost::before{ content:""; position:absolute; inset:-20px; background:inherit; filter:blur(14px) }
+.w .frost::after{ content:""; position:absolute; inset:0; background:rgba(13,11,8,.74) }
+.w .frost.edge{ box-shadow:inset 1px 0 0 rgba(241,232,216,.10) }
+.w .frost.top{ box-shadow:inset 0 1px 0 rgba(241,232,216,.10) }
+.lay{ position:absolute; display:flex; flex-direction:column }
+.sh{ text-shadow:0 1px 4px rgba(0,0,0,.6) }
+.top{ height:26px; display:flex; align-items:center; gap:8px; font-size:11.5px; letter-spacing:.06em; white-space:nowrap }
+.top .jq{ color:var(--w-gold); flex:1; overflow:hidden; text-overflow:ellipsis }
+.pill{ height:24px; padding:0 11px; border-radius:12px; border:1px solid rgba(236,227,211,.38); display:flex; align-items:center; font-size:11px; letter-spacing:.12em; color:rgba(236,227,211,.8) }
+.grow{ flex:1 }
+.stance{ display:flex; align-items:baseline; gap:6px }
+.stance b{ font-weight:400; letter-spacing:.12em; line-height:1.25 }
+.stance i{ font-style:normal; font-size:11px; letter-spacing:.1em; color:var(--w-gold2) }
+.line{ font-size:12px; line-height:1.2; color:var(--w-txt2); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:1px }
+.yj{ margin-top:5px; font-size:11px; display:flex; gap:14px; white-space:nowrap; overflow:hidden } .yj span{ overflow:hidden; text-overflow:ellipsis }
+.yj .y{ color:var(--w-gold2) } .yj .j{ color:rgba(236,227,211,.66) }
+.seals{ display:flex; gap:8px }
+.seal{ width:40px; height:40px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:19px; font-weight:700; cursor:pointer }
+.seal.ask{ background:var(--seal); color:var(--on-seal) }
+.seal.talk{ background:rgba(0,0,0,.5); color:var(--seal); box-shadow:inset 0 0 0 1.5px var(--seal) }
+.seal.s36{ width:36px; height:36px; font-size:17px; border-radius:8px }
+
+/* 右欄／下欄：今日行程 */
+.day{ display:flex; align-items:flex-end; gap:8px; height:34px; cursor:pointer }
+.day .n{ font-size:28px; line-height:1; letter-spacing:.02em }
+.day .m{ font-size:10.5px; line-height:1.3; color:var(--w-dim); padding-bottom:2px; letter-spacing:.04em }
+.ev{ height:22px; display:flex; align-items:center; gap:7px; font-size:12px; white-space:nowrap; cursor:pointer; border-radius:6px }
+.ev:hover{ background:rgba(241,232,216,.06) }
+.ev .t{ width:40px; flex-shrink:0; font-size:10.5px; color:var(--w-gold); letter-spacing:.02em; font-variant-numeric:tabular-nums }
+.ev .t.all{ color:var(--w-dim) }
+.ev .bar{ width:2px; height:13px; border-radius:1px; flex-shrink:0 }
+.ev .tt{ overflow:hidden; text-overflow:ellipsis; flex:1 }
+.ev .due{ flex-shrink:0; font-size:9.5px; padding:0 4px; height:15px; line-height:15px; border-radius:3px; background:var(--seal); color:var(--on-seal); letter-spacing:.08em }
+.ev.empty .tt{ color:var(--w-dim) }
+.ev.link .tt{ color:var(--w-gold) }
+.more{ font-size:10.5px; color:var(--w-dim); letter-spacing:.04em; cursor:pointer }
+
+/* 月格（4×4） */
+.cal{ display:grid; grid-template-columns:repeat(7,22px); column-gap:1px; font-size:10.5px; text-align:center; cursor:pointer }
+.cal .mh{ grid-column:1/-1; text-align:left; font-size:11px; letter-spacing:.08em; color:var(--w-txt2); height:18px }
+.cal .wd{ height:15px; font-size:9.5px; color:var(--w-dim) }
+.cal .d{ height:21px; position:relative; display:flex; align-items:center; justify-content:center; font-variant-numeric:tabular-nums }
+.cal .d.out{ color:transparent }
+.cal .d.we{ color:rgba(236,227,211,.55) }
+.cal .d.jq{ color:var(--w-gold) }
+.cal .d.today::before{ content:""; position:absolute; width:19px; height:19px; border-radius:50%; background:var(--seal); z-index:0 }
+.cal .d.today{ color:var(--on-seal) }
+.cal .d span{ position:relative; z-index:1 }
+.cal .d .dot{ position:absolute; bottom:0; width:3px; height:3px; border-radius:50% }
+.cal .d .dot.ev{ background:rgba(241,232,216,.7); left:calc(50% - 1.5px) }
+.cal .d .dot.du{ background:var(--w-gold) }
+.cal .d .dot.ev + .dot.du{ left:calc(50% + 1px) } .cal .d .dot.ev:has(+ .dot.du){ left:calc(50% - 4px) }
+.cal .d .dot.du:only-of-type{ left:calc(50% - 1.5px) }
+
+/* 規則卡 */
+.rules{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; margin-top:26px }
+.card{ border:1px solid var(--line); border-radius:12px; padding:14px 16px; font-size:13px }
+.card h3{ margin:0 0 8px; font-size:14px; letter-spacing:.06em }
+.card table{ border-collapse:collapse; width:100% }
+.card td,.card th{ border-top:1px solid var(--line); padding:5px 4px; vertical-align:top; text-align:left }
+.card th{ font-weight:600; color:var(--fg2); font-size:12px }
+.card p{ margin:6px 0 }
+.toast{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#000c; color:#fff; padding:8px 14px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; max-width:calc(100% - 32px) }
+.toast.on{ opacity:1 }
+
+/* App 內：觀堂推薦卡（宣紙主題實色，示意） */
+.app{ width:360px; background:#F2EBDA; color:#272320; border-radius:18px; padding:18px 16px; font-size:13px }
+.app .tip{ display:flex; gap:12px; align-items:center; background:#E9E0CB; border-radius:12px; padding:12px }
+.app .tip .pv{ width:84px; height:40px; border-radius:8px; flex-shrink:0; background:linear-gradient(90deg,#2A2419 52%,#17130e 52%); position:relative }
+.app .tip .pv::after{ content:"問"; position:absolute; right:4px; bottom:4px; width:14px; height:14px; border-radius:3px; background:#B5402E; color:#fff; font-size:9px; line-height:14px; text-align:center }
+.app .tip b{ display:block; font-size:14px; letter-spacing:.04em }
+.app .tip span{ color:#8A7E6C; font-size:12px }
+.app .acts{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end }
+.app .b{ font:inherit; font-size:13px; padding:6px 14px; border-radius:8px; border:1px solid #E0D4B8; background:#FBF8F1; color:#272320 }
+.app .b.p{ background:#B5402E; border-color:#B5402E; color:#FFF8F0; box-shadow:0 3px 0 #7c2c20 }
+.app .seed{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px }
+.app .seed button{ font:inherit; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid #E0D4B8; background:#FBF8F1; color:#272320 }
+.app .qi{ border-bottom:1px solid #272320; padding:6px 2px; font-size:15px }
+.app .lbl{ font-size:11.5px; color:#8A7E6C; margin:12px 0 4px; letter-spacing:.06em }
+@media (max-width:420px){ .desk{ padding:12px; gap:14px } }
+</style>
+</head>
+<body>
+<main>
+  <h1>小工具 · 今日行止＋行事曆</h1>
+  <p class="sub">2026-10-20（丙午年 戊戌月 丁卯日，寒露第 13 日）。點小工具上的每一格會說明它通到哪裡。</p>
+
+  <div class="ctl">
+    <div class="grp"><label>今日</label>
+      <button data-k="st" data-v="ke" class="on">已測·可行</button><button data-k="st" data-v="none">未測</button><button data-k="st" data-v="out">未登入</button></div>
+    <div class="grp"><label>行事曆</label>
+      <button data-k="perm" data-v="1" class="on">已連結</button><button data-k="perm" data-v="0">未連結</button></div>
+    <div class="grp"><label>今日行程</label>
+      <button data-k="n" data-v="0">0</button><button data-k="n" data-v="1">1</button><button data-k="n" data-v="3" class="on">3＋應期</button></div>
+    <div class="grp"><label>配色</label>
+      <button data-k="pal" data-v="#B5402E" class="on">宣紙</button><button data-k="pal" data-v="#D86A52">夜觀</button><button data-k="pal" data-v="#916B36">竹簡</button><button data-k="pal" data-v="#E34234">硃砂</button><button data-k="pal" data-v="#144190">青花</button></div>
+  </div>
+
+  <div class="desk" id="desk"></div>
+
+  <div class="rules">
+    <div class="card"><h3>三種尺寸放什麼</h3>
+      <table>
+        <tr><th></th><th>2×2</th><th>4×2</th><th>4×4</th></tr>
+        <tr><td>場景＋行止</td><td>整張</td><td>左 52%</td><td>上 46%</td></tr>
+        <tr><td>那句話</td><td>✗</td><td>兩行</td><td>兩行</td></tr>
+        <tr><td>宜／忌</td><td>宜</td><td>宜</td><td>宜＋忌</td></tr>
+        <tr><td>今日行程</td><td>下一則一行</td><td>右欄 2 則</td><td>右下 4 則</td></tr>
+        <tr><td>月格</td><td>✗</td><td>✗</td><td>左下</td></tr>
+        <tr><td>談／問印</td><td>問（高夠才加談）</td><td>右欄底</td><td>場景右下</td></tr>
+      </table>
+      <p>4×2 不放月格：月格要 150dp 高，放了就沒有行止的位子。要月格就拉成 4×4。</p>
+    </div>
+    <div class="card"><h3>點哪裡去哪裡</h3>
+      <table>
+        <tr><td>一則行程</td><td>開問事，問句帶入「關於「行程名」，」＋三個接句（會順利嗎？／要注意什麼？／結果如何？）</td></tr>
+        <tr><td>應期（印記色小籤）</td><td>開那一卦，直接印證</td></tr>
+        <tr><td>日期那一格</td><td>開手機的行事曆，停在今天</td></tr>
+        <tr><td>月格</td><td>開手帳›卦曆</td></tr>
+        <tr><td>未連結時那一行</td><td>開 App 問行事曆權限</td></tr>
+        <tr><td>今日無行程</td><td>開問事（空白問句）</td></tr>
+        <tr><td>頂列小字／談／問／簽到</td><td>同現在：重整／談心／問事／就地簽到</td></tr>
+      </table>
+    </div>
+    <div class="card"><h3>行程從哪來</h3>
+      <table>
+        <tr><td>手機行事曆</td><td>小工具在手機上直接讀（READ_CALENDAR），只讀今天到明天、只讀顯示中的日曆。<b>不上傳</b>：只有人點了某一則去起卦，那一則的名稱才進問句。</td></tr>
+        <tr><td>應期</td><td>後端 <code>mode:"widget"</code> 的 <code>agenda.due</code>：未印證、應期落在本月格範圍的卦</td></tr>
+        <tr><td>卦曆提醒</td><td><code>agenda.rem</code>：同卦曆的自訂提醒</td></tr>
+        <tr><td>節氣日</td><td><code>agenda.jieqi</code>：月格上那一天的數字用金色</td></tr>
+      </table>
+      <p>排序：應期最前（那是只有我們有的東西），再依時間；全天的排在有時間的前面。過了結束時間的不列。今天排完還有空位，補明天的，時間前標「明」。</p>
+    </div>
+    <div class="card"><h3>推薦放到桌面（App 內）</h3>
+      <p>觀堂上一張卡，條件：Android App、桌面上還沒有這個小工具、已經起過至少一卦、沒按過「不用」。按「放到桌面」直接叫系統的加小工具對話框（不用教人去長按桌面）；放好之後才問要不要連結行事曆——先讓人看到東西，再要權限。</p>
+      <p>道籍›設定›桌面小工具：「放到桌面」「顯示手機行程」兩列，關掉後小工具不再讀行事曆。</p>
+    </div>
+  </div>
+
+  <h2 style="font-size:16px;margin:30px 0 10px;letter-spacing:.06em">App 內：推薦卡與問事的行程命題</h2>
+  <div style="display:flex;gap:18px;flex-wrap:wrap">
+    <div class="app">
+      <div class="tip"><div class="pv"></div><div><b>把今日行止放到桌面</b><span>不必開 App 就看得到今天宜什麼、手上有哪些行程；點一則行程就能問。</span></div></div>
+      <div class="acts"><button class="b">不用</button><button class="b p">放到桌面</button></div>
+    </div>
+    <div class="app">
+      <div class="lbl">今日行程（手機行事曆）</div>
+      <div class="seed"><button>14:00 提案簡報</button><button>19:30 和小美吃飯</button></div>
+      <div class="lbl">問句</div>
+      <div class="qi">關於「提案簡報」，<span style="opacity:.35">|</span></div>
+      <div class="seed"><button>會順利嗎？</button><button>要注意什麼？</button><button>結果如何？</button></div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const S = { st:"ke", perm:"1", n:"3", pal:"#B5402E" };
+const SCENE = "https://ajogafvzlhqwlxwkfcpn.supabase.co/storage/v1/object/public/Sence/02_main_hall.webp";
+const onSeal = (hex) => { const n=parseInt(hex.slice(1),16), r=n>>16&255, g=n>>8&255, b=n&255; return (0.299*r+0.587*g+0.114*b) > 150 ? "#1A1714" : "#FFF6EE"; };
+const EVS = [
+  { due:true, t:"", title:"「年底前能換到更好的工作嗎」應期" },
+  { t:"全天", all:true, title:"媽媽生日", c:"#7FB3D5" },
+  { t:"14:00", title:"提案簡報", c:"#E6A15A" },
+  { t:"19:30", title:"和小美吃飯", c:"#8FC17F" },
+  { t:"明 09:30", title:"週會", c:"#E6A15A" },
+];
+function evs(max){
+  if (S.n === "0") return [];
+  if (S.n === "1") return [EVS[2]].slice(0,max);
+  const l = S.perm === "1" ? EVS : EVS.filter(e => e.due);
+  return l.slice(0, max);
+}
+function stanceHtml(size){
+  if (S.st === "out") return `<div class="stance sh"><b style="font-size:${size}px">未登入</b></div><div class="line sh">開啟 App 登入後，這裡會顯示今日行止。</div>`;
+  if (S.st === "none") return `<div class="stance sh"><b style="font-size:${size}px">未測</b></div><div class="line sh">今日一籤未求。點這裡到觀堂求籤。</div>`;
+  return `<div class="stance sh"><b style="font-size:${size}px">可行</b><i>中吉</i></div><div class="line sh">可行，但先把話說清楚再動。</div>`;
+}
+const yj = (ji) => S.st === "ke" ? `<div class="yj sh"><span class="y">宜 小成　修造　會友</span>${ji?`<span class="j">忌 遠行　爭訟</span>`:""}</div>` : "";
+const topRow = (wide) => `<div class="top sh" data-go="重整：點頂列小字＝手動更新"><span>${S.st==="out"?"幾知觀":wide?"丙午年 戊戌月 丁卯日":"丁卯日"}</span><span class="jq">${S.st==="out"?"":wide?"寒露·第13日":"寒露"}</span>${S.st==="out"?"":`<span class="pill" data-go="就地簽到：簽完整顆收掉">簽到</span>`}</div>`;
+function evRows(max){
+  if (S.st === "out") return "";
+  const l = evs(max);
+  let h = "";
+  for (const e of l) {
+    if (e.due) h += `<div class="ev" data-go="應期 → 開那一卦，直接印證"><span class="due">應期</span><span class="tt">${e.title.replace(/應期$/,"")}</span></div>`;
+    else h += `<div class="ev" data-go="開問事，問句帶入「關於「${e.title}」，」"><span class="t ${e.all?"all":""}">${e.t}</span><span class="bar" style="background:${e.c}"></span><span class="tt">${e.title}</span></div>`;
+  }
+  if (S.perm === "0" && l.length < max) h += `<div class="ev link" data-go="開 App 問行事曆權限"><span class="t all">＋</span><span class="tt">連結手機行事曆 ›</span></div>`;
+  else if (!l.length) h += `<div class="ev empty" data-go="開問事（空白問句）"><span class="t all">今日</span><span class="tt">無行程 · 有事想問 ›</span></div>`;
+  return h;
+}
+const dayHead = () => `<div class="day" data-go="開手機的行事曆，停在今天"><span class="n">20</span><span class="m">十月<br>週二</span></div>`;
+const seals = (cls, talk=true) => `<div class="seals">${talk?`<div class="seal talk ${cls}" data-go="談 → 談心">談</div>`:""}<div class="seal ask ${cls}" data-go="問 → 問事">問</div></div>`;
+
+function w22(){
+  const e = evs(1)[0];
+  const next = S.st !== "out" && e ? `<div class="ev sh" style="height:18px;margin-top:4px" data-go="${e.due?"應期 → 開那一卦":"開問事，帶入這則行程"}">${e.due?`<span class="due">應期</span>`:`<span class="t ${e.all?"all":""}" style="width:auto">${e.t}</span>`}<span class="tt">${e.title.replace(/應期$/,"")}</span></div>` : "";
+  return `<div><div class="cap">2×2 · 170×170</div><div class="w" style="width:170px;height:170px">
+    <div class="scene" style="background-image:url(${SCENE}),linear-gradient(160deg,#2A2419,#0D0B08)"></div>
+    <div class="lay" style="inset:12px 14px 14px 16px">${topRow(false)}<div class="grow"></div>
+      <div style="display:flex;align-items:flex-end;gap:8px"><div style="flex:1;min-width:0">${stanceHtml(24).replace(/<div class="line[^]*?<\/div>/,"")}${yj(false)}${next}</div>${seals("s36",false)}</div></div>
+  </div></div>`;
+}
+function w42(){
+  return `<div><div class="cap">4×2 · 360×170</div><div class="w" style="width:360px;height:170px">
+    <div class="scene" style="background-image:url(${SCENE}),linear-gradient(160deg,#2A2419,#0D0B08);background-position:30% 38%"></div>
+    <div class="frost edge" style="left:52%;top:0;right:0;bottom:0;background-image:url(${SCENE}),linear-gradient(160deg,#2A2419,#0D0B08);background-size:cover;background-position:30% 38%"></div>
+    <div class="lay" style="left:16px;top:12px;bottom:14px;width:calc(52% - 26px)">${topRow(false)}<div class="grow"></div>${stanceHtml(30)}${yj(false)}</div>
+    <div class="lay" style="left:calc(52% + 12px);top:10px;bottom:12px;right:12px">
+      ${dayHead()}<div style="margin-top:4px">${evRows(S.st==="out"?0:2)}</div><div class="grow"></div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between">${S.st!=="out"&&evs(9).length>2?`<span class="more" data-go="開手機的行事曆">還有 ${evs(9).length-2} 則</span>`:"<span></span>"}${seals("s36")}</div>
+    </div>
+  </div></div>`;
+}
+function grid(){
+  // 2026-10：1 日週四
+  const first = 4, days = 31, dots = { 3:["ev"], 9:["ev"], 14:["ev","du"], 20:["ev","du"], 21:["ev"], 27:["du"], 30:["ev"] }, jq = { 8:1, 23:1 };
+  let h = `<div class="mh">十月 · 戊戌月</div>` + "日一二三四五六".split("").map(c => `<div class="wd">${c}</div>`).join("");
+  for (let i = 0; i < first; i++) h += `<div class="d out">.</div>`;
+  for (let d = 1; d <= days; d++) {
+    const wd = (first + d - 1) % 7, cls = ["d"];
+    if (wd === 0 || wd === 6) cls.push("we"); if (jq[d]) cls.push("jq"); if (d === 20) cls.push("today");
+    const ds = S.st === "out" ? [] : (dots[d] || []).filter(k => k === "du" || S.perm === "1");
+    h += `<div class="${cls.join(" ")}"><span>${d}</span>${ds.map(k => `<i class="dot ${k}"></i>`).join("")}</div>`;
+  }
+  return `<div class="cal" data-go="月格 → 手帳›卦曆">${h}</div>`;
+}
+function w44(){
+  return `<div><div class="cap">4×4 · 360×360</div><div class="w" style="width:360px;height:360px">
+    <div class="scene" style="background-image:url(${SCENE}),linear-gradient(160deg,#2A2419,#0D0B08)"></div>
+    <div class="frost top" style="left:0;right:0;top:46%;bottom:0;background-image:url(${SCENE}),linear-gradient(160deg,#2A2419,#0D0B08);background-size:cover;background-position:50% 90%"></div>
+    <div class="lay" style="left:16px;right:14px;top:12px;height:calc(46% - 22px)">${topRow(true)}<div class="grow"></div>
+      <div style="display:flex;align-items:flex-end;gap:10px"><div style="flex:1;min-width:0">${stanceHtml(30)}${yj(true)}</div>${seals("")}</div></div>
+    <div class="lay" style="left:14px;right:12px;top:calc(46% + 10px);bottom:12px;flex-direction:row;gap:14px">
+      ${grid()}
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">${dayHead()}<div style="margin-top:6px">${evRows(S.st==="out"?0:4)}</div></div>
+    </div>
+  </div></div>`;
+}
+function render(){
+  document.documentElement.style.setProperty("--seal", S.pal);
+  document.documentElement.style.setProperty("--on-seal", onSeal(S.pal));
+  document.getElementById("desk").innerHTML = w22() + w42() + w44();
+}
+document.querySelector(".ctl").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-k]"); if (!b) return;
+  S[b.dataset.k] = b.dataset.v;
+  b.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+let tt;
+document.getElementById("desk").addEventListener("click", (e) => {
+  const g = e.target.closest("[data-go]"); if (!g) return;
+  e.stopPropagation();
+  const t = document.getElementById("toast"); t.textContent = g.dataset.go; t.classList.add("on");
+  clearTimeout(tt); tt = setTimeout(() => t.classList.remove("on"), 1800);
+});
+render();
+</script>
+</body>
+</html>

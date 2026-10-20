@@ -83,6 +83,22 @@ body `{"mode":"widget"}`。錯誤一律 200 ＋ `{kind:"err", msg:"…"}`。
 
 ---
 
+### `agenda`（2026-10-20 行事曆版）
+
+```jsonc
+"agenda": {
+  "from": "2026-10-01", "to": "2026-11-08",          // [from, to)，台北日：本月 1 日到下個月 7 日
+  "due":   [{ "date": "2026-10-20", "castId": "…", "question": "年底前能換到更好的工作嗎" }],  // 未印證的應期
+  "rem":   [{ "date": "2026-10-21", "time": "14:00", "title": "回診" }],                   // 卦曆提醒
+  "jieqi": [{ "date": "2026-10-08", "name": "寒露" }, { "date": "2026-10-23", "name": "霜降" }]
+}
+```
+
+手機行事曆的行程**不經過後端**：小工具在手機上直接讀（READ_CALENDAR），只有人點某一則去起卦時，
+那一則的名稱才進問句。後端這裡只補「只有我們有的東西」——應期、提醒、節氣日。
+畫法與點擊見原型 `dev/widget/calendar.html`（https://claude.ai/artifact/WUqUhT48rY2Qa67eMVmB43）。
+舊版 App 不認得這個欄位，照舊畫；部署順序不拘。
+
 ## 行止：四個等第 → 桌面上那一個詞
 
 | tier | tierLabel | stance.label | 宜 | 忌 |

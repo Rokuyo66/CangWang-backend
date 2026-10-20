@@ -44,6 +44,18 @@ export interface WidgetState {
         stance: StanceInfo | null; qian: { n: number; gz: string; poem: string[] } | null };
   themes: { owned: string[]; list: WidgetTheme[] };
   lingshi: number;
+  /** 月格與今日清單要標的東西（2026-10-20 行事曆版）。範圍＝本月 1 日到下個月 7 日。 */
+  agenda: WidgetAgenda;
+}
+
+export interface WidgetAgenda {
+  from: string; to: string;   // [from, to)，台北日
+  /** 未印證的應期：月格標金點、今日清單排最前，點了開那一卦印證 */
+  due: { date: string; castId: string; question: string }[];
+  /** 卦曆的自訂提醒 */
+  rem: { date: string; time: string | null; title: string }[];
+  /** 節氣交節日：月格上那一天的數字用金色 */
+  jieqi: { date: string; name: string }[];
 }
 
 const FORTUNE_HINT = "今日的氣還沒測——先抽一卦，才知道是宜守還是且行。";
@@ -108,7 +120,10 @@ export async function widgetState(
     }
   }
 
+  const agenda = await agendaOf(db, p.userId, y, m);
+
   return {
+    agenda,
     ganzhi,
     jieqi: jieqiOf(y, m, d),
     sign: { done: prof?.last_sign_date === today, streak: prof?.sign_streak ?? 0 },
@@ -116,4 +131,38 @@ export async function widgetState(
     themes: { owned, list: themeList(owned, p.themePrices) },
     lingshi: prof?.lingshi ?? 0,
   };
+}
+
+/** 月格的範圍：本月 1 日到下個月 7 日（月格最後一列會露出下個月頭幾天，今日清單也要看得到明天）。
+ *  失敗不影響其他欄位：小工具少了點點，比整張卡「更新失敗」好。 */
+async function agendaOf(db: SupabaseClient, userId: string, y: number, m: number): Promise<WidgetAgenda> {
+  const from = `${y}-${pad2(m)}-01`;
+  const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  const to = `${ny}-${pad2(nm)}-08`;
+  const out: WidgetAgenda = { from, to, due: [], rem: [], jieqi: [] };
+  try {
+    const { data } = await db.from("casts").select("id, question, due_date, feedback(verdict)")
+      .eq("user_id", userId).gte("due_date", from).lt("due_date", to)
+      .neq("category", FORTUNE_CATEGORY).order("due_date").limit(40);
+    for (const c of (data ?? []) as { id: string; question: string; due_date: string; feedback: unknown }[]) {
+      const fb = Array.isArray(c.feedback) ? c.feedback[0] : c.feedback;
+      if ((fb as { verdict?: number } | null)?.verdict) continue;   // 印證過的不再標
+      out.due.push({ date: c.due_date, castId: c.id, question: (c.question ?? "").slice(0, 40) });
+    }
+  } catch (_) { /* 照樣回其他欄位 */ }
+  try {
+    const { data } = await db.from("reminders").select("date, time, title")
+      .eq("user_id", userId).gte("date", from).lt("date", to).order("date").limit(40);
+    out.rem = ((data ?? []) as { date: string; time: string | null; title: string }[])
+      .map((r) => ({ date: String(r.date).slice(0, 10), time: r.time ? String(r.time).slice(0, 5) : null, title: r.title }));
+  } catch (_) { /* 同上 */ }
+  // 節氣日純算：逐日看 isToday（交節那天）
+  for (let t = Date.UTC(y, m - 1, 1); ; t += 86400_000) {
+    const dt = new Date(t);
+    const ds = dt.toISOString().slice(0, 10);
+    if (ds >= to) break;
+    const j = jieqiOf(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+    if (j.isToday) out.jieqi.push({ date: ds, name: j.name });
+  }
+  return out;
 }
