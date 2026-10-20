@@ -152,6 +152,7 @@
 | 文件 | 放哪 |
 | --- | --- |
 | 架構地圖與後續落點（這份） | 後端 `dev/ARCHITECTURE.md` |
+| **上線清單**（上線前要做的事、已定案的決定） | 後端 `dev/LAUNCH-CHECKLIST.md` |
 | 美術與動態規範、token | 後端 `dev/design/`（入口 `dev/design/README.md`） |
 | 前後端契約 | 後端 `dev/web/<功能>-API.md` |
 | 功能企劃（為什麼這樣做、上線閘門） | 後端 `dev/design/<功能>/`（例：`journal/DAOYUAN-PLAN.md`） |
