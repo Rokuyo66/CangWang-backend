@@ -199,5 +199,33 @@ await t("agenda：只標未印證的應期、不含日運，提醒照帶，節�
   ok(w.agenda.jieqi.length >= 2, "一個月至少兩個交節日");
 });
 
+await t("agenda：問過的卦照台北日落在那一天，不含日運", async () => {
+  const ym = today.slice(0, 7);
+  // 台北 3 日 07:30 ＝ UTC 2 日 23:30：要算在 3 日
+  const db = fakeDb({
+    profiles: [{ id: U, owned_themes: [] }],
+    casts: [
+      { id: "k1", user_id: U, question: "這次面試", gua_ben: "地天泰", category: "事業",
+        created_at: new Date(Date.parse(`${ym}-03T07:30:00+08:00`)).toISOString() },
+      { id: "k2", user_id: U, question: "", category: "日運", created_at: new Date(Date.parse(`${ym}-03T09:00:00+08:00`)).toISOString() },
+    ],
+  }) as any;
+  const w = await widgetState(db, { userId: U, themePrices: PRICES }) as any;
+  eq(w.agenda.casts.length, 1, "日運不列");
+  eq(w.agenda.casts[0].date, `${ym}-03`, "落在台北日");
+  eq(w.agenda.casts[0].gua, "地天泰", "帶卦名");
+});
+
+await t("widget_month：只收 YYYY-MM、前後兩年內", async () => {
+  const { widgetMonth } = await import("../supabase/functions/_shared/widget-state.ts");
+  const db = fakeDb({ profiles: [{ id: U }] }) as any;
+  eq(await widgetMonth(db, U, "2026/10"), null, "格式不對回 null");
+  eq(await widgetMonth(db, U, "1999-01"), null, "太遠回 null");
+  const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+  const nm = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  const a = await widgetMonth(db, U, nm) as any;
+  eq(a.from, `${nm}-01`, "下個月從 1 日起");
+});
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 過 ${fail} 失敗\n`);
 process.exit(fail ? 1 : 0);

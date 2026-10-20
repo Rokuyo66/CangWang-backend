@@ -6,7 +6,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAfterReview } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
-import { widgetState } from "../_shared/widget-state.ts";
+import { widgetMonth, widgetState } from "../_shared/widget-state.ts";
 import { chat, chatFavorCap, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
@@ -574,6 +574,12 @@ async function handle(req: Request): Promise<Response> {
     // 額度一律不回：問卦鈕上不標剩幾卦（見 _shared/widget.ts 開頭）。
     if (body.mode === "widget") {
       return Response.json({ kind: "ok", ...await widgetState(db, { userId: uid, themePrices: THEME_PRICES }) }, { headers: CORS });
+    }
+    // 小工具翻到別的月份：只回那個月的 agenda（應期、提醒、問過的卦、節氣日）。今天那包狀態不動
+    if (body.mode === "widget_month") {
+      const agenda = await widgetMonth(db, uid, body.month);
+      if (!agenda) return Response.json({ kind: "err", msg: "month 要是 YYYY-MM，前後兩年內" }, { headers: CORS });
+      return Response.json({ kind: "ok", agenda }, { headers: CORS });
     }
 
     // 初次問事引導看完：記在帳號，換裝置不會再跳一次。

@@ -54,6 +54,8 @@ export interface WidgetAgenda {
   due: { date: string; castId: string; question: string }[];
   /** 卦曆的自訂提醒 */
   rem: { date: string; time: string | null; title: string }[];
+  /** 那天問過的卦（起卦日，台北日；不含日運）：小工具點某一天時列出來，點了開那一卦（2026-10-20） */
+  casts: { date: string; castId: string; question: string; gua: string }[];
   /** 節氣交節日：月格上那一天的數字用金色 */
   jieqi: { date: string; name: string }[];
 }
@@ -133,13 +135,24 @@ export async function widgetState(
   };
 }
 
+/** 小工具翻到別的月份（mode:"widget_month"）：只回那個月的 agenda。
+ *  month 是 "YYYY-MM"；格式不對或離今天超過兩年就回 null（不替亂傳的參數掃一整張表）。 */
+export async function widgetMonth(db: SupabaseClient, userId: string, month: unknown): Promise<WidgetAgenda | null> {
+  const mt = /^(\d{4})-(\d{2})$/.exec(String(month ?? ""));
+  if (!mt) return null;
+  const y = Number(mt[1]), m = Number(mt[2]);
+  const now = nowTaipei();
+  if (m < 1 || m > 12 || Math.abs((y - now.y) * 12 + (m - now.m)) > 24) return null;
+  return agendaOf(db, userId, y, m);
+}
+
 /** 月格的範圍：本月 1 日到下個月 7 日（月格最後一列會露出下個月頭幾天，今日清單也要看得到明天）。
  *  失敗不影響其他欄位：小工具少了點點，比整張卡「更新失敗」好。 */
 async function agendaOf(db: SupabaseClient, userId: string, y: number, m: number): Promise<WidgetAgenda> {
   const from = `${y}-${pad2(m)}-01`;
   const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
   const to = `${ny}-${pad2(nm)}-08`;
-  const out: WidgetAgenda = { from, to, due: [], rem: [], jieqi: [] };
+  const out: WidgetAgenda = { from, to, due: [], rem: [], casts: [], jieqi: [] };
   try {
     const { data } = await db.from("casts").select("id, question, due_date, feedback(verdict)")
       .eq("user_id", userId).gte("due_date", from).lt("due_date", to)
@@ -155,6 +168,18 @@ async function agendaOf(db: SupabaseClient, userId: string, y: number, m: number
       .eq("user_id", userId).gte("date", from).lt("date", to).order("date").limit(40);
     out.rem = ((data ?? []) as { date: string; time: string | null; title: string }[])
       .map((r) => ({ date: String(r.date).slice(0, 10), time: r.time ? String(r.time).slice(0, 5) : null, title: r.title }));
+  } catch (_) { /* 同上 */ }
+  try {
+    // created_at 是 timestamptz：範圍換成台北日的 00:00，落在哪天也照台北日算
+    const utc = (ds: string) => new Date(Date.parse(ds + "T00:00:00Z") - 8 * 3600_000).toISOString();
+    const { data } = await db.from("casts").select("id, question, gua_ben, created_at")
+      .eq("user_id", userId).gte("created_at", utc(from)).lt("created_at", utc(to))
+      .neq("category", FORTUNE_CATEGORY).order("created_at").limit(200);
+    out.casts = ((data ?? []) as { id: string; question: string | null; gua_ben: string | null; created_at: string }[])
+      .map((c) => ({
+        date: new Date(Date.parse(c.created_at) + 8 * 3600_000).toISOString().slice(0, 10),
+        castId: c.id, question: (c.question ?? "").slice(0, 40), gua: c.gua_ben ?? "",
+      }));
   } catch (_) { /* 同上 */ }
   // 節氣日純算：逐日看 isToday（交節那天）
   for (let t = Date.UTC(y, m - 1, 1); ; t += 86400_000) {
