@@ -38,6 +38,9 @@ const COMMANDS = [
   { command: "maillog", description: "最近自動刪的信（可救回）" },
   { command: "mailrules", description: "看規則" },
   { command: "week", description: "產品週報" },
+  { command: "due", description: "接下來的到期日" },
+  { command: "bills", description: "這個月的帳單與訂閱" },
+  { command: "news", description: "航空城・客運園區政府消息" },
   { command: "mail_help", description: "說明" },
 ];
 

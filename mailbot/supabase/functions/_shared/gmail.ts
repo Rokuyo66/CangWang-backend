@@ -47,6 +47,8 @@ export type MailMeta = {
   listUnsubscribe: boolean;
   receivedAt: string;
   sizeEstimate: number;
+  to: string;          // To＋Cc＋Delivered-To 串起來，判斷是不是寄到客服信箱
+  messageId: string;   // 原信的 Message-ID，回信草稿要接在同一串
 };
 
 /** 列出符合 Gmail 搜尋語法的信 id（最多 max 封）。 */
@@ -62,9 +64,10 @@ export async function listIds(q: string, max = 50): Promise<string[]> {
   return ids;
 }
 
-/** 只拿標頭與摘要，不拿內文——管家判斷用不到內文，也不該讀。 */
+/** 只拿標頭與摘要，不拿內文——分類用不到內文，也不該讀。內文只在三種情況讀（見 getBody）。 */
 export async function getMeta(id: string): Promise<MailMeta> {
-  const j = await call(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe`);
+  const hs = ["From", "Subject", "List-Unsubscribe", "To", "Cc", "Delivered-To", "Message-ID"];
+  const j = await call(`/messages/${id}?format=metadata&${hs.map((x) => `metadataHeaders=${x}`).join("&")}`);
   const h = (name: string) =>
     String((j.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === name.toLowerCase())?.value ?? "");
   return {
@@ -75,7 +78,59 @@ export async function getMeta(id: string): Promise<MailMeta> {
     listUnsubscribe: !!h("List-Unsubscribe"),
     receivedAt: new Date(Number(j.internalDate ?? Date.now())).toISOString(),
     sizeEstimate: Number(j.sizeEstimate ?? 0),
+    to: [h("To"), h("Cc"), h("Delivered-To")].filter(Boolean).join(", "),
+    messageId: h("Message-ID"),
   };
+}
+
+const b64urlDecode = (s: string) => {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+};
+const b64urlEncode = (s: string) => {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+
+/** 讀內文（純文字，截到 max 字）。只用在三種信：客服來信（要寫回信草稿）、
+ *  帳單收據（要抓金額）——其餘一律只看標頭與摘要。 */
+export async function getBody(id: string, max = 4000): Promise<string> {
+  const j = await call(`/messages/${id}?format=full`);
+  let plain = "", html = "";
+  // deno-lint-ignore no-explicit-any
+  const walk = (p: any) => {
+    if (!p) return;
+    const data = p.body?.data ? b64urlDecode(p.body.data) : "";
+    if (p.mimeType === "text/plain" && !plain) plain = data;
+    else if (p.mimeType === "text/html" && !html) html = data;
+    for (const c of p.parts ?? []) walk(c);
+  };
+  walk(j.payload);
+  const text = plain || html
+    .replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, "\n").replace(/<[^>]+>/g, " ");
+  return decodeEntities(text).replace(/[ \t\u00a0]+/g, " ").replace(/\n\s*\n+/g, "\n").trim().slice(0, max);
+}
+
+const mimeWord = (s: string) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`;
+
+/** 在同一串信裡建一封回信草稿。只建草稿、不寄——送出的永遠是觀主自己。 */
+export async function createReplyDraft(p: { threadId: string; to: string; subject: string; inReplyTo: string; body: string; from?: string }): Promise<string> {
+  const subject = /^re:/i.test(p.subject) ? p.subject : `Re: ${p.subject}`;
+  const headers = [
+    ...(p.from ? [`From: ${p.from}`] : []),
+    `To: ${p.to}`,
+    `Subject: ${mimeWord(subject)}`,
+    ...(p.inReplyTo ? [`In-Reply-To: ${p.inReplyTo}`, `References: ${p.inReplyTo}`] : []),
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+  ];
+  const raw = b64urlEncode(headers.join("\r\n") + "\r\n\r\n" + p.body);
+  const j = await call(`/drafts`, { method: "POST", body: JSON.stringify({ message: { raw, threadId: p.threadId } }) });
+  return String(j?.id ?? "");
 }
 
 export async function trash(id: string): Promise<void> {

@@ -9,6 +9,9 @@
 //   /mailrule del N    刪第 N 條規則
 //   /mailrule add 動作 種類 內容   例：/mailrule add trash domain shopee.tw
 //   /week              立刻出一份產品週報
+//   /due               接下來的到期日
+//   /bills             這個月到目前的帳單與訂閱
+//   /news              立刻查一次航空城／客運園區的政府消息
 //   （一般句子）        用說的改規則，例：「以後蝦皮的信都刪掉」→ 確認卡 → 按 ✅ 才生效
 //
 // 呼叫端（admin-tg，觀主私人的管家 bot）已確認是觀主才進來；這裡不再驗身分。
@@ -16,9 +19,10 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash, modify, fileAway, ensureLabel, labelIds } from "./gmail.ts";
 import {
   esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO, LABELS, noThinking,
-  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp,
+  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate,
   KIND_LABEL, ACTION_LABEL, type Rule, type RuleOp,
 } from "./mailbot.ts";
+import { chargesOf } from "./extras.ts";
 
 type Send = (text: string, extra?: Record<string, unknown>) => Promise<unknown>;
 
@@ -34,19 +38,23 @@ export const MAILBOT_HELP =
   "<code>/mailrules</code>　看規則\n" +
   "<code>/mailrule del 編號</code>　刪規則\n" +
   "<code>/mailrule add trash|report|keep sender|domain|subject 內容</code>\n" +
-  "<code>/week</code>　立刻出產品週報（從產品專案送來）\n\n" +
+  "<code>/week</code>　立刻出產品週報（從產品專案送來）\n" +
+  "<code>/due</code>　接下來的到期日（每天 9 點後，前一天和當天會自動提醒）\n" +
+  "<code>/bills</code>　這個月的帳單與訂閱（每月 1 號自動出上個月的）\n" +
+  "<code>/news</code>　航空城、客運園區的政府消息（每週一自動）\n\n" +
+  "🎧 寄到客服信箱的信：一律推卡，回信草稿會先寫好放在 Gmail，看過再自己送出。\n\n" +
   "💬 <b>也可以直接用說的改規則</b>，例如：\n" +
   "「以後蝦皮的信都刪掉」「Anthropic 的收據放五年/產品營運」「104 的信不要再刪了」\n" +
   "我會先回一張確認卡，按 ✅ 才生效。";
 
-const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week)(@\w+)?(\s|$)/;
+const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week|due|bills|news)(@\w+)?(\s|$)/;
 export const isMailbotCommand = (text: string) => MAILBOT_CMD.test(text);
 
 // 產品週報在產品專案（CangWang-backend 的 weekly-report），由它自己讀產品數據、經管家 bot 送過來。
 // 這裡只負責叫它：帶 REPORT_SECRET，兩個專案各存一份同樣的值。
 const PRODUCT_REPORT_URL = Deno.env.get("PRODUCT_REPORT_URL") ?? "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/weekly-report";
 
-async function fireJob(job: "triage" | "weekly" | "tidy") {
+async function fireJob(job: "triage" | "weekly" | "tidy" | "news") {
   const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mail-butler`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-internal-secret": Deno.env.get("MAILBOT_CRON_SECRET") ?? "" },
@@ -74,6 +82,30 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
     const r = await fireJob("triage") as Record<string, unknown>;
     if (!r?.ok) { await send(`整理失敗：${esc(String(r?.error ?? "unknown"))}`); return; }
     if (!r.fresh) await send(`沒有新信（近 3 天收件匣 ${r.scanned ?? 0} 封都看過了）。`);
+    return;
+  }
+
+  if (cmd === "due") {
+    const today = taipeiDate();
+    const { data } = await db.from("mailbot_reminders").select("id, due_date, what, sender, subject")
+      .eq("done", false).gte("due_date", today).order("due_date").limit(20);
+    await send(upcomingText(data ?? [], today), data?.length ? { reply_markup: { inline_keyboard: data.slice(0, 8).map((r) => [{
+      text: `✓ ${String(r.what || r.subject || "").slice(0, 24)}`, callback_data: mbCallback("R", r.id),
+    }]) } } : {});
+    return;
+  }
+
+  if (cmd === "bills") {
+    const month = taipeiDate().slice(0, 7);
+    const [cur, prev] = await chargesOf(db, month);
+    await send(monthlyText(`${month}（到今天）`, cur, prev));
+    return;
+  }
+
+  if (cmd === "news") {
+    await send("🛫 查政府網站中…（大約一分鐘）");
+    const r = await fireJob("news") as Record<string, unknown>;
+    if (!r?.ok) await send(`查不成：${esc(String(r?.error ?? "unknown"))}`);
     return;
   }
 
@@ -240,6 +272,11 @@ export async function handleMailbotCallback(
   const cb = parseMbCallback(data);
   if (!cb) return false;
   if (cb.op === "Y" || cb.op === "N") { await applyDraft(db, cb.id, cb.op === "Y", send, clearButtons); return true; }
+  if (cb.op === "R") {
+    const { data: r } = await db.from("mailbot_reminders").update({ done: true }).eq("id", cb.id).select("what, subject").maybeSingle();
+    await send(r ? `✓ 已記下處理好了：${esc(String(r.what || r.subject || ""))}，不再提醒。` : "找不到這個提醒。");
+    return true;
+  }
   const { data: row } = await db.from("mailbot_seen")
     .select("id, gmail_id, sender, sender_name, subject, status, decision, options, suggest, label").eq("id", cb.id).maybeSingle();
   if (!row) { await send("找不到這封信的紀錄。"); return true; }

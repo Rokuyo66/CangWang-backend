@@ -16,7 +16,11 @@
 
 export type Decision = "report" | "trash" | "keep" | "ask";
 export type Rule = { id: number; kind: "sender" | "domain" | "subject"; pattern: string; action: "trash" | "report" | "keep"; label?: string | null };
-export type AiVerdict = { v: Decision; c: number; why: string; sum: string; lb?: string; alt?: string[]; nw?: string };
+export type AiVerdict = {
+  v: Decision; c: number; why: string; sum: string; lb?: string; alt?: string[]; nw?: string;
+  due?: string; dw?: string;   // 信裡有要觀主記得的日期（截止、預約、到期）：YYYY-MM-DD 與一句話
+  chg?: boolean;               // 這是一筆扣款／帳單／收據
+};
 
 /* ── 保留期限標籤（觀主的 Gmail 標籤，名稱逐字對應）──────────────
    分類依據不是「主題」而是「要留多久」：
@@ -186,12 +190,15 @@ ${extraLines}一次性驗證碼、登入通知、物流進度這類用完即棄�
 alt：除了 lb 以外，次適合的標籤，最多兩個（陣列，可空）。
 nw：上面的標籤都不太合適、但這類信值得長期歸一處時，建議一個新分類，格式「三月/xx」「五年/xx」「永久/xx」（xx 為 2～8 字）；否則給空字串。依同一個判準選層：查得回來→三月，憑證→五年，查不回來還會用→永久。
 
-只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…","lb":"五年/產品營運","alt":["五年/保固憑證"],"nw":""}, …]`;
+due／dw：信裡有觀主要記得、而且在今天之後的日期（繳費截止、預約、活動、金鑰或服務到期、合約續約、申報期限），due 給 YYYY-MM-DD、dw 用 15 字內說是什麼事；沒有就都給空字串。只看信裡明寫的日期，換算時以使用者訊息開頭的「今天」為準；行銷活動的截止日不算。
+chg：這封是一筆實際發生的扣款、帳單或收據（不是廣告、不是消費通知以外的推銷）給 true，否則 false。
+
+只輸出 JSON 陣列，不要任何其他字：[{"i":0,"v":"report","c":0.9,"why":"…","sum":"…","lb":"五年/產品營運","alt":["五年/保固憑證"],"nw":"","due":"","dw":"","chg":true}, …]`;
 }
 export const CLASSIFY_SYS = classifySys();
 
-export function classifyPrompt(items: { from: string; subject: string; snippet: string }[]): string {
-  return items.map((m, i) =>
+export function classifyPrompt(items: { from: string; subject: string; snippet: string }[], today?: string): string {
+  return (today ? `今天是 ${today}（台北）\n\n` : "") + items.map((m, i) =>
     `#${i}\n寄件人：${m.from.slice(0, 120)}\n主旨：${m.subject.slice(0, 200)}\n摘要：${m.snippet.slice(0, 300)}`).join("\n\n");
 }
 
@@ -215,6 +222,8 @@ export function parseClassify(text: string, n: number, labels: readonly string[]
     const alt = (Array.isArray(x?.alt) ? x.alt : []).filter((a: unknown) => inList(labels, a) && a !== v0.lb && a !== TODO);
     if (alt.length) v0.alt = [...new Set(alt as string[])].slice(0, 2);
     if (isValidNewLabel(x?.nw) && !labels.includes(x.nw as string)) v0.nw = x.nw as string;
+    if (isDate(x?.due)) { v0.due = x.due as string; v0.dw = String(x?.dw ?? "").slice(0, 30); }
+    if (x?.chg === true) v0.chg = true;
   }
   return out;
 }
@@ -227,10 +236,11 @@ export function parseClassify(text: string, n: number, labels: readonly string[]
 //   t 刪這封   T 刪＋此寄件人以後都刪   D 刪＋此網域以後都刪
 //   u 從垃圾桶救回（/maillog）   k／K 舊版卡片的「留」「以後都報」，舊訊息上的按鈕還按得動
 //   Y／N  用說的改規則：確認／取消（id 是 mailbot_rule_drafts 的，不是 mailbot_seen 的）
-export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u" | "Y" | "N";
+//   R  到期提醒「處理好了」（id 是 mailbot_reminders 的）
+export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u" | "Y" | "N" | "R";
 export const mbCallback = (op: MbOp, id: number) => `mb:${op}:${id}`;
 export function parseMbCallback(data: string): { op: MbOp; id: number } | null {
-  const m = /^mb:(o[0-2]|[nApTtDkKuYN]):(\d{1,15})$/.exec(data ?? "");
+  const m = /^mb:(o[0-2]|[nApTtDkKuYNR]):(\d{1,15})$/.exec(data ?? "");
   return m ? { op: m[1] as MbOp, id: Number(m[2]) } : null;
 }
 
@@ -424,4 +434,184 @@ export function describeOp(op: RuleOp, rules: Pick<Rule, "id" | "kind" | "patter
     : op.action === "report" ? (op.label ? `📌 在整理結果裡告訴你，並自動歸檔到「${esc(op.label)}」` : "📌 一律推卡給你看")
     : "🗑 直接刪";
   return `➕ ${KIND_LABEL[op.kind]} <code>${esc(op.pattern)}</code> → ${what}`;
+}
+
+/* ── 日期 ──────────────────────────────────────────────────── */
+
+export const isDate = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + "T00:00:00Z"));
+/** 台北的日期字串（YYYY-MM-DD），offset 為往後幾天。 */
+export const taipeiDate = (now = Date.now(), offset = 0) => new Date(now + 8 * 3600_000 + offset * 86_400_000).toISOString().slice(0, 10);
+export const taipeiHour = (now = Date.now()) => new Date(now + 8 * 3600_000).getUTCHours();
+/** 值得記成提醒的日期：今天到兩年內。過去的、離譜的（模型算錯年份）都不收。 */
+export function reminderDue(due: string | undefined, today: string): string | null {
+  if (!isDate(due)) return null;
+  const d = Date.parse(due + "T00:00:00Z"), t = Date.parse(today + "T00:00:00Z");
+  return d >= t && d <= t + 730 * 86_400_000 ? due : null;
+}
+
+/* ── 到期日提醒 ─────────────────────────────────────────────── */
+
+export type ReminderItem = { id: number; due_date: string; what: string; sender: string | null; subject: string | null };
+
+export function reminderText(today: ReminderItem[], tomorrow: ReminderItem[]): string {
+  const line = (r: ReminderItem) => `• <b>${esc(r.what || r.subject || "（未命名）")}</b>` +
+    (r.sender ? `\n　<i>${esc(String(r.sender).slice(0, 40))}｜${esc(String(r.subject ?? "").slice(0, 40))}</i>` : "");
+  const out = ["⏰ <b>到期提醒</b>"];
+  if (today.length) out.push("", `<b>今天（${esc(today[0].due_date.slice(5))}）</b>`, ...today.map(line));
+  if (tomorrow.length) out.push("", `<b>明天（${esc(tomorrow[0].due_date.slice(5))}）</b>`, ...tomorrow.map(line));
+  out.push("", "<i>處理好了就按下面的鈕，之後不再提醒</i>");
+  return out.join("\n");
+}
+
+export function upcomingText(items: ReminderItem[], today: string): string {
+  if (!items.length) return "📅 接下來沒有記下的到期日。";
+  const days = (d: string) => Math.round((Date.parse(d + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86_400_000);
+  return ["📅 <b>接下來的到期日</b>", "", ...items.map((r) => {
+    const n = days(r.due_date);
+    return `${esc(r.due_date.slice(5))}（${n === 0 ? "今天" : n === 1 ? "明天" : `${n} 天後`}）${esc(r.what || r.subject || "")}`;
+  })].join("\n");
+}
+
+/* ── 客服信 ─────────────────────────────────────────────────── */
+
+/** 寄到客服信箱的信（To／Cc／Delivered-To 任一含客服地址）。這類信永遠不自動刪、不自動歸檔。 */
+export const isSupport = (to: string, addr: string) => !!addr && String(to ?? "").toLowerCase().includes(addr.toLowerCase());
+
+export const SUPPORT_CATS: Record<string, string> = {
+  bug: "🐞 程式問題", billing: "💳 付款扣款", refund: "↩️ 退款", account: "🔑 帳號登入",
+  feature: "💡 建議", praise: "💐 好評", other: "📩 其他",
+};
+
+export const SUPPORT_SYS = `你是占卜 App「藏往知來」（幾知觀）的客服助理。產品有網頁、Android App 與 Telegram bot；
+用戶可以起卦問事、和三位角色（大師兄、師妹、觀貓）聊天，有靈石點數與「玉牒」月訂閱（問卦／攻略／深度三種）。
+
+讀用戶寄到客服信箱的信，輸出：
+- cat：bug／billing／refund／account／feature／praise／other 其一
+- urgent：付款出錯、重複扣款、帳號被盜、無法登入、提到要投訴或法律 → true；其餘 false
+- sum：一句話（30 字內）講用戶遇到什麼、要什麼
+- reply：回信草稿，繁體中文，客氣、簡短、具體。規則：
+  ・先回應他說的事，不要套話
+  ・不承諾退款、補償、修好的時間——寫「我們會確認後回覆您」
+  ・需要更多資訊時，具體問要什麼（裝置、時間、截圖、訂單編號）
+  ・不提任何內部細節（模型、伺服器、程式）
+  ・結尾署名「藏往知來 客服」
+
+只輸出 JSON，不要任何其他字：{"cat":"bug","urgent":false,"sum":"…","reply":"…"}`;
+
+export function parseSupport(text: string): { cat: string; urgent: boolean; sum: string; reply: string } | null {
+  const m = String(text ?? "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[0]);
+    const reply = String(j?.reply ?? "").trim();
+    if (!reply) return null;
+    return { cat: j?.cat in SUPPORT_CATS ? j.cat : "other", urgent: j?.urgent === true, sum: String(j?.sum ?? "").slice(0, 80), reply: reply.slice(0, 3000) };
+  } catch { return null; }
+}
+
+/* ── 帳單與訂閱 ─────────────────────────────────────────────── */
+
+export const CHARGE_SYS = `從扣款通知、帳單或收據裡抓出這一筆的金額。每封信一筆（同一封有多筆時，給最主要的總額）。
+kind：product＝「藏往知來」的營運費用（AI API、主機、資料庫、網域、寄信服務、金流手續費、App 上架費，例：Anthropic API、Supabase、Cloudflare、Google Cloud、Resend、綠界）；
+      personal＝觀主個人的消費與訂閱（影音、音樂、AI 聊天訂閱、雲端空間、購物、水電、信用卡帳單）。
+vendor：商家短名（例 Anthropic、Cloudflare、Spotify、ChatGPT、中信信用卡）。
+currency：TWD、USD、JPY…；amount：數字（不含符號與千分位）。
+sub：這是固定週期的訂閱或月費 → true。
+抓不到金額的那封，amount 給 null。
+
+只輸出 JSON 陣列，不要任何其他字：[{"i":0,"vendor":"Anthropic","currency":"USD","amount":12.5,"kind":"product","sub":false}, …]`;
+
+export type Charge = { vendor: string; currency: string; amount: number; kind: "product" | "personal"; sub: boolean };
+
+export function parseCharges(text: string, n: number): (Charge | null)[] {
+  const out: (Charge | null)[] = Array(n).fill(null);
+  const m = String(text ?? "").match(/\[[\s\S]*\]/);
+  if (!m) return out;
+  let arr: unknown;
+  try { arr = JSON.parse(m[0]); } catch { return out; }
+  for (const x of (Array.isArray(arr) ? arr : []) as Record<string, unknown>[]) {
+    const i = Number(x?.i), amount = Number(x?.amount);
+    if (!Number.isInteger(i) || i < 0 || i >= n || x?.amount == null || !isFinite(amount) || amount <= 0 || amount > 10_000_000) continue;
+    const currency = String(x?.currency ?? "").toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) continue;
+    out[i] = { vendor: String(x?.vendor ?? "?").slice(0, 40), currency, amount, kind: x?.kind === "product" ? "product" : "personal", sub: x?.sub === true };
+  }
+  return out;
+}
+
+/** 換成台幣：TWD 照原值，其他用設定的匯率（沒設的幣別回 null，報表裡另列原幣）。 */
+export function toTwd(c: { currency: string; amount: number }, rates: Record<string, number>): number | null {
+  if (c.currency === "TWD") return c.amount;
+  const r = rates[c.currency];
+  return r ? Math.round(c.amount * r) : null;
+}
+
+export type ChargeRow = { vendor: string; currency: string; amount: number; twd: number | null; kind: "product" | "personal"; sub: boolean };
+
+/** 月報：分產品／個人，依商家加總，跟上個月比；暴增（>50% 且多 NT$100 以上）標 ⚠️。 */
+export function monthlyText(month: string, cur: ChargeRow[], prev: ChargeRow[]): string {
+  const n = (v: number) => Math.round(v).toLocaleString("en-US");
+  const group = (rows: ChargeRow[], kind: string) => {
+    const g = new Map<string, { twd: number; count: number; sub: boolean; foreign: string[] }>();
+    for (const r of rows.filter((x) => x.kind === kind)) {
+      const e = g.get(r.vendor) ?? { twd: 0, count: 0, sub: false, foreign: [] };
+      e.count++; e.sub ||= r.sub;
+      if (r.twd != null) e.twd += r.twd; else e.foreign.push(`${r.currency} ${r.amount}`);
+      g.set(r.vendor, e);
+    }
+    return g;
+  };
+  const lines = [`💳 <b>${esc(month)} 帳單與訂閱</b>`, `<i>從信箱裡的扣款通知與收據整理；沒有寄信的扣款不會在這裡</i>`];
+  for (const [kind, title] of [["product", "🏮 藏往知來營運"], ["personal", "👤 個人"]] as const) {
+    const g = group(cur, kind), pg = group(prev, kind);
+    const total = [...g.values()].reduce((a, e) => a + e.twd, 0), ptotal = [...pg.values()].reduce((a, e) => a + e.twd, 0);
+    lines.push("", `<b>${title}</b>　NT$ ${n(total)}${ptotal ? `（上月 ${n(ptotal)}）` : ""}`);
+    if (!g.size) { lines.push("（沒有）"); continue; }
+    for (const [v, e] of [...g.entries()].sort((a, b) => b[1].twd - a[1].twd)) {
+      const p = pg.get(v)?.twd ?? 0;
+      const spike = p > 0 && e.twd > p * 1.5 && e.twd - p >= 100;
+      lines.push(`${spike ? "⚠️ " : ""}${esc(v)}${e.sub ? "（訂閱）" : ""}　NT$ ${n(e.twd)}${e.count > 1 ? ` ×${e.count}` : ""}` +
+        (e.foreign.length ? `　＋${esc(e.foreign.join("、"))}` : "") + (spike ? `　上月 ${n(p)}` : ""));
+    }
+  }
+  const subs = [...new Set(cur.filter((r) => r.sub && r.kind === "personal").map((r) => r.vendor))];
+  if (subs.length) lines.push("", `🔁 個人訂閱 ${subs.length} 個：${subs.map(esc).join("、")}`);
+  return lines.join("\n");
+}
+
+/* ── 政府消息（航空城、客運園區）───────────────────────────── */
+
+export const NEWS_DOMAINS = ["gov.tw", "taoyuan-airport.com"];
+
+export function newsSys(topics: string): string {
+  return `你幫觀主追蹤政府公告。用網路搜尋找最近 10 天內，下列主題在政府網站（gov.tw，以及桃園國際機場公司）上的新公告、新聞稿、公聽會、都市計畫變更、區段徵收、標案、工程進度：
+${topics}
+
+觀主關心的是：會影響房價、交通、入住與周邊建設的實際進展。純活動宣傳、首長行程、與主題無關的不要。
+每則：title（20 字內）、date（YYYY-MM-DD，查不到就空字串）、url（政府網站上的原始網址）、sum（40 字內說發生什麼、對觀主有什麼影響）。
+沒有新的就給空陣列，不要湊數。
+
+只輸出 JSON 陣列，不要任何其他字：[{"title":"…","date":"2026-10-15","url":"https://…","sum":"…"}]`;
+}
+
+export type NewsItem = { title: string; date: string; url: string; sum: string };
+
+export function parseNews(text: string): NewsItem[] {
+  const m = String(text ?? "").match(/\[[\s\S]*\]/);
+  if (!m) return [];
+  try {
+    const arr = JSON.parse(m[0]);
+    return (Array.isArray(arr) ? arr : []).map((x: Record<string, unknown>) => ({
+      title: String(x?.title ?? "").slice(0, 60), date: isDate(x?.date) ? x.date as string : "",
+      url: String(x?.url ?? ""), sum: String(x?.sum ?? "").slice(0, 120),
+    })).filter((x) => x.title && /^https:\/\/[^\s]+$/.test(x.url) &&
+      NEWS_DOMAINS.some((d) => { try { const h = new URL(x.url).hostname; return h === d || h.endsWith("." + d); } catch { return false; } }))
+      .slice(0, 12);
+  } catch { return []; }
+}
+
+export function newsText(items: NewsItem[]): string {
+  if (!items.length) return "🛫 <b>航空城・客運園區</b>：近期政府網站沒有新公告。";
+  return ["🛫 <b>航空城・客運園區 政府消息</b>", "",
+    ...items.map((x) => `• <a href="${esc(x.url)}">${esc(x.title)}</a>${x.date ? `（${esc(x.date.slice(5))}）` : ""}\n　${esc(x.sum)}`)].join("\n");
 }

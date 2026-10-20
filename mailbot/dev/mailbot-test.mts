@@ -12,6 +12,8 @@ import {
   parseFrom, matchRule, decide, parseClassify, parseMbCallback, mbCallback,
   digestText, mailWeeklyText, guardHit, LABELS, SWEEP, sweepFor, fileOptions, fileButtons, fileText,
   isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
+  reminderDue, reminderText, upcomingText, taipeiDate, classifyPrompt, isSupport, parseSupport,
+  parseCharges, toTwd, monthlyText, parseNews, newsText, type ChargeRow,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -253,6 +255,91 @@ t("用說的：確認卡文案講清楚會發生什麼，HTML 轉義", () => {
 t("確認卡按鈕：Y／N 解析得回來", () => {
   eq(parseMbCallback("mb:Y:12"), { op: "Y", id: 12 }); eq(parseMbCallback("mb:N:12"), { op: "N", id: 12 });
 });
+
+// ── 到期日提醒 ──
+t("到期日：只收今天到兩年內；格式錯、過去的、離譜的都丟", () => {
+  eq(reminderDue("2026-10-22", "2026-10-20"), "2026-10-22");
+  eq(reminderDue("2026-10-20", "2026-10-20"), "2026-10-20");
+  eq(reminderDue("2026-10-19", "2026-10-20"), null);
+  eq(reminderDue("2029-01-01", "2026-10-20"), null);
+  eq(reminderDue("10/22", "2026-10-20"), null); eq(reminderDue(undefined, "2026-10-20"), null);
+});
+
+t("到期日：分類時抓得到 due／chg，日期格式不對的丟掉；提示詞帶今天", () => {
+  const out = parseClassify('[{"i":0,"v":"report","c":1,"due":"2026-12-04","dw":"健檢","chg":false},{"i":1,"v":"keep","c":1,"due":"下週","chg":true}]', 2);
+  eq([out[0]?.due, out[0]?.dw, out[0]?.chg], ["2026-12-04", "健檢", undefined]);
+  eq([out[1]?.due, out[1]?.chg], [undefined, true]);
+  if (!classifyPrompt([{ from: "a", subject: "b", snippet: "c" }], "2026-10-20").startsWith("今天是 2026-10-20")) throw new Error("沒帶今天");
+});
+
+t("台北日期：UTC 16:30 已經是台北隔天", () => {
+  eq(taipeiDate(Date.parse("2026-10-20T16:30:00Z")), "2026-10-21");
+  eq(taipeiDate(Date.parse("2026-10-20T15:59:00Z"), 1), "2026-10-21");
+});
+
+t("提醒文案：分今天／明天、轉義；清單算得出幾天後", () => {
+  const s = reminderText([{ id: 1, due_date: "2026-10-22", what: "金鑰<到期>", sender: "A", subject: "x" }], []);
+  if (!s.includes("今天（10-22）") || !s.includes("金鑰&lt;到期&gt;")) throw new Error(s);
+  const u = upcomingText([{ id: 1, due_date: "2026-10-21", what: "繳費", sender: null, subject: null }, { id: 2, due_date: "2026-12-04", what: "健檢", sender: null, subject: null }], "2026-10-20");
+  if (!u.includes("明天") || !u.includes("45 天後")) throw new Error(u);
+});
+
+// ── 客服信 ──
+t("客服：To／Cc／Delivered-To 任一含客服地址才算，大小寫不拘", () => {
+  eq(isSupport("Support@Jizhiguan.com", "support@jizhiguan.com"), true);
+  eq(isSupport("me@gmail.com, support@jizhiguan.com", "support@jizhiguan.com"), true);
+  eq(isSupport("rokuyo221@gmail.com", "support@jizhiguan.com"), false);
+  eq(isSupport("anything", ""), false);
+});
+
+t("客服：沒有回信內容的不算；類別不認得的歸其他", () => {
+  eq(parseSupport('{"cat":"bug","urgent":true,"sum":"閃退","reply":"您好…"}')?.urgent, true);
+  eq(parseSupport('{"cat":"亂寫","reply":"您好"}')?.cat, "other");
+  eq(parseSupport('{"cat":"bug","reply":""}'), null);
+  eq(parseSupport("不是 JSON"), null);
+});
+
+// ── 帳單 ──
+t("帳單：金額要是正數、幣別三碼；壞的那封回 null", () => {
+  const out = parseCharges('[{"i":0,"vendor":"Anthropic","currency":"usd","amount":12.5,"kind":"product"},{"i":1,"vendor":"X","currency":"TWD","amount":null},{"i":2,"vendor":"Y","currency":"新台幣","amount":100},{"i":3,"vendor":"Z","currency":"TWD","amount":-5}]', 4);
+  eq(out[0], { vendor: "Anthropic", currency: "USD", amount: 12.5, kind: "product", sub: false });
+  eq([out[1], out[2], out[3]], [null, null, null]);
+});
+
+t("帳單：換台幣；沒匯率的幣別回 null（報表另列原幣）", () => {
+  eq(toTwd({ currency: "TWD", amount: 270 }, {}), 270);
+  eq(toTwd({ currency: "USD", amount: 10 }, { USD: 32 }), 320);
+  eq(toTwd({ currency: "GBP", amount: 10 }, { USD: 32 }), null);
+});
+
+t("月報：分產品／個人加總、暴增標 ⚠️、小額波動不標、列出訂閱", () => {
+  const r = (vendor: string, twd: number, kind: "product" | "personal", sub = false): ChargeRow => ({ vendor, currency: "TWD", amount: twd, twd, kind, sub });
+  const s = monthlyText("2026-10", [r("Anthropic", 900, "product"), r("Spotify", 149, "personal", true), r("小額", 60, "personal")],
+    [r("Anthropic", 300, "product"), r("Spotify", 149, "personal", true), r("小額", 20, "personal")]);
+  if (!s.includes("⚠️ Anthropic") || !s.includes("上月 300")) throw new Error("暴增沒標：\n" + s);
+  if (s.includes("⚠️ 小額")) throw new Error("小額波動不該標");
+  if (!s.includes("NT$ 900") || !s.includes("個人訂閱 1 個：Spotify")) throw new Error(s);
+});
+
+// ── 政府消息 ──
+t("政府消息：只收 gov.tw 與機場公司的網址（含子網域），其他一律丟", () => {
+  const items = parseNews(JSON.stringify([
+    { title: "區段徵收公告", date: "2026-10-15", url: "https://www.tycg.gov.tw/news/1", sum: "a" },
+    { title: "機場公告", date: "", url: "https://www.taoyuan-airport.com/x", sum: "b" },
+    { title: "新聞網", url: "https://news.example.com/x", sum: "c" },
+    { title: "假冒", url: "https://gov.tw.evil.com/x", sum: "d" },
+    { title: "http", url: "http://www.tycg.gov.tw/x", sum: "e" },
+  ]));
+  eq(items.map((x) => x.title), ["區段徵收公告", "機場公告"]);
+});
+
+t("政府消息：沒有新的就說沒有；連結與標題轉義", () => {
+  if (!newsText([]).includes("沒有新公告")) throw new Error("空的沒說");
+  const s = newsText([{ title: "A<B", date: "2026-10-15", url: "https://x.gov.tw/?a=1&b=2", sum: "s" }]);
+  if (!s.includes("A&lt;B") || !s.includes("a=1&amp;b=2")) throw new Error(s);
+});
+
+t("新按鈕 R（提醒處理好了）解析得回來", () => { eq(parseMbCallback("mb:R:5"), { op: "R", id: 5 }); });
 
 setTimeout(() => {
   console.log(`\n${pass} 過、${fail} 敗`);

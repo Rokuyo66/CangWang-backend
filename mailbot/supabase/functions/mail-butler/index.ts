@@ -2,6 +2,8 @@
 //
 //   POST { "job": "triage" }  每兩小時：收件匣清零維持（tidy）→ 掃近 3 天沒看過的信 → 刪／自動歸檔／推歸檔卡
 //   POST { "job": "tidy" }    一次性大掃除：tidy ＋ 收件匣裡所有沒看過的信（不限 3 天）都推歸檔卡
+//   POST { "job": "news" }    立刻查一次航空城／客運園區的政府消息（平常跟週報一起，週一）
+//   每輪 triage 結束時順便：09 點後推到期提醒；每月 1 號 09 點後出上個月的帳單月報
 //   POST { "job": "weekly" }  每週一 09:03（台北）：到期清理（三月／五年標籤）＋信箱週報
 //   （產品週報不在這裡，在產品專案的 weekly-report；/week 會去叫它）
 //
@@ -12,8 +14,12 @@ import { gmailConfigured, listIds, getMeta, trash, labelIds, modify, fileAway, r
 import {
   matchRule, decide, parseFrom, classifyPrompt, parseClassify, classifySys,
   fileText, fileButtons, fileOptions, digestText, mailWeeklyText, sweepFor, noThinking, LABELS, TODO,
+  isSupport, taipeiDate,
   type Rule, type AiVerdict, type DigestItem, type MailWeek,
 } from "../_shared/mailbot.ts";
+import {
+  SUPPORT_ADDRESS, recordReminder, sendDueReminders, handleSupport, recordCharges, sendMonthlyIfDue, sendNews,
+} from "../_shared/extras.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 // 發訊息用的是觀主私人的管家 bot（ADMIN_BOT_TOKEN），不是對外的卜卦 bot：
@@ -56,7 +62,7 @@ async function classify(metas: MailMeta[], labels: string[], extra: string[]): P
         max_tokens: 160 * metas.length + 200 + nt.headroom,
         ...nt.body,
         system: [{ type: "text", text: classifySys(extra), cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: classifyPrompt(metas) }],
+        messages: [{ role: "user", content: classifyPrompt(metas, taipeiDate()) }],
       }),
     });
     if (!res.ok) {
@@ -121,7 +127,19 @@ async function tidy(lmap: Map<string, string>): Promise<{ read: number; archived
   return out;
 }
 
+/** 一輪整理＋每天／每月的順手事。提醒與月報不管這輪有沒有新信都要檢查。 */
 async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, unknown>> {
+  const out = await triageMail(query, max);
+  if (out.ok === false) return out;
+  try { out.reminders = await sendDueReminders(db, say); } catch (e) { console.error("reminders failed", errMsg(e)); }
+  try { out.monthly = await sendMonthlyIfDue(db, say); } catch (e) { console.error("monthly failed", errMsg(e)); }
+  return out;
+}
+
+// 這兩個分類的信、或 AI 說是扣款的，讀內文抓金額記帳
+const CHARGE_LABELS = ["三月/帳單繳費", "三月/水電瓦斯", "三月/保險通知", "五年/產品營運"];
+
+async function triageMail(query: string, max: number): Promise<Record<string, unknown>> {
   if (!gmailConfigured()) {
     await say("⚠️ 信箱管家還沒接上 Gmail：GMAIL_CLIENT_ID／GMAIL_CLIENT_SECRET／GMAIL_REFRESH_TOKEN 未設定。見 dev/MAIL-BUTLER.md");
     return { ok: false, error: "gmail not configured" };
@@ -170,10 +188,14 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
   const ruleHits = new Map<number, number>();
   const now = () => new Date().toISOString();
 
+  const chargeMetas: MailMeta[] = [];
   for (const m of metas) {
     const rule = ruled.get(m.id) ?? null;
     const v = ai.get(m.id) ?? null;
-    const d = decide(m, rule, v, labels);
+    // 客服來信：不管規則與 AI 怎麼說，一律推卡、絕不自動刪或歸檔
+    const support = isSupport(m.to, SUPPORT_ADDRESS);
+    const d = support ? { decision: "report" as const, source: "guard" as const, reason: "寄到客服信箱", label: v?.lb, autoFile: false }
+      : decide(m, rule, v, labels);
     if (!d) { skipped++; continue; }
     const f = parseFrom(m.from);
 
@@ -186,15 +208,19 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
       catch (e) { console.error("fileAway failed", m.id, errMsg(e)); }   // 歸檔失敗就退回成卡片
     }
     const card = d.decision !== "trash" && !auto;
-    const options = card ? fileOptions(d.label, v) : null;
-    const suggest = card ? (v?.nw ?? null) : null;
+    const SUPPORT_LABEL = "五年/客服往來";
+    const options = !card ? null : support
+      ? [...(labels.includes(SUPPORT_LABEL) ? [SUPPORT_LABEL] : []), ...fileOptions(d.label, v)].filter((x, i, a) => a.indexOf(x) === i).slice(0, 3)
+      : fileOptions(d.label, v);
+    const suggest = !card ? null : support && !labels.includes(SUPPORT_LABEL) ? SUPPORT_LABEL : (v?.nw ?? null);
+    const sup = card && support ? await handleSupport(m) : null;
 
     const row = {
       gmail_id: m.id, thread_id: m.threadId, sender: f.email, sender_name: f.name.slice(0, 120),
       subject: m.subject.slice(0, 300), snippet: m.snippet.slice(0, 400), received_at: m.receivedAt,
       decision: d.decision, source: d.source, reason: (d.reason || "").slice(0, 120),
       status: card ? "open" : "done", decided_at: card ? null : now(),
-      label: auto ? d.label : null, options, suggest, summary: (v?.sum ?? "").slice(0, 120) || null,
+      label: auto ? d.label : null, options, suggest, summary: (sup?.sum || v?.sum || "").slice(0, 120) || null,
     };
     const { data: ins, error } = await db.from("mailbot_seen")
       .upsert(row, { onConflict: "gmail_id", ignoreDuplicates: true }).select("id").maybeSingle();
@@ -203,6 +229,8 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
     if (rule) ruleHits.set(rule.id, (ruleHits.get(rule.id) ?? 0) + 1);
 
     if (d.decision === "trash") { trashed++; trashedSenders.add(f.name.slice(0, 16)); continue; }
+    try { await recordReminder(db, m, v); } catch (e) { console.error("recordReminder", errMsg(e)); }
+    if (!support && (v?.chg || (d.label && CHARGE_LABELS.includes(d.label)))) chargeMetas.push(m);
     if (auto) {
       filed++; labeled[d.label!] = (labeled[d.label!] ?? 0) + 1;
       if (d.decision === "report") report.push({ from: m.from, subject: m.subject, sum: v?.sum ?? "" });
@@ -211,10 +239,14 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
     cards++;
     if (pushed < MAX_ASK_PUSH) {
       pushed++;
-      await say(fileText({ from: m.from, subject: m.subject, snippet: m.snippet, reason: d.reason, sum: v?.sum, ask: d.decision === "ask" }, options!, suggest),
+      await say((sup ? sup.head + "\n\n" : "") +
+        fileText({ from: m.from, subject: m.subject, snippet: m.snippet, reason: d.reason, sum: sup?.sum || v?.sum, ask: d.decision === "ask" }, options!, suggest),
         { reply_markup: { inline_keyboard: fileButtons(ins.id as number, options!, suggest) } });
     }
   }
+
+  let charges = 0;
+  try { charges = await recordCharges(db, chargeMetas); } catch (e) { console.error("recordCharges", errMsg(e)); }
 
   for (const [id, n] of ruleHits) {
     const { data: r } = await db.from("mailbot_rules").select("hits").eq("id", id).maybeSingle();
@@ -223,7 +255,7 @@ async function triage(query = QUERY, max = MAX_PER_RUN): Promise<Record<string, 
 
   const text = digestText(report, { trashed, kept: filed, asked: cards, skipped, trashedSenders: [...trashedSenders], labeled });
   if (text) await say(cards > pushed ? `${text}\n<i>還有 ${cards - pushed} 張卡沒推，打 /mailask</i>` : text);
-  return { ok: true, scanned: ids.length, fresh: metas.length, trashed, filed, cards, skipped, tidied };
+  return { ok: true, scanned: ids.length, fresh: metas.length, trashed, filed, cards, skipped, charges, tidied };
 }
 
 /** 到期清理：三月層 3 個月、五年層 5 年。丟垃圾桶（30 天內撿得回來），不是永久刪。 */
@@ -266,7 +298,11 @@ async function weekly(): Promise<Record<string, unknown>> {
     catch (e) { console.error("sweep failed", e instanceof Error ? e.message : String(e)); }
   }
   await say(mailWeeklyText(w));
-  return { ok: true, swept: w.sweep?.swept ?? 0 };
+  // 政府消息跟週報一起發；查不到不影響週報
+  let news = 0;
+  try { news = await sendNews(db, say); }
+  catch (e) { console.error("news failed", errMsg(e)); await say(`⚠️ 航空城消息這週沒查成：${errMsg(e).slice(0, 150).replace(/</g, "&lt;")}`); }
+  return { ok: true, swept: w.sweep?.swept ?? 0, news };
 }
 
 Deno.serve(async (req) => {
@@ -285,6 +321,7 @@ Deno.serve(async (req) => {
     const out = job === "weekly" ? await weekly()
       : job === "triage" ? await triage()
       : job === "tidy" ? await triage(`in:inbox -label:${TODO}`, 100)
+      : job === "news" ? { ok: true, news: await sendNews(db, say) }
       : { ok: false, error: "unknown job" };
     return Response.json(out);
   } catch (e) {

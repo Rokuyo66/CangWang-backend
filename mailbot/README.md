@@ -40,6 +40,18 @@
 
 自建分類（TG 按「🆕」）只准 `三月/`、`五年/`、`永久/` 開頭、2～8 字，存 `mailbot_labels`，AI 與到期清理自動納入。
 
+**延伸功能**（2026-10-20）：
+
+| 功能 | 何時 | 說明 |
+| --- | --- | --- |
+| ⏰ 到期日提醒 | 每天 09 點後（隨整理那一輪） | 分類時順手抓信裡的日期（繳費截止、預約、金鑰到期…），前一天與當天各推一次，按「✓ 處理好了」就停。`/due` 看清單 |
+| 🎧 客服信 | 隨整理 | 寄到 `SUPPORT_ADDRESS`（預設 support@jizhiguan.com）的信一律推卡、絕不自動刪；讀內文分類、在 Gmail 同一串信裡**寫好回信草稿（只寫不寄）** |
+| 💳 帳單月報 | 每月 1 號 09 點後 | 扣款／收據讀內文抓金額，分「藏往知來營運」與「個人」，跟上月比，暴增標 ⚠️。`/bills` 看本月到目前 |
+| 🛫 政府消息 | 每週一（隨週報） | Sonnet 5.5＋網路搜尋，只搜 gov.tw 與桃園機場公司，整理航空城、客運園區的新公告，推過的不重推。`/news` 立刻查 |
+
+讀內文只限客服信與帳單收據兩種；其餘仍只看標頭與摘要。
+可調的 secret（都有預設值，不設也能跑）：`SUPPORT_ADDRESS`、`FX_TWD`（例 `USD=32.5,JPY=0.21`）、`NEWS_TOPICS`、`MAILBOT_NEWS_MODEL`。
+
 **用說的改規則**：在 TG 直接打一般句子（「以後蝦皮的信都刪掉」「104 的信不要再刪了」「Anthropic 的收據放五年/產品營運」），
 管家用 AI 翻成規則操作、驗證格式後回一張確認卡，按 ✅ 才生效。只能改規則；改程式、改週報要回 Claude Code。
 
@@ -193,7 +205,7 @@ $$);
 ## 開發
 
 - 測試：`node mailbot/dev/mailbot-test.mts`
-- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則的確認卡草稿），都貼進管家專案的 SQL Editor 跑
+- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則）、`0003_reminders_bills_news.sql`（提醒、帳單、政府消息），都貼進管家專案的 SQL Editor 跑
 - 型別檢查：`deno check mailbot/supabase/functions/mail-butler/index.ts mailbot/supabase/functions/admin-tg/index.ts`
 - 這個資料夾**不准 import 產品的檔案**（`supabase/functions/_shared/*`）：兩邊分開部署，import 了就把產品程式一起帶上管家專案。
 - 在 Gmail 新增或改名固定標籤，要同步改 `mailbot.ts` 的 `LABELS`；自建的走 TG 按鈕即可。
