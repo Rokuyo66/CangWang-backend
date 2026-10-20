@@ -11,7 +11,7 @@
 import {
   parseFrom, matchRule, decide, parseClassify, parseMbCallback, mbCallback,
   digestText, mailWeeklyText, guardHit, LABELS, SWEEP, sweepFor, fileOptions, fileButtons, fileText,
-  isValidNewLabel, classifySys, type Rule, type Meta,
+  isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -201,6 +201,57 @@ t("信箱週報帶出清理數與待辦；沒東西時也說清楚", () => {
   const e = mailWeeklyText({ trashed: 0, filed: 0, cards: 0, open: 0, rules: 0, newLabels: [] });
   if (!e.includes("本週沒有到期的信") || !e.includes("待辦清空")) throw new Error(e);
   if (/產品|起卦|營收/.test(s + e)) throw new Error("信箱週報混進了產品數據");
+});
+
+// ── 用說的改規則 ──
+const ids = new Set([3, 7]);
+t("用說的：品牌→網域、大小寫與網址前綴收乾淨", () => {
+  const r = parseRuleIntent('{"ops":[{"op":"add","kind":"domain","pattern":"https://Shopee.TW/","action":"trash"}],"say":""}', LABELS, ids);
+  eq(r.ops, [{ op: "add", kind: "domain", pattern: "shopee.tw", action: "trash", label: null }]);
+});
+
+t("用說的：格式不對的一律丟掉，不上確認卡", () => {
+  const r = parseRuleIntent(JSON.stringify({ ops: [
+    { op: "add", kind: "sender", pattern: "沒有小老鼠", action: "trash" },
+    { op: "add", kind: "domain", pattern: "a@b.com", action: "trash" },
+    { op: "add", kind: "subject", pattern: "x", action: "trash" },
+    { op: "add", kind: "domain", pattern: "ok.com", action: "nuke" },
+    { op: "add", kind: "domain", pattern: "ok.com", action: "trash", label: "五年/產品營運" },   // 要刪又要歸檔
+    { op: "add", kind: "domain", pattern: "ok.com", action: "keep", label: "亂寫的分類" },
+    { op: "del", id: 999 },
+  ], say: "" }), LABELS, ids);
+  eq(r.ops, []);
+});
+
+t("用說的：只能刪現有的規則、重複的只算一次", () => {
+  const r = parseRuleIntent('{"ops":[{"op":"del","id":3},{"op":"del","id":3},{"op":"del","id":4}]}', LABELS, ids);
+  eq(r.ops, [{ op: "del", id: 3 }]);
+});
+
+t("用說的：新分類要合法才收，並列入要新開的清單", () => {
+  const r = parseRuleIntent('{"ops":[{"op":"add","kind":"sender","pattern":"a@b.com","action":"keep","label":"五年/課程學習"},{"op":"add","kind":"sender","pattern":"c@d.com","action":"keep","label":"待辦"}]}', LABELS, ids);
+  eq(r.ops.length, 1); eq(r.newLabels, ["五年/課程學習"]);
+});
+
+t("用說的：一句最多 5 條；看不懂時帶回 say、沒有操作", () => {
+  const many = { ops: Array.from({ length: 9 }, (_, i) => ({ op: "add", kind: "domain", pattern: `x${i}.com`, action: "trash" })) };
+  eq(parseRuleIntent(JSON.stringify(many), LABELS, ids).ops.length, 5);
+  const q = parseRuleIntent('{"ops":[],"say":"你是指哪個寄件人？"}', LABELS, ids);
+  eq([q.ops.length, q.say], [0, "你是指哪個寄件人？"]);
+  eq(parseRuleIntent("我不輸出 JSON", LABELS, ids).ops, []);
+});
+
+t("用說的：確認卡文案講清楚會發生什麼，HTML 轉義", () => {
+  const rules = [{ id: 3, kind: "domain" as const, pattern: "104.com.tw", action: "trash" as const, label: null }];
+  if (!describeOp({ op: "del", id: 3 }, rules).includes("104.com.tw")) throw new Error("刪除沒寫出是哪條");
+  if (!describeOp({ op: "add", kind: "sender", pattern: "a<b@c.d", action: "keep", label: "永久/房產" }).includes("a&lt;b@c.d")) throw new Error("沒轉義");
+  if (!describeOp({ op: "add", kind: "domain", pattern: "x.com", action: "keep", label: null }).includes("不刪")) throw new Error("keep 沒說明");
+  if (!ruleNlPrompt("hi", rules).includes("#3 domain 104.com.tw")) throw new Error("現有規則沒帶給模型");
+  if (ruleNlSys(LABELS).includes("待辦、") ) throw new Error("待辦不該是規則可選的分類");
+});
+
+t("確認卡按鈕：Y／N 解析得回來", () => {
+  eq(parseMbCallback("mb:Y:12"), { op: "Y", id: 12 }); eq(parseMbCallback("mb:N:12"), { op: "N", id: 12 });
 });
 
 setTimeout(() => {

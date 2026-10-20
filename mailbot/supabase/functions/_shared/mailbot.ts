@@ -226,10 +226,11 @@ export function parseClassify(text: string, n: number, labels: readonly string[]
 //   A  以後這個寄件人都自動放進剛剛選的標籤
 //   t 刪這封   T 刪＋此寄件人以後都刪   D 刪＋此網域以後都刪
 //   u 從垃圾桶救回（/maillog）   k／K 舊版卡片的「留」「以後都報」，舊訊息上的按鈕還按得動
-export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u";
+//   Y／N  用說的改規則：確認／取消（id 是 mailbot_rule_drafts 的，不是 mailbot_seen 的）
+export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u" | "Y" | "N";
 export const mbCallback = (op: MbOp, id: number) => `mb:${op}:${id}`;
 export function parseMbCallback(data: string): { op: MbOp; id: number } | null {
-  const m = /^mb:(o[0-2]|[nApTtDkKu]):(\d{1,15})$/.exec(data ?? "");
+  const m = /^mb:(o[0-2]|[nApTtDkKuYN]):(\d{1,15})$/.exec(data ?? "");
   return m ? { op: m[1] as MbOp, id: Number(m[2]) } : null;
 }
 
@@ -336,4 +337,91 @@ export function noThinking(m: string): { body: Record<string, unknown>; headroom
   if (/^claude-(opus-5-5|fable|mythos)/.test(m)) return { body: { thinking: { type: "adaptive" }, output_config: { effort: "low" } }, headroom: 1500 };
   if (/^claude-((sonnet|opus)-5(?!-\d)|haiku-5)/.test(m)) return { body: { thinking: { type: "disabled" } }, headroom: 0 };
   return { body: {}, headroom: 0 };
+}
+
+/* ── 用說的改規則（TG 打一般句子）────────────────────────────
+   模型只負責把一句話翻成「規則操作」；這裡驗證每一條，不合格的丟掉，
+   觀主按 ✅ 之前什麼都不生效。能做的只有規則：加、刪。改程式的事一律請他回去找 Claude Code。 */
+
+export type RuleOp =
+  | { op: "add"; kind: Rule["kind"]; pattern: string; action: Rule["action"]; label?: string | null }
+  | { op: "del"; id: number };
+
+export function ruleNlSys(labels: readonly string[]): string {
+  return `你是觀主信箱管家的規則助手。觀主用一句話說他想怎麼處理某類信，你把它翻成規則操作。
+
+規則的欄位：
+- kind：sender（完整寄件地址，例 news@shopee.tw）／domain（寄件網域，涵蓋子網域，例 shopee.tw）／subject（主旨包含的字）
+- action：trash（直接刪）／keep（不刪；有 label 就自動歸檔到 label，沒有就照常推卡問他）／report（一律推給他看）
+- label（可省）：歸檔到哪個分類。只能從下面挑，或新開「三月/xx」「五年/xx」「永久/xx」（xx 2～8 字）：
+${labels.filter((l) => l !== TODO).join("、")}
+
+刪規則：用 {"op":"del","id":編號}，編號只能從使用者訊息附上的「現有規則」裡找。
+
+判斷原則：
+- 說到品牌、公司就用 domain（蝦皮→shopee.tw、104→104.com.tw、LinkedIn→linkedin.com），除非他給了完整地址
+- 「不要刪／別刪／要留」＝keep；「都給我看／通知我」＝report；「刪掉／不要再收到」＝trash
+- 想取消某條現有規則（例如「104 的信不要再刪了」），就 del 那一條；需要的話再 add 一條新的
+- 一句話最多 5 條操作
+- 不是規則能做的事（改週報、改排程、改程式、問問題），ops 給空陣列，say 說明「這需要回 Claude Code 對話改程式」
+- 看不懂、或不確定是哪個寄件人／網域，ops 給空陣列，say 用一句話反問
+
+只輸出 JSON，不要任何其他字：
+{"ops":[{"op":"add","kind":"domain","pattern":"shopee.tw","action":"trash"}],"say":""}`;
+}
+
+export function ruleNlPrompt(text: string, rules: Pick<Rule, "id" | "kind" | "pattern" | "action" | "label">[]): string {
+  const list = rules.slice(0, 200).map((r) => `#${r.id} ${r.kind} ${r.pattern} → ${r.action}${r.label ? ` [${r.label}]` : ""}`).join("\n");
+  return `【觀主說】\n${text.slice(0, 500)}\n\n【現有規則】\n${list || "（沒有）"}`;
+}
+
+const SENDER_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** 驗證模型給的每一條；不合格的直接丟掉，不讓它出現在確認卡上。 */
+export function parseRuleIntent(text: string, labels: readonly string[], ruleIds: Set<number>):
+  { ops: RuleOp[]; say: string; newLabels: string[] } {
+  const out = { ops: [] as RuleOp[], say: "", newLabels: [] as string[] };
+  const m = String(text ?? "").match(/\{[\s\S]*\}/);
+  if (!m) return out;
+  let j: Record<string, unknown>;
+  try { j = JSON.parse(m[0]); } catch { return out; }
+  out.say = String(j?.say ?? "").slice(0, 200);
+  for (const x of (Array.isArray(j?.ops) ? j.ops : []).slice(0, 5) as Record<string, unknown>[]) {
+    if (x?.op === "del") {
+      const id = Number(x.id);
+      if (Number.isInteger(id) && ruleIds.has(id) && !out.ops.some((o) => o.op === "del" && o.id === id)) out.ops.push({ op: "del", id });
+      continue;
+    }
+    if (x?.op !== "add") continue;
+    const kind = String(x.kind ?? "");
+    const action = String(x.action ?? "");
+    let pattern = String(x.pattern ?? "").trim().toLowerCase();
+    if (kind === "domain") pattern = pattern.replace(/^@/, "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (!["trash", "keep", "report"].includes(action)) continue;
+    if (kind === "sender" ? !SENDER_RE.test(pattern) : kind === "domain" ? !DOMAIN_RE.test(pattern)
+      : kind === "subject" ? (pattern.length < 2 || pattern.length > 50) : true) continue;
+    let label: string | null = null;
+    if (x.label != null && x.label !== "") {
+      if (action === "trash") continue;                          // 要刪又要歸檔，自相矛盾
+      if (inList(labels, x.label) && x.label !== TODO) label = x.label as string;
+      else if (isValidNewLabel(x.label)) { label = x.label as string; if (!out.newLabels.includes(label)) out.newLabels.push(label); }
+      else continue;
+    }
+    out.ops.push({ op: "add", kind: kind as Rule["kind"], pattern: pattern.slice(0, 200), action: action as Rule["action"], label });
+  }
+  return out;
+}
+
+export function describeOp(op: RuleOp, rules: Pick<Rule, "id" | "kind" | "pattern" | "action" | "label">[] = []): string {
+  if (op.op === "del") {
+    const r = rules.find((x) => x.id === op.id);
+    return r ? `➖ 刪除 #${r.id}：${KIND_LABEL[r.kind]} <code>${esc(r.pattern)}</code> → ${ACTION_LABEL[r.action]}${r.label ? `「${esc(r.label)}」` : ""}`
+      : `➖ 刪除 #${op.id}`;
+  }
+  const what = op.action === "keep" && op.label ? `🗂 自動歸檔到「${esc(op.label)}」`
+    : op.action === "keep" ? "🛡 不刪（照常推卡問你）"
+    : op.action === "report" ? (op.label ? `📌 在整理結果裡告訴你，並自動歸檔到「${esc(op.label)}」` : "📌 一律推卡給你看")
+    : "🗑 直接刪";
+  return `➕ ${KIND_LABEL[op.kind]} <code>${esc(op.pattern)}</code> → ${what}`;
 }

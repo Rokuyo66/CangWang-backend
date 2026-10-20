@@ -9,13 +9,15 @@
 //   /mailrule del N    刪第 N 條規則
 //   /mailrule add 動作 種類 內容   例：/mailrule add trash domain shopee.tw
 //   /week              立刻出一份產品週報
+//   （一般句子）        用說的改規則，例：「以後蝦皮的信都刪掉」→ 確認卡 → 按 ✅ 才生效
 //
 // 呼叫端（admin-tg，觀主私人的管家 bot）已確認是觀主才進來；這裡不再驗身分。
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash, modify, fileAway, ensureLabel, labelIds } from "./gmail.ts";
 import {
-  esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO,
-  KIND_LABEL, ACTION_LABEL, type Rule,
+  esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO, LABELS, noThinking,
+  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp,
+  KIND_LABEL, ACTION_LABEL, type Rule, type RuleOp,
 } from "./mailbot.ts";
 
 type Send = (text: string, extra?: Record<string, unknown>) => Promise<unknown>;
@@ -32,7 +34,10 @@ export const MAILBOT_HELP =
   "<code>/mailrules</code>　看規則\n" +
   "<code>/mailrule del 編號</code>　刪規則\n" +
   "<code>/mailrule add trash|report|keep sender|domain|subject 內容</code>\n" +
-  "<code>/week</code>　立刻出產品週報（從產品專案送來）";
+  "<code>/week</code>　立刻出產品週報（從產品專案送來）\n\n" +
+  "💬 <b>也可以直接用說的改規則</b>，例如：\n" +
+  "「以後蝦皮的信都刪掉」「Anthropic 的收據放五年/產品營運」「104 的信不要再刪了」\n" +
+  "我會先回一張確認卡，按 ✅ 才生效。";
 
 const MAILBOT_CMD = /^\/(mail_help|mailnow|mailtidy|mailask|maillog|mailrules|mailrule|week)(@\w+)?(\s|$)/;
 export const isMailbotCommand = (text: string) => MAILBOT_CMD.test(text);
@@ -139,12 +144,102 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
   }
 }
 
+const NL_MODEL = Deno.env.get("MAILBOT_RULE_MODEL") ?? Deno.env.get("MAILBOT_MODEL") ?? "claude-haiku-5-5";
+
+type RuleRow = Pick<Rule, "id" | "kind" | "pattern" | "action" | "label">;
+
+/** 一般句子 → 規則草稿 → 確認卡。模型只翻譯，真正寫進規則要等觀主按 ✅。 */
+export async function handleMailbotFreeText(db: SupabaseClient, text: string, send: Send): Promise<void> {
+  const { data: rulesRaw } = await db.from("mailbot_rules").select("id, kind, pattern, action, label").order("id");
+  const rules = (rulesRaw ?? []) as RuleRow[];
+  const { data: extra } = await db.from("mailbot_labels").select("name");
+  const labels = [...LABELS, ...(extra ?? []).map((r) => String(r.name))];
+
+  const nt = noThinking(NL_MODEL);
+  let reply = "";
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: NL_MODEL, max_tokens: 600 + nt.headroom, ...nt.body,
+        system: [{ type: "text", text: ruleNlSys(labels), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: ruleNlPrompt(text, rules) }],
+      }),
+    });
+    if (!res.ok) throw new Error(`anthropic ${res.status}`);
+    const data = await res.json();
+    reply = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
+  } catch (e) {
+    await send(`我現在聽不懂句子（${esc(e instanceof Error ? e.message : String(e))}）。可以先用 <code>/mailrule add</code>，打 /mail_help 看格式。`);
+    return;
+  }
+
+  const intent = parseRuleIntent(reply, labels, new Set(rules.map((r) => r.id)));
+  if (!intent.ops.length) {
+    await send(intent.say ? `🤔 ${esc(intent.say)}` : "這句我沒辦法變成規則。可以換個說法，例如「以後蝦皮的信都刪掉」；打 /mail_help 看指令。");
+    return;
+  }
+  const { data: draft, error } = await db.from("mailbot_rule_drafts")
+    .insert({ text: text.slice(0, 500), ops: intent.ops, new_labels: intent.newLabels }).select("id").single();
+  if (error || !draft) { await send(`存不了草稿：${esc(error?.message ?? "")}`); return; }
+  await send(
+    `📏 <b>要這樣改規則嗎？</b>\n\n${intent.ops.map((o) => describeOp(o, rules)).join("\n")}` +
+    (intent.newLabels.length ? `\n\n🆕 會在 Gmail 新開分類：${intent.newLabels.map(esc).join("、")}` : "") +
+    (intent.say ? `\n\n<i>${esc(intent.say)}</i>` : "") +
+    `\n\n<i>生效後從下一輪整理開始套用；已經在收件匣的信不受影響。</i>`,
+    { reply_markup: { inline_keyboard: [[
+      { text: "✅ 好", callback_data: mbCallback("Y", draft.id) },
+      { text: "✖ 不要", callback_data: mbCallback("N", draft.id) },
+    ]] } });
+}
+
+/** 按 ✅：照草稿寫進規則。草稿 24 小時內有效，按過就失效，按兩次不會寫兩次。 */
+async function applyDraft(db: SupabaseClient, id: number, yes: boolean, send: Send, clearButtons: () => Promise<unknown>) {
+  const { data: d } = await db.from("mailbot_rule_drafts").select("id, ops, new_labels, status, created_at").eq("id", id).maybeSingle();
+  await clearButtons();
+  if (!d || d.status !== "open") { await send("這張確認卡已經處理過了。"); return; }
+  if (Date.now() - new Date(d.created_at).getTime() > 86_400_000) { await send("這張確認卡超過一天，作廢了。再說一次就好。"); return; }
+  if (!yes) {
+    await db.from("mailbot_rule_drafts").update({ status: "cancelled" }).eq("id", id);
+    await send("✖ 已取消，規則沒有變。");
+    return;
+  }
+  const done: string[] = [];
+  try {
+    if ((d.new_labels ?? []).length) {
+      const lmap = await labelIds();
+      for (const name of d.new_labels as string[]) {
+        await ensureLabel(name, lmap);
+        await db.from("mailbot_labels").upsert({ name, note: "TG 用說的新開" }, { onConflict: "name" });
+      }
+    }
+    for (const op of d.ops as RuleOp[]) {
+      if (op.op === "del") {
+        const { data } = await db.from("mailbot_rules").delete().eq("id", op.id).select("id");
+        done.push(data?.length ? `➖ 刪了 #${op.id}` : `➖ #${op.id} 已經不在了`);
+      } else {
+        const { data: r, error } = await db.from("mailbot_rules")
+          .upsert({ kind: op.kind, pattern: op.pattern, action: op.action, label: op.label ?? null, note: "TG 用說的" }, { onConflict: "kind,pattern" })
+          .select("id").single();
+        done.push(error ? `⚠️ ${esc(op.pattern)} 寫不進去：${esc(error.message)}` : `➕ #${r.id} ${describeOp(op).replace(/^➕ /, "")}`);
+      }
+    }
+  } catch (e) {
+    await send(`改到一半出錯：${esc(e instanceof Error ? e.message : String(e))}\n已完成的：\n${done.join("\n") || "（無）"}`);
+    return;
+  }
+  await db.from("mailbot_rule_drafts").update({ status: "applied" }).eq("id", id);
+  await send(`✅ 規則已更新\n\n${done.join("\n")}\n\n<i>/mailrules 看全部</i>`);
+}
+
 /** 按鈕：mb:<op>:<id>。回 false＝不是信箱管家的按鈕。 */
 export async function handleMailbotCallback(
   db: SupabaseClient, data: string, send: Send, clearButtons: () => Promise<unknown>,
 ): Promise<boolean> {
   const cb = parseMbCallback(data);
   if (!cb) return false;
+  if (cb.op === "Y" || cb.op === "N") { await applyDraft(db, cb.id, cb.op === "Y", send, clearButtons); return true; }
   const { data: row } = await db.from("mailbot_seen")
     .select("id, gmail_id, sender, sender_name, subject, status, decision, options, suggest, label").eq("id", cb.id).maybeSingle();
   if (!row) { await send("找不到這封信的紀錄。"); return true; }

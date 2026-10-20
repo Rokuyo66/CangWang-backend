@@ -9,7 +9,7 @@
 // 這個 bot 只認觀主一人（ADMIN_TG_ID），其他人傳什麼都不回——不回應，就不會讓人知道它是誰的。
 // 鑑權：Telegram 帶來的 x-telegram-bot-api-secret-token 必須等於 ADMIN_TG_WEBHOOK_SECRET（fail-closed）。
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { isMailbotCommand, handleMailbotCommand, handleMailbotCallback, MAILBOT_HELP } from "../_shared/mailbot-tg.ts";
+import { isMailbotCommand, handleMailbotCommand, handleMailbotCallback, handleMailbotFreeText, MAILBOT_HELP } from "../_shared/mailbot-tg.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("ADMIN_BOT_TOKEN")}`;
@@ -72,7 +72,9 @@ async function onUpdate(update: any) {
     await handleMailbotCommand(db, text, (t, extra) => send(chatId, t, extra));
     return;
   }
-  await send(chatId, "看不懂這句。打 /mail_help 看指令。");
+  if (text.startsWith("/")) { await send(chatId, "沒有這個指令。打 /mail_help 看指令。"); return; }
+  // 一般句子：當成「用說的改規則」，先回確認卡，按 ✅ 才生效
+  await handleMailbotFreeText(db, text, (t, extra) => send(chatId, t, extra));
 }
 
 Deno.serve(async (req) => {

@@ -40,6 +40,9 @@
 
 自建分類（TG 按「🆕」）只准 `三月/`、`五年/`、`永久/` 開頭、2～8 字，存 `mailbot_labels`，AI 與到期清理自動納入。
 
+**用說的改規則**：在 TG 直接打一般句子（「以後蝦皮的信都刪掉」「104 的信不要再刪了」「Anthropic 的收據放五年/產品營運」），
+管家用 AI 翻成規則操作、驗證格式後回一張確認卡，按 ✅ 才生效。只能改規則；改程式、改週報要回 Claude Code。
+
 TG 指令：`/mailnow`、`/mailtidy`（大掃除）、`/mailask`（重推卡片）、`/maillog`（救回自動刪的）、`/mailrules`、`/mailrule add|del`、`/week`。
 
 ---
@@ -190,6 +193,7 @@ $$);
 ## 開發
 
 - 測試：`node mailbot/dev/mailbot-test.mts`
+- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則的確認卡草稿），都貼進管家專案的 SQL Editor 跑
 - 型別檢查：`deno check mailbot/supabase/functions/mail-butler/index.ts mailbot/supabase/functions/admin-tg/index.ts`
 - 這個資料夾**不准 import 產品的檔案**（`supabase/functions/_shared/*`）：兩邊分開部署，import 了就把產品程式一起帶上管家專案。
 - 在 Gmail 新增或改名固定標籤，要同步改 `mailbot.ts` 的 `LABELS`；自建的走 TG 按鈕即可。
