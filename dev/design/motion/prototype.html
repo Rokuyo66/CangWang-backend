@@ -210,6 +210,28 @@ td b{font-weight:700}
 .chip.on{background:var(--ink);color:var(--paper-2);--edge:#000}
 .trans-info{flex:1;min-width:240px;display:flex;flex-direction:column;gap:14px}
 
+/* ── 引導聚光（前端 src/ui/coach.js、styles/coach.css）── */
+.co-pg{position:absolute;inset:0;padding:70px 22px 0;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+.co-pg h4{margin:0;font-size:22px;letter-spacing:.2em}
+.co-q{width:100%;border-bottom:1px solid var(--hair);padding:10px 0;color:var(--ink-faint);font-size:14px}
+.co-seg{display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--app-paper-2);font-size:12.5px}
+.co-seg span{padding:6px 12px;border-radius:999px}.co-seg span:first-child{background:var(--ink);color:var(--paper-2)}
+.co-cast{padding:10px 40px;border-radius:999px;background:var(--ink);color:var(--paper-2);letter-spacing:.4em;font-size:14px}
+.co-ring{position:absolute;border-radius:12px;pointer-events:none;box-shadow:0 0 0 200vmax rgba(20,16,10,.5);outline:2px solid var(--gold);
+  transition:left var(--t-enter) var(--e-out),top var(--t-enter) var(--e-out),width var(--t-enter) var(--e-out),height var(--t-enter) var(--e-out)}
+.co-card{position:absolute;left:12px;right:12px;bottom:12px;background:var(--paper);border:1px solid var(--paper-edge);border-radius:14px;
+  box-shadow:0 10px 30px var(--shade);padding:12px 14px;text-align:left}
+.co-card.top{bottom:auto;top:12px}
+.co-card.in > *{animation:co-rise var(--t-enter) var(--e-out) both}
+.co-card.in > :nth-child(2){animation-delay:var(--stagger)}.co-card.in > :nth-child(3){animation-delay:calc(var(--stagger)*2)}
+@keyframes co-rise{from{opacity:0;transform:translateY(8px)}}
+.co-head{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px}
+.co-head i{width:24px;height:24px;border-radius:50%;background:var(--c-f);display:inline-block}
+.co-head small{color:var(--ink-faint);font-size:10.5px;letter-spacing:.1em}
+.co-head .sk{margin-left:auto;color:var(--ink-faint);font-size:11.5px;letter-spacing:.12em}
+.co-txt{font-size:13px;line-height:1.75}
+.co-acts{display:flex;justify-content:flex-end;margin-top:8px}
+
 /* ══════════ D 待機生命 ══════════ */
 .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .ic{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:14px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -466,6 +488,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
           <tr><td>放開</td><td>全部回到原位，過衝一次</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
           <tr><td>取消（手指拖出）</td><td>同放開，但不觸發動作</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
           <tr><td>停用</td><td>左右搖 4 下，振幅遞減</td><td class="v">360ms × k</td><td class="v">--e-out</td></tr>
+          <tr><td>整片可點的底</td><td>不壓。對話幕的對話框「點哪裡都算下一句」，但它是一片遮罩，不是一顆鈕——縮了會露出底下的場景。裡面的選項、按鈕照壓（前端標 <code>data-m-surface</code>）</td><td class="v">—</td><td class="v">—</td></tr>
           <tr><td>長按</td><td>外框描邊填滿，完成時彈一下</td><td class="v">--t-hold</td><td class="v">linear</td></tr>
           <tr><td>切換</td><td>滑塊位移，途中橫向拉長 1.35</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
         </tbody>
@@ -628,6 +651,47 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ 引導聚光 ══ -->
+  <section id="coach">
+    <div class="sec-h">
+      <div class="tag">B 容器 · 引導</div>
+      <h2>引導聚光</h2>
+      <p>初次使用的教學：在真的畫面上，其餘壓暗、只亮一塊，旁邊一張引路人的對話卡。框從上一處滑到下一處，卡片內文逐行浮上（同彈框）。按「繼續」走下一步。</p>
+    </div>
+    <div class="body">
+      <div class="phone-row">
+        <div class="phone" id="coPhone">
+          <div class="co-pg">
+            <h4>問事</h4>
+            <div class="co-q" id="coQ">例：這段關係能否安穩？</div>
+            <div class="co-seg" id="coSeg"><span>搖卦</span><span>報三數</span><span>手動排盤</span></div>
+            <div class="co-cast" id="coCast">起　卦</div>
+          </div>
+          <div class="co-ring" id="coRing"></div>
+          <div class="co-card" id="coCard"></div>
+        </div>
+        <div class="trans-info">
+          <div class="rules">
+            <div class="rule"><b>擋住整層</b><p>引導期間底下的畫面點不到。要玩家做的事放在卡片的選項上，由腳本代按——示範卦是假的，按到真的「入觀解卦」就會扣靈石、打 AI。</p></div>
+            <div class="rule"><b>卡片不蓋聚光框</b><p>下面放得下放下面，否則上面；上下都不夠（桌機上整張盤）擺到框旁邊，寬度跟著空間縮。</p></div>
+            <div class="rule"><b>遮罩同彈框</b><p>暗度與彈框遮罩同一個色；框線用金。卡片吃主題色，夜觀、硃砂一樣成立。</p></div>
+            <div class="rule"><b>永遠能略過</b><p>右上「略過」、返回鍵都算略過，收尾跟走完一樣（清掉示範的問句與盤）。這是例外於「初次引導不放 ✕」的那一條：略過是字，不是 ✕。</p></div>
+            <div class="rule"><b>看不見的不聚光</b><p>目標被收起來（桌機小浮窗沒有「履歷」鈕）就整步跳過，或改成不聚光、只說話——不要對著空白處講「這顆」。</p></div>
+            <div class="rule"><b>只演一次</b><p>看過記在本機；頁尾留一個入口能重看（「起卦示範」）。</p></div>
+          </div>
+          <div class="tbl-wrap"><table style="min-width:360px">
+            <thead><tr><th>狀態</th><th>變化</th><th>時長</th><th>曲線</th></tr></thead>
+            <tbody>
+              <tr><td>框換位置</td><td>left／top／寬高補間（單發，不是常駐）</td><td class="v">--t-enter</td><td class="v">--e-out</td></tr>
+              <tr><td>卡片換字</td><td>內文逐行浮上 8px</td><td class="v">--t-enter ＋ --stagger</td><td class="v">--e-out</td></tr>
+              <tr><td>目標在畫面外</td><td>先捲到畫面中央，落地再量框</td><td class="v">320ms</td><td class="v">smooth</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ══ D ══ -->
   <section>
     <div class="sec-h">
@@ -729,6 +793,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
           <tr><td>待機 icon</td><td>套九型之一的 keyframes，時長只用 <code>--idle-s / m / l</code></td></tr>
           <tr><td>偶發</td><td>容器加 <code>data-occ</code>，由排程器加上 <code>.fire</code> 播一次</td></tr>
           <tr><td>搜尋框、保存標籤</td><td>見上方「搜尋框與保存標籤」那一段的表</td></tr>
+          <tr><td>初次引導</td><td><code>Coach.step({ at, who, text, choices })</code>（前端 <code>src/ui/coach.js</code>），腳本在 <code>src/pages/tour.js</code></td></tr>
         </tbody>
       </table></div>
       <div class="copy-row"><h3 style="margin:0">Token 原始碼</h3><button class="m-press chip" type="button" id="copy">複製</button></div>
@@ -747,6 +812,26 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   // @design:begin proto-motion-js v=1b9d1b52 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
   const MOTION = {"_說明":"時長的 ms 都會乘上速度倍率 k。spec＝規範與原型用的變數名；web＝前端 styles/motion.css 用的變數名（前端加 m- 前綴；press 的時長叫 --m-press-t，因為 --m-press 是按壓進度）。","base":{"k":1,"a":1,"d":3.6,"ov":1.56,"tilt":6},"durations":[{"k":"press","ms":90,"spec":"--t-press","web":"--m-press-t","u":"按下"},{"k":"release","ms":280,"spec":"--t-release","web":"--m-release","u":"放開、切換滑塊"},{"k":"quick","ms":160,"spec":"--t-quick","web":"--m-quick","u":"小狀態變化"},{"k":"exit","ms":220,"spec":"--t-exit","web":"--m-exit","u":"彈框、提示離場；內容溶解（切頁籤）"},{"k":"enter","ms":360,"spec":"--t-enter","web":"--m-enter","u":"彈框、提示入場；進一層／退一層"},{"k":"page","ms":460,"spec":"--t-page","web":"--m-page","u":"頁面切換"},{"k":"hold","ms":700,"spec":"--t-hold","web":"--m-hold","u":"長按蓄力"},{"k":"stagger","ms":45,"spec":"--stagger","web":"--m-stagger","u":"內容逐項間隔"},{"k":"idleS","ms":2400,"spec":"--idle-s","web":"--m-idle-s","u":"待機短週期"},{"k":"idleM","ms":3700,"spec":"--idle-m","web":"--m-idle-m","u":"待機中週期"},{"k":"idleL","ms":6100,"spec":"--idle-l","web":"--m-idle-l","u":"待機長週期（靈石掠光的間隔）"}],"easings":[{"k":"out","v":"cubic-bezier(.22,1,.36,1)","spec":"--e-out","web":"--m-e-out","u":"入場、按下"},{"k":"in","v":"cubic-bezier(.5,0,.75,0)","spec":"--e-in","web":"--m-e-in","u":"離場"},{"k":"spring","v":"cubic-bezier(.34,OV,.64,1)","spec":"--e-spring","web":"--m-e-spring","u":"放開、彈出（唯一允許過衝）"},{"k":"breath","v":"cubic-bezier(.45,0,.55,1)","spec":"--e-breath","web":"--m-e-breath","u":"待機循環"}],"amp":{"_說明":"待機幅度上限，會乘上幅度倍率 a。scale 0.05＝放大 5%（六六 2026-09-29：3% 存在感太低）","move":3,"scale":0.05,"rot":4}};
   // @design:end proto-motion-js
+  /* ── 引導聚光示範：三步，框滑過去、卡片換字 ── */
+  {
+    const CO=[
+      {at:'coQ',t:'問卦，先把事情寫成一句。一次只問一件事。'},
+      {at:'coSeg',t:'起卦有三種：搖卦、報三數、手動排盤。這次用搖卦。'},
+      {at:'coCast',t:'靜下來，想著這件事。準備好就按。'},
+    ];
+    let ci=0;
+    const ph=$('coPhone'), ring=$('coRing'), card=$('coCard');
+    function coDraw(){
+      const s=CO[ci], el=$(s.at), pr=ph.getBoundingClientRect(), r=el.getBoundingClientRect();
+      Object.assign(ring.style,{left:(r.left-pr.left-6)+'px',top:(r.top-pr.top-6)+'px',width:(r.width+12)+'px',height:(r.height+12)+'px'});
+      card.classList.toggle('top', r.top-pr.top+r.height/2 > pr.height*.55);
+      card.innerHTML=`<div class="co-head"><i></i><b>師妹</b><small>幾知觀管事</small><span class="sk">略過</span></div><div class="co-txt">${s.t}</div><div class="co-acts"><button class="m-press btn primary" type="button">${ci<CO.length-1?'繼續':'再看一次'}</button></div>`;
+      card.classList.remove('in'); void card.offsetWidth; card.classList.add('in');
+      card.querySelector('button').addEventListener('click',()=>{ ci=(ci+1)%CO.length; coDraw(); });
+    }
+    requestAnimationFrame(coDraw);
+    addEventListener('resize',coDraw);
+  }
   /* ── 搜尋框示範：Enter 或放大鏡才「查」 ── */
   $('srDemo').addEventListener('submit',e=>{e.preventDefault();const q=e.target.querySelector('input').value.trim();$('srEcho').textContent=q?`查詢「${q}」（真的畫面會換成結果列）`:'空的不查，游標留在框裡';});
   /* ── 總控 ── */
