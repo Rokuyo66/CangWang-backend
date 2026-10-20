@@ -106,7 +106,8 @@ textarea{resize:vertical;line-height:1.7}
 .ops button:hover{color:var(--cinnabar)}
 .choices{grid-column:2/-2;display:flex;flex-direction:column;gap:6px;border-left:2px solid var(--gold);padding:2px 0 2px 10px}
 .choices>span{font-size:12px;color:var(--gold);letter-spacing:.1em}
-.crow{display:grid;grid-template-columns:70px minmax(0,2fr) minmax(0,1fr) 170px 28px;gap:6px;align-items:center}
+.crow{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) 170px 28px;gap:6px;align-items:center}
+.num small{font-family:var(--f-body);font-size:11px;color:var(--gold);line-height:1.3}
 .crow input,.crow select{padding:3px 6px;font-size:13px}
 .addrow{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px}
 @media (max-width:900px){
@@ -177,8 +178,10 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
         <li>場景跟上一幕不同＝換場：黑場、打地名、立繪先收起。</li>
         <li>分支各自寫到結尾，每條最後一幕勾「到此結束」。</li>
         <li>兩種 voice_hint 只寫立場、稱謂、在意的事，<b>不寫親密程度</b>。換身分、換稱呼不會讓他變熱絡。</li>
-        <li>記憶是他之後聊天會引用的一句，寫成他記得的那件事。</li>
-        <li>門檻：初識 0・相熟 300・相知 500・知己 800。</li>
+        <li>獎勵每一項都可以留空：靈石、頭像、外觀、兩個稱號、他會記住的話，這章給什麼就填什麼。</li>
+        <li>記憶是他之後聊天會引用的一句，寫成他記得的那件事。不寫也可以。</li>
+        <li>道緣門檻：初識 0・相熟 300・相知 500・知己 800。修為門檻選境界，跟道緣兩個都要到才開。</li>
+        <li>要跳到別的幕（分支）時，在「演完往哪」或選項的「跳到」選第幾幕就好，不用另外取名。</li>
       </ul>
     </section>
   </aside>
@@ -192,6 +195,10 @@ const BGS = { guanmen:"觀門", cangjingge:"藏經閣", dadian:"大殿", zhongti
 const STATUS = { draft:"草稿", review:"待看", final:"定稿", temp:"暫用" };
 const TIERS = [[0,"初識"],[300,"相熟"],[500,"相知"],[800,"知己"]];
 const INTIMATE = /親密|喜歡|愛你|愛意|曖昧|撒嬌|熱絡|親近|心動|依戀|戀/;
+// 修為境界（後端 _shared/rules.ts 的 REALMS／REALM_THRESHOLDS）：選境界，存的是那一階的修為數字
+const REALMS = [[0,"不限"],[30,"築基"],[300,"結丹"],[900,"元嬰"],[2000,"化神"],[4500,"煉虛"],[9000,"合體"],[18000,"大乘"]];
+// 外觀：目前只有配色。後端還沒接「事件送配色」（0065 的 event_complete 沒有這一項），定稿時 Claude 再加
+const THEMES = { "": "不發", bamboo: "竹簡配色", cinnabar: "硃砂配色", porcelain: "青花配色" };
 
 let db = null, chapters = {}, cur = null, view = "write";
 const dirty = new Set(), timers = {}, rev = {};
@@ -201,7 +208,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<"
 function blank(cid, no) {
   return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
     require_favor: (TIERS[no - 1] || TIERS[3])[0], require_event: no > 1 ? `${cid}_c${no - 1}` : "",
-    reward_lingshi: 0, reward_avatar: "", reward_memory: "",
+    require_cultivation: 0, reward_lingshi: 0, reward_avatar: "", reward_theme: "", reward_other: "", reward_memory: "",
     char_title: { label: "", voice_hint: "", desc: "" },
     player_title: { id: "", label: "", call_as: "", voice_hint: "" },
     status: "draft", note: "", scenes: [{ bg: "guanmen", text: "" }], updated_at: "" };
@@ -269,7 +276,9 @@ function whoOf(s) {
   return s.speaker ? "other" : "narr";
 }
 function portraitOf(s) { return !("portrait" in s) ? "keep" : s.portrait === null ? "none" : s.portrait; }
-const label = (s, i) => `#${i + 1}${s.id ? " " + s.id : ""}`;
+const label = (s, i) => `第 ${i + 1} 幕`;
+// 分支要指名一幕，內部用代號記（插幕、搬動都不會指錯）；作者只看得到「第幾幕」，代號自動給
+const newId = () => "s" + Math.random().toString(36).slice(2, 7);
 
 function paintMain() {
   const c = chapters[cur]; if (!c) { $("main").innerHTML = `<div class="empty">從左邊選一章，或新開一章。</div>`; return; }
@@ -281,25 +290,36 @@ function paintMain() {
       `<button data-st="${k}" class="${c.status === k ? "on" : ""}">${v}</button>`).join("")}</div>
     <div class="grid">
       <label class="field"><span>章名</span><input type="text" id="f-title" data-k="title" value="${esc(c.title)}" placeholder="例：代理"></label>
-      <label class="field"><span>道緣門檻</span><select id="f-favor" data-k="require_favor" data-num>${tierOpts}</select></label>
-      <label class="field"><span>前一章 <em>（要先了結）</em></span><input type="text" id="f-prev" data-k="require_event" value="${esc(c.require_event)}" placeholder="章首留空"></label>
-      <label class="field"><span>靈石</span><input type="number" id="f-ls" min="0" data-k="reward_lingshi" data-num value="${+c.reward_lingshi || 0}"></label>
-      <label class="field"><span>頭像 <em>（r01～r13，沒有就空）</em></span><input type="text" id="f-av" data-k="reward_avatar" value="${esc(c.reward_avatar)}"></label>
       <label class="field wide"><span>一句摘要 <em>（目錄上那一行）</em></span><input type="text" id="f-sum" data-k="summary" value="${esc(c.summary)}" placeholder="例：觀裡的卦書少了一冊。他為此一直沒接那個位子。"></label>
-      <label class="field wide"><span>他會記住的一句話 <em>（了結後寫進記憶，聊天時會引用）</em></span><input type="text" id="f-mem" data-k="reward_memory" value="${esc(c.reward_memory)}" placeholder="例：護道人在觀門外聽過銅鈴響的那一夜"></label>
     </div>
   </section>
   <section class="sec">
-    <h2>兩個稱號 <small>了結這章時一起發</small></h2>
+    <h2>開放條件 <small>全部都要到才開</small></h2>
+    <div class="grid">
+      <label class="field"><span>道緣門檻</span><select id="f-favor" data-k="require_favor" data-num>${tierOpts}</select></label>
+      <label class="field"><span>修為門檻 <em>（境界）</em></span><select id="f-cult" data-k="require_cultivation" data-num>${REALMS.map(([v, n]) =>
+        `<option value="${v}"${+(c.require_cultivation || 0) === v ? " selected" : ""}>${n}${v ? "（修為 " + v + "）" : ""}</option>`).join("")}</select></label>
+      <label class="field"><span>前一章 <em>（要先了結；章首留空）</em></span><input type="text" id="f-prev" data-k="require_event" value="${esc(c.require_event)}" placeholder="例：daoshi_m_c1"></label>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>獎勵 <small>每一項都可以留空，這章給什麼填什麼</small></h2>
+    <div class="grid">
+      <label class="field"><span>靈石</span><input type="number" id="f-ls" min="0" data-k="reward_lingshi" data-num value="${+c.reward_lingshi || 0}"></label>
+      <label class="field"><span>頭像 <em>（r01～r13；新頭像要先做圖）</em></span><input type="text" id="f-av" data-k="reward_avatar" value="${esc(c.reward_avatar)}" placeholder="不發就留空"></label>
+      <label class="field"><span>外觀</span><select id="f-theme" data-k="reward_theme">${sel(THEMES, c.reward_theme || "")}</select></label>
+      <label class="field"><span>其他外觀 <em>（頭像框之類，寫給 Claude 看）</em></span><input type="text" id="f-other" data-k="reward_other" value="${esc(c.reward_other)}" placeholder="不發就留空"></label>
+      <label class="field wide"><span>他會記住的一句話 <em>（可不寫；寫了會進他的記憶，聊天時會引用）</em></span><input type="text" id="f-mem" data-k="reward_memory" value="${esc(c.reward_memory)}" placeholder="不寫就留空"></label>
+    </div>
     <div class="titles">
       <div class="tcard">
-        <h3>他的新身分<small>你眼中的他・character_titles</small></h3>
+        <h3>他的新身分<small>你眼中的他・不發就留空</small></h3>
         <label class="field"><span>顯示的字</span><input type="text" id="t-c-label" data-t="char_title.label" value="${esc(c.char_title.label)}" placeholder="例：掌門師兄"></label>
         <label class="field"><span>這個身分的說明 <em>（卡片上那一句）</em></span><input type="text" id="t-c-desc" data-t="char_title.desc" value="${esc(c.char_title.desc)}"></label>
         <label class="field"><span>聲口 voice_hint <em>（立場、稱謂、在意的事）</em></span><textarea id="t-c-voice" rows="2" data-t="char_title.voice_hint">${esc(c.char_title.voice_hint)}</textarea></label>
       </div>
       <div class="tcard">
-        <h3>你的新稱號<small>他眼中的你・player_titles</small></h3>
+        <h3>你的新稱號<small>他眼中的你・不發就留空</small></h3>
         <label class="field"><span>顯示的字 <em>（廣場、道籍上那個）</em></span><input type="text" id="t-p-label" data-t="player_title.label" value="${esc(c.player_title.label)}" placeholder="例：執卷人"></label>
         <label class="field"><span>他怎麼叫你 call_as <em>（空白＝照舊叫暱稱）</em></span><input type="text" id="t-p-call" data-t="player_title.call_as" value="${esc(c.player_title.call_as)}"></label>
         <label class="field"><span>聲口 voice_hint</span><textarea id="t-p-voice" rows="2" data-t="player_title.voice_hint">${esc(c.player_title.voice_hint)}</textarea></label>
@@ -325,12 +345,13 @@ function paintScenes() {
   const toIdx = (to) => to == null || to === "" ? "" : typeof to === "number" ? String(to - 1) : String(ss.findIndex((s) => s.id === to));
   const whoOpts = { narr: "旁白", ...CHARS, me: "你", other: "其他人" };
   const pOpts = { keep: "沿用上一幕", AUTO: "這章的角色", none: "收起", ...CHARS };
+  const jumpedTo = new Set(ss.flatMap((s) => [s.next, ...(s.choices || []).map((ch) => ch.to)]).filter(Boolean));
   $("body").innerHTML = `<div class="scroll"><div class="scenes">
     <div class="srow head"><span>幕</span><span>場景／地名</span><span>誰說</span><span>立繪</span><span>台詞</span><span>演完往哪</span><span></span></div>
     ${ss.map((s, i) => {
       const w = whoOf(s);
       return `<div class="srow ${w === "narr" ? "narr" : w === "me" ? "me" : ""}" data-i="${i}">
-        <div class="num"><b>${i + 1}</b><input type="text" id="s${i}-id" data-f="id" value="${esc(s.id)}" placeholder="代號" aria-label="這一幕的代號"></div>
+        <div class="num"><b>${i + 1}</b>${s.id && jumpedTo.has(s.id) ? `<small title="有分支跳到這一幕">分支落點</small>` : ""}</div>
         <div class="cell"><select id="s${i}-bg" data-f="bg" aria-label="場景">${sel({ "": i ? "（同上一幕）" : "（無）", ...BGS }, s.bg || "")}</select>
           <input type="text" id="s${i}-place" data-f="place" value="${esc(s.place)}" placeholder="地名（換場時打）"></div>
         <div class="cell who"><select id="s${i}-who" data-f="who" aria-label="誰說">${sel(whoOpts, w)}</select>
@@ -341,10 +362,9 @@ function paintScenes() {
         <div class="cell go">${(s.choices || []).length ? `<span style="font-size:12px;color:var(--ink-faint)">看選項</span>` :
           `<select id="s${i}-next" data-f="next" aria-label="演完往哪">${targets(i).replace(`value="${toIdx(s.next)}"`, `value="${toIdx(s.next)}" selected`)}</select>`}
           <label class="ck"><input type="checkbox" id="s${i}-end" data-f="end"${s.end ? " checked" : ""}> 到此結束</label></div>
-        <div class="ops"><button data-mv="-1" aria-label="上移">▲</button><button data-mv="1" aria-label="下移">▼</button><button data-del aria-label="刪掉這一幕">✕</button></div>
+        <div class="ops"><button data-mv="-1" aria-label="上移" title="上移">▲</button><button data-mv="1" aria-label="下移" title="下移">▼</button><button data-ins aria-label="在下面插一幕" title="在下面插一幕">＋</button><button data-del aria-label="刪掉這一幕" title="刪掉這一幕">✕</button></div>
           ${(s.choices || []).length ? `<div class="choices"><span>選項</span>${s.choices.map((ch, k) => `
             <div class="crow" data-k="${k}">
-              <input type="text" id="s${i}c${k}-key" data-cf="key" value="${esc(ch.key)}" placeholder="key" aria-label="選項代號">
               <input class="lbl" type="text" id="s${i}c${k}-label" data-cf="label" value="${esc(ch.label)}" placeholder="選項的字" aria-label="選項的字">
               <input type="text" id="s${i}c${k}-hint" data-cf="hint" value="${esc(ch.hint)}" placeholder="小字提示（可空）" aria-label="提示">
               <select id="s${i}c${k}-to" data-cf="to" aria-label="選了跳到">${targets(i).replace(`value="${toIdx(ch.to)}"`, `value="${toIdx(ch.to)}" selected`)}</select>
@@ -360,12 +380,12 @@ function paintScenes() {
   </div>`;
 }
 
-/* 跳到哪一幕：選到沒有代號的幕就自動給一個 s<n> */
+/* 跳到哪一幕：選到還沒有代號的幕就自動給一個（作者只看到「第幾幕」，插幕、搬動都不會指錯） */
 function ref(j) {
   const ss = chapters[cur].scenes;
   if (j === "" || j == null) return undefined;
   const s = ss[+j]; if (!s) return undefined;
-  if (!s.id) s.id = "s" + (+j + 1);
+  if (!s.id) s.id = newId();
   return s.id;
 }
 
@@ -426,7 +446,18 @@ $("main").addEventListener("click", (e) => {
   }
   const row = t.closest(".srow"); if (!row) return;
   const i = +row.dataset.i, s = c.scenes[i];
-  if (t.hasAttribute("data-addch")) { (s.choices = s.choices || []).push({ key: "c" + (s.choices.length + 1), label: "" }); delete s.next; }
+  if (t.hasAttribute("data-addch")) {
+    // key 是記進度用的（後端記「最後選了哪一個」），整章不重複、自動給，不必寫
+    const used = new Set(c.scenes.flatMap((x) => (x.choices || []).map((ch) => ch.key)));
+    let n = 1; while (used.has("c" + n)) n++;
+    (s.choices = s.choices || []).push({ key: "c" + n, label: "" }); delete s.next;
+  }
+  else if (t.hasAttribute("data-ins")) {
+    c.scenes.splice(i + 1, 0, { who: c.character_id, text: "" });
+    touch(cur); paintScenes(); paintRail();
+    const ta = $(`s${i + 1}-text`); if (ta) ta.focus();
+    return;
+  }
   else if (t.dataset.delch != null) { s.choices.splice(+t.dataset.delch, 1); if (!s.choices.length) delete s.choices; }
   else if (t.dataset.mv) { const j = i + +t.dataset.mv; if (j < 0 || j >= c.scenes.length) return; [c.scenes[i], c.scenes[j]] = [c.scenes[j], c.scenes[i]]; }
   else if (t.hasAttribute("data-del")) {
@@ -480,12 +511,14 @@ function checks(c) {
     if (/你說[：:]/.test(s.text || "")) W(`第 ${i + 1} 幕寫了「你說：」。你選的話會自動留在下一句上方，不必再寫。`);
   });
   if (!ss[0] || !ss[0].bg) W("第一幕沒有場景。");
-  if (!c.char_title.label.trim() && !c.player_title.label.trim()) W("兩個稱號都還空著（每章一個他的身分、一個你的稱號）。");
-  else { if (!c.char_title.label.trim()) W("他的新身分還空著。"); if (!c.player_title.label.trim()) W("你的新稱號還空著。"); }
+  // 獎勵每一項都可以不發；只檢查「填了一半」的
   if (c.char_title.label && !c.char_title.voice_hint.trim()) W("他的新身分沒有 voice_hint：換上之後他的口氣不會變。");
+  if (!c.char_title.label.trim() && (c.char_title.voice_hint.trim() || c.char_title.desc.trim())) E("他的新身分寫了說明或聲口，但沒有「顯示的字」。");
+  if (!c.player_title.label.trim() && (c.player_title.voice_hint.trim() || c.player_title.call_as.trim())) E("你的新稱號寫了稱呼或聲口，但沒有「顯示的字」。");
+  if (c.reward_theme) W(`外觀「${THEMES[c.reward_theme]}」：後端還沒有「事件送配色」，定稿時 Claude 要先接上才發得出去。`);
+  if ((c.reward_other || "").trim()) W("其他外觀：要先做美術、後端再接，定稿時跟 Claude 對一下。");
   for (const [k, v] of [["他的新身分", c.char_title.voice_hint], ["你的新稱號", c.player_title.voice_hint]])
     if (INTIMATE.test(v || "")) E(`${k}的 voice_hint 寫到了親密程度（「${(v.match(INTIMATE) || [""])[0]}」）。只寫立場、稱謂、在意的事。`);
-  if (!c.reward_memory.trim()) W("沒有寫他會記住的那句話。");
   if (c.reward_avatar && !/^r\d\d$/.test(c.reward_avatar)) W("頭像 key 的格式是 r01～r13；新的頭像要前端先有。");
   if (c.chapter > 1 && !c.require_event) W("不是第一章，但沒有填前一章。");
   return out;
@@ -508,9 +541,14 @@ function rowText(c) {
   const ptId = c.player_title.id || (c.player_title.label ? "（新稱號：Claude 建 player_titles 時給 id）" : "");
   return [
     ["id", c.id], ["character_id", c.character_id], ["chapter", c.chapter], ["seq", c.chapter],
-    ["title", c.title], ["summary", c.summary], ["require_favor", c.require_favor], ["require_event", c.require_event],
+    ["title", c.title], ["summary", c.summary], ["require_favor", c.require_favor],
+    ["require_cultivation", c.require_cultivation || 0], ["require_event", c.require_event],
     ["reward_lingshi", c.reward_lingshi], ["reward_avatar", c.reward_avatar], ["reward_title", c.char_title.label],
-    ["reward_memory", c.reward_memory], ["reward_player_title", ptId], ["choices", "（清空：選項已寫在幕裡）"],
+    ["reward_memory", c.reward_memory], ["reward_player_title", ptId],
+    ["rewards", c.reward_theme || (c.reward_other || "").trim()
+      ? JSON.stringify(Object.assign({}, c.reward_theme ? { theme: c.reward_theme } : {}, (c.reward_other || "").trim() ? { other: c.reward_other.trim() } : {}))
+      : ""],
+    ["choices", "（清空：選項已寫在幕裡）"],
   ].map(([k, v]) => `${k.padEnd(20)} ${v ?? ""}`).join("\n");
 }
 function paintOut() {
