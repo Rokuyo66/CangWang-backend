@@ -32,6 +32,14 @@ async function eventOf(db: SupabaseClient, by: { gua?: string; no?: number }, an
   if (!data || (!anyStatus && !data.published)) return null;
   return data as { gua_no: number; gua: string; title: string; doc: Doc; published: boolean };
 }
+/** 今天的卦還沒有劇本時先走這一篇（六六 2026-10-21：驗證期一律導向乾為天）。0＝不導，照實說「尚在鋪設」 */
+const FALLBACK_GUA = Number(Deno.env.get("JIANGHU_FALLBACK_GUA") ?? "1");
+async function eventForToday(db: SupabaseClient, gua: string) {
+  const ev = await eventOf(db, { gua });
+  if (ev) return { ev, fallback: false };
+  const fb = FALLBACK_GUA ? await eventOf(db, { no: FALLBACK_GUA }) : null;
+  return { ev: fb, fallback: !!fb };
+}
 const titleId = (gua: number, endingId: string) =>
   `jh${String(gua).padStart(2, "0")}_${endingId.toLowerCase().replace(/[^a-z0-9_]/g, "_")}`.slice(0, 60);
 
@@ -41,10 +49,10 @@ export async function jianghuToday(db: SupabaseClient, uid: string) {
     const day = taipeiDay();
     const f = await todayFortune(db, uid, day);
     if (!f) return null;
-    const ev = await eventOf(db, { gua: f.gua });
+    const { ev, fallback } = await eventForToday(db, f.gua);
     const { count } = await db.from("jianghu_runs").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("day", day);
     const cfg = await config(db);
-    return { gua: f.gua, ready: !!ev, title: ev?.title ?? null, gua_no: ev?.gua_no ?? null,
+    return { gua: f.gua, ready: !!ev, fallback, event_gua: ev?.gua ?? null, title: ev?.title ?? null, gua_no: ev?.gua_no ?? null,
       summary: ev ? (ev.doc.outline?.player_summary ?? "") : "", visited: (count ?? 0) > 0, cost: cfg.replayCost };
   } catch (_) { return null; }
 }
@@ -59,7 +67,7 @@ export async function jianghuStart(db: SupabaseClient, uid: string, isAdmin: boo
   if (test) ev = await eventOf(db, { no: Number(body.gua_no) }, true);
   else {
     if (!f) return bad("今天還沒求日運籤");
-    ev = await eventOf(db, { gua: f.gua });
+    ev = (await eventForToday(db, f.gua)).ev;
   }
   if (!ev) return bad("這一卦的江湖之路尚在鋪設");
   const pickMoving = (v: unknown) => Array.isArray(v) ? [...new Set(v.map(Number).filter((x) => x >= 0 && x <= 5))].sort() : null;
