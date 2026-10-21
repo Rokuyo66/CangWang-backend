@@ -9,7 +9,11 @@
 //
 // 純函式、不碰資料庫：interpret 拿它來判，測試直接 import。
 
-export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string; set?: string; to?: string };
+export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string; set?: string; to?: string;
+  /** 要花的錢（財 s5）：身上不夠就選不了（畫面上照樣列出來、反灰），選了扣掉 */
+  cost?: number };
+/** 財＝盤纏。花費（cost）只看它 */
+export const MONEY = "s5";
 export type Scene = { id?: string; text?: string; end?: boolean; choices?: Choice[]; [k: string]: unknown };
 export type Ending = {
   id: string; title: string; rare?: boolean; need?: Record<string, [number | null, number | null]>;
@@ -20,6 +24,8 @@ export type Ending = {
 export type Achievement = { id: string; name: string; desc?: string; kind: "ending" | "endings_all" | "changes_all" | "items_all"; ending?: string; reward_lingshi?: number };
 export type Doc = {
   id: string; gua_no: number; gua: string; title: string;
+  /** 一入場身上就有的數值（通常是盤纏：{ s5: 3 }＝觀裡給了三兩） */
+  start?: Record<string, number>;
   npcs?: { id: string; name: string; desc?: string }[];
   opening?: { bg?: string; text?: string };
   identity?: { mode?: string; label?: string; reason?: string };
@@ -47,19 +53,23 @@ export const changePlays = (doc: Doc, i: number, moving: number[]) =>
 export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string)): Walk {
   const chooser = typeof picks === "function" ? picks : null, keys: string[] = chooser ? [] : picks as string[];
   const st: Record<string, number> = {}, items: string[] = [], flags: string[] = [], changes: number[] = [];
+  for (const [k, v] of Object.entries(doc.start ?? {})) st[k] = Number(v) || 0;
   let p = 0;
   const run = (list: Scene[]): string | null => {
     let si = 0, guard = 0;
     while (si >= 0 && si < list.length) {
       if (++guard > 500) return "劇本繞圈";
       const s = list[si];
-      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req)));
+      // 看得到＝有字、道具帶著；選得了＝看得到而且錢夠。一個都選不了就當這一幕沒有選項（不會卡死；稿紙檢查會提醒）
+      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req))
+        && (!c.cost || (st[MONEY] ?? 0) >= c.cost));
       if (cs.length) {
         if (chooser) keys.push(chooser(cs));
         const key = keys[p++];
         const c = cs.find((x) => x.key === key);
         if (!c) return `第 ${p} 個選擇對不上（${key ?? "沒送"}）`;
         for (const [k, v] of Object.entries(c.fx ?? {})) st[k] = (st[k] ?? 0) + (Number(v) || 0);
+        if (c.cost) st[MONEY] = (st[MONEY] ?? 0) - c.cost;
         if (c.get && !items.includes(c.get)) items.push(c.get);
         if (c.set && !flags.includes(c.set)) flags.push(c.set);
         if (c.to === "end") return null;
@@ -130,11 +140,11 @@ export function clientDoc(doc: Doc) {
     if (s.choices?.length) o.choices = s.choices.filter((c) => String(c.label ?? "").trim())
       .map((c) => ({ key: c.key, label: c.label, ...((c as { hint?: string }).hint ? { hint: (c as { hint?: string }).hint } : {}), ...(c.to ? { to: c.to } : {}), ...(c.req ? { req: c.req } : {}), ...(c.get ? { get: c.get } : {}),
         // fx 下發：選了之後畫面上那一格數值要動（六六 2026-10-21）。選之前不顯示，結局表照樣不下發
-        ...(c.fx && Object.keys(c.fx).length ? { fx: c.fx } : {}) }));
+        ...(c.fx && Object.keys(c.fx).length ? { fx: c.fx } : {}), ...(c.cost ? { cost: c.cost } : {}) }));
     return o;
   };
   return {
-    gua_no: doc.gua_no, gua: doc.gua, title: doc.title,
+    gua_no: doc.gua_no, gua: doc.gua, title: doc.title, start: doc.start ?? {},
     npcs: (doc.npcs ?? []).map((n) => ({ id: n.id, name: n.name })),
     opening: doc.opening ?? {},
     nodes: doc.nodes.map((n) => ({ title: n.title ?? "", scenes: (n.scenes ?? []).map(sc), change: (n.change?.scenes ?? []).map(sc) })),
@@ -143,7 +153,7 @@ export function clientDoc(doc: Doc) {
 
 /** 四項數值的名字（全江湖共用；jianghu_config.stats 可改，這是沒設時的預設） */
 export const STATS_DEFAULT = [
-  { k: "s1", name: "正氣" }, { k: "s2", name: "眼力" }, { k: "s3", name: "名聲" }, { k: "s4", name: "人緣" },
+  { k: "s1", name: "義" }, { k: "s2", name: "智" }, { k: "s3", name: "名" }, { k: "s4", name: "情" }, { k: "s5", name: "財" },
 ];
 
 /** 動爻：lines（casts.lines，6／9 是動爻，lines[0]＝初爻）→ 動的爻號 */

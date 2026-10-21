@@ -801,10 +801,11 @@ const JSTATUS = { draft: "草稿", gen: "請生成", review: "待看", final: "�
 const YAO = ["初爻", "二爻", "三爻", "四爻", "五爻", "上爻"];
 const DEF_CFG = {
   stats: [
-    { k: "s1", name: "正氣", desc: "站在對的那一邊、肯替人出頭" },
-    { k: "s2", name: "眼力", desc: "看出了多少：線索、破綻、人心" },
-    { k: "s3", name: "名聲", desc: "在這鎮上說話有沒有人聽、敢不敢出手" },
-    { k: "s4", name: "人緣", desc: "交下的人情：有人肯幫你、信你" }],
+    { k: "s1", name: "義", desc: "站在對的那一邊、肯替人出頭" },
+    { k: "s2", name: "智", desc: "看出了多少：線索、破綻、人心" },
+    { k: "s3", name: "名", desc: "在這鎮上說話有沒有人聽、敢不敢出手" },
+    { k: "s4", name: "情", desc: "交下的人情：有人肯幫你、信你" },
+    { k: "s5", name: "財", desc: "身上的盤纏。選項可以標「花費」：錢不夠，那一格反灰選不了" }],
   surnames: "沈陸顧蘇葉江林秦柳白溫謝韓聞裴燕晏程蕭鍾衛孟姜岳顏邵方傅杜唐莫洛",
   compound: "司馬 歐陽 上官 慕容 南宮 公孫 東方 令狐",
   given1: "青遠聽無明歸寒南疏知星清孤長雲寄若臨見懷照",
@@ -982,6 +983,7 @@ function jMain() {
   <section class="sec"><h2>開場 <small>入場的第一段</small></h2>
     <div class="grid">
       <label class="field"><span>場景</span><select data-op="bg">${sel({ "": "（無）", ...BGS }, j.opening.bg || "")}</select></label>
+      <label class="field"><span>入場時身上的盤纏（財）<em>（觀裡派的、自己帶的；0＝身無分文）</em></span><input type="number" min="0" data-jstart="s5" value="${(j.start || {}).s5 ?? 0}"></label>
       <label class="field wide"><span>開場</span><textarea rows="3" data-op="text" placeholder="例：雨下了三天，{名}被困在半山的莊子裡。">${esc(j.opening.text)}</textarea></label>
     </div></section>
   <section class="sec">
@@ -1039,7 +1041,8 @@ function sceneRow(j, ss, s, k, sl) {
       <div class="ec-r3">
         <label class="pill get">🎒 選了得到道具 <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）"></label>
         <label class="pill req">🔒 身上帶著這道具才會出現 <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="（人人都看得到）"></label>
-        <label class="pill flag">🚩 暗旗標 <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）"></label></div>
+        <label class="pill flag">🚩 暗旗標 <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）"></label>
+        <label class="pill cost">💰 要花 <input type="number" min="0" data-cf="cost" value="${ch.cost || ""}" placeholder="0" style="width:56px"> 財（不夠就反灰選不了）</label></div>
       ${ch.req ? `<div class="ec-note">🔒 沒帶著「${esc(ch.req)}」的玩家，看不到這個選項（${esc(itemFrom(j, ch.req) || "⚠ 沒有任何選項給這個道具")}）</div>` : ""}
     </div>`).join("")}</div>` : ""}
     <div class="er-foot"><button class="btn sm" data-ja="chAdd">＋選項</button>
@@ -1146,6 +1149,7 @@ function onEdit(e, structural) {
   if (t.dataset.jo) { j.outline[t.dataset.jo] = t.value; jtouch(jcur); if (t.dataset.jo === "summary") jRail(); return; }
   if (t.dataset.ji) { if (t.dataset.ji === "mode" && !structural) return; j.identity[t.dataset.ji] = t.value; jtouch(jcur); if (t.dataset.ji === "mode") jMain(); return; }
   if (t.dataset.op) { j.opening[t.dataset.op] = t.value; jtouch(jcur); return; }
+  if (t.dataset.jstart) { j.start = j.start || {}; const v = Math.max(0, +t.value || 0); if (v) j.start[t.dataset.jstart] = v; else delete j.start[t.dataset.jstart]; jtouch(jcur); return; }
   if (t.dataset.nt != null) { j.nodes[+t.dataset.nt].title = t.value; jtouch(jcur); return; }
   if (t.dataset.nf2) { j.npcs[w.npc][t.dataset.nf2] = t.value; jtouch(jcur); return; }
   if (t.dataset.acf) {
@@ -1157,6 +1161,7 @@ function onEdit(e, structural) {
   }
   if (w.ch) {
     if (t.dataset.cf === "to") { if (!structural) return; if (t.value === "end") w.ch.to = "end"; else if (t.value === "") delete w.ch.to; else { const x = w.list[+t.value]; if (!x.id) x.id = newId(); w.ch.to = x.id; } }
+    else if (t.dataset.cf === "cost") { const v = Math.max(0, +t.value || 0); if (v) w.ch.cost = v; else delete w.ch.cost; }
     else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value; if (!t.value) delete w.ch[t.dataset.cf]; }
     else if (t.dataset.fx) { w.ch.fx = w.ch.fx || {}; const v = numOrNull(t.value); if (v) w.ch.fx[t.dataset.fx] = v; else delete w.ch.fx[t.dataset.fx]; if (!Object.keys(w.ch.fx).length) delete w.ch.fx; }
     jtouch(jcur); return;
@@ -1290,7 +1295,7 @@ function simPaint() {
   }
   const stats = `<div class="stats">${cfg.stats.map((x) => `<span>${esc(x.name)} ${sim.st[x.k] || 0}</span>`).join("")}<span>${esc(sim.name)}</span><span>動爻 ${sim.moving.length ? sim.moving.map((i) => YAO[i].slice(0, 1)).join("") : "無"}</span>${sim.items.length ? `<span>帶著 ${sim.items.map(esc).join("、")}</span>` : ""}${sim.flags.length ? `<span class="fxnote">旗標 ${sim.flags.map(esc).join("、")}</span>` : ""}</div>`;
   let tail = "";
-  if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:pointer" data-sim="pick" data-i="${i}">${esc(nameIn(ch.label) || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
+  if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:${ch.poor ? "not-allowed;opacity:.45" : "pointer"}" data-sim="pick" data-i="${i}"${ch.poor ? " disabled" : ""}>${esc(nameIn(ch.label) || "（選項還沒寫字）")}${ch.cost ? ` <span class="fxnote">💰${ch.cost}</span>` : ""}${ch.poor ? `<small>盤纏不夠（要 ${ch.cost}，身上 ${sim.st.s5 || 0}）</small>` : ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
   else if (sim.ending !== undefined) {
     const en = sim.ending, allIt = [...new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)))];
     const ach = en && achList(j).filter((a) => (a.kind === "ending" && a.ending === en.id) || (a.kind === "items_all" && allIt.length && allIt.every((x) => sim.items.includes(x)))).map((a) => a.name).join("、");
@@ -1309,7 +1314,10 @@ function simRun() {
   while (sim.si >= 0 && sim.si < sim.list.length) {
     const s = sim.list[sim.si];
     if ((s.text || "").trim()) sim.log.push(simLine(j, s));
-    const cs = (s.choices || []).filter((ch) => !ch.req || sim.items.includes(ch.req));
+    // 看得到（道具帶著）的都列出來；錢不夠的反灰選不了。一個都選不了就當沒有選項（同後端 jianghu.ts）
+    const cs = (s.choices || []).filter((ch) => !ch.req || sim.items.includes(ch.req)).map((ch) => ({ ...ch, poor: !!ch.cost && (sim.st.s5 || 0) < ch.cost }));
+    if (cs.length && cs.every((c) => c.poor)) { sim.log.push(`<div class="fxnote">（這裡的選項都要花錢、你的錢不夠：照後端規則直接往下演）</div>`); }
+    else
     if (cs.length) { sim.choices = cs; return; }
     if (s.end) break;
     sim.si++;
@@ -1340,12 +1348,13 @@ function simAct(b) {
       moving = act === "rand" ? YAO.map((_, i) => i).filter(() => Math.random() < 0.3) : [...$("jh-body").querySelectorAll("[data-mv]:checked")].map((x) => +x.dataset.mv);
       name = $("sim-nm").value === "alias" ? alias(Date.now()) : ($("sim-own").value.trim() || "無名");
     }
-    sim = { name, moving, st: {}, items: [], flags: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
+    sim = { name, moving, st: { ...(j.start || {}) }, items: [], flags: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
     if ((j.opening.text || "").trim()) sim.log.push(`${j.opening.bg ? `<div class="place">${esc(BGS[j.opening.bg] || "")}</div>` : ""}<div class="line narr">${esc(nameIn(j.opening.text))}</div>`);
     simStep();
   } else if (act === "next") simStep();
   else if (act === "pick") {
-    const ch = sim.choices[+b.dataset.i], fx = Object.entries(ch.fx || {});
+    const ch = sim.choices[+b.dataset.i]; if (ch.poor) return;
+    const fx = Object.entries(ch.fx || {}).concat(ch.cost ? [["s5", -ch.cost]] : []);
     fx.forEach(([k, v]) => { sim.st[k] = (sim.st[k] || 0) + v; });
     if (ch.get && !sim.items.includes(ch.get)) sim.items.push(ch.get);
     if (ch.set && !sim.flags.includes(ch.set)) sim.flags.push(ch.set);
@@ -1422,13 +1431,13 @@ function jChecks() {
 function jScenes(ss) {
   return ss.filter((s) => (s.text || "").trim()).map((s) => {
     const o = {}; for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (k in s && s[k] !== undefined && s[k] !== "") o[k] = s[k];
-    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req", "set"]) if (c[k]) x[k] = c[k]; return x; });
+    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req", "set", "cost"]) if (c[k]) x[k] = c[k]; return x; });
     if (cs.length) o.choices = cs; return o;
   });
 }
 function jClean(j) {
   return { id: j.id, gua_no: j.gua_no, gua: j.gua, title: j.title, tone: j.tone, player_summary: j.outline.player_summary,
-    identity: j.identity, npcs: j.npcs, opening: j.opening,
+    identity: j.identity, npcs: j.npcs, opening: j.opening, start: j.start || {},
     nodes: j.nodes.map((n, i) => ({ yao: i + 1, title: n.title, scenes: jScenes(n.scenes), change: jScenes(n.change.scenes) })),
     endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),

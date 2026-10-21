@@ -41,6 +41,18 @@ t("品物流形：初爻沒動就湊不齊", () => {
   const w = route([1], ["撕下","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","回渡口叫","讓擺船"]);
   if (w.ok && J.litAchievements(doc, [{ ending_id: w.ending.id, changes: w.changes, items: w.items }]).includes("pinwu")) throw new Error("不該亮");
 });
+t("財：起始 3 兩；付了渡錢剩 2，撈槍（要 3）選不到", () => {
+  let saw = false;
+  const w = J.walk(doc, [], (cs) => { if (cs.some((c) => (c.label ?? "").includes("撈槍"))) saw = true;
+    const pref = ["替婆婆", "推回去", "回客棧"]; for (const k of pref) { const c = cs.find((x) => (x.label ?? "").includes(k)); if (c) return c.key; } return cs[0].key; });
+  if (!w.ok) throw new Error(w.err); if (saw) throw new Error("錢不夠卻出現在可選裡"); if (w.st.s5 !== 2) throw new Error("財應為 2，得到 " + w.st.s5);
+});
+t("財：收了錦囊（+5）就撈得起槍，撈完扣 3", () => {
+  let took = false;
+  const w = J.walk(doc, [], (cs) => { const c = cs.find((x) => (x.label ?? "").includes("撈槍")); if (c) { took = true; return c.key; }
+    const pref = ["替婆婆", "收下錦囊", "回客棧"]; for (const k of pref) { const x = cs.find((y) => (y.label ?? "").includes(k)); if (x) return x.key; } return cs[0].key; });
+  if (!w.ok) throw new Error(w.err); if (!took) throw new Error("沒出現撈槍"); if (w.st.s5 !== 3 - 1 + 5 - 3) throw new Error("財應為 4，得到 " + w.st.s5);
+});
 t("亂送 key、多送、少送都拒絕", () => {
   if (J.walk(doc, [], ["nope"]).ok) throw new Error("亂送過了");
   const w = route([], ["找他"]); if (!w.ok) throw new Error();
