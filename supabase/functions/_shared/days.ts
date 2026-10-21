@@ -13,8 +13,9 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { jieqiOf } from "./jieqi.ts";
 import { logUsage } from "./services.ts";
+import { noThinking } from "./model-params.ts";
 
-const MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
+const MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-5-5";
 const LOOKBACK_DAYS = 6;       // 寫今天時讀前幾天：夠接上沒了結的事，又不至於把一件事拖成連續劇
 export const CHAR_NAMES: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀喵" };
 const WEEK = "日一二三四五六";
@@ -27,7 +28,7 @@ export function twDay(now = Date.now(), back = 0): string {
 const WORLD = `幾知觀：山中的小道觀，有大殿、前廳、中庭、廊下、廂房、灶房、後院、藏經閣。
 ・大師兄：首座弟子，冷峻精確、用詞精準且保守，有邏輯潔癖。每天練劍、看卦、翻書，作息規律，幾乎不進灶房。拜觀裡的老貓為師、稱牠「師傅」，從不說破。
 ・師妹：二弟子，管帳、迎客、張羅吃食、點燈抄經。溫柔周到、習慣控場，偶爾腹黑。很少去後院（那是師兄的地方）。
-・觀喵：修行多年的貓，懶、嘴硬，哪裡有太陽和軟墊就在哪，愛踩卦紙、搶座位。牠是大師兄的「師傅」。`;
+・觀喵：修行多年的貓，沉靜、通透，哪裡有太陽和軟墊就在哪，愛踩卦紙、搶座位。牠是大師兄的「師傅」。`;
 
 const SYS = `你替幾知觀寫起居注：三人今天各自過的日子。
 ${WORLD}
@@ -92,7 +93,8 @@ export async function ensureDay(db: SupabaseClient, now = Date.now()): Promise<b
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: ctrl.signal,
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 700, system: SYS, messages: [{ role: "user", content: usr }] }),
+      // 寫日子不需要想：Haiku 5.5 不關的話預設會想、吃掉 700 的額度（noThinking）
+      body: JSON.stringify({ model: MODEL, max_tokens: 700 + noThinking(MODEL).headroom, system: SYS, messages: [{ role: "user", content: usr }], ...noThinking(MODEL).body }),
     }).finally(() => clearTimeout(timer));
     if (!res.ok) { console.error("ensureDay api", res.status); return false; }
     const data = await res.json();

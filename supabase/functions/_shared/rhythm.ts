@@ -61,14 +61,13 @@ export const isSerious = (msg: string) => SERIOUS_RE.test(msg);
 const TIGHT_VOICE: Record<string, string> = {
   daoshi_m: "像查完了只報結論。",
   daoshi_f: "笑著帶過，把話留一半讓他來問。",
-  lingshou: "懶得多講，一句嫌棄或甩個尾巴就夠。",
+  lingshou: "看他一眼、或一句話就夠。",
 };
 
 /** 放進 tail 的節奏提示。平常不提示；嚴肅時不叫角色收。 */
 export function rhythmHint(mode: RhythmMode, characterId: string, serious = false): string {
-  if (mode === "free") {
-    return "\n【節奏】這一則若有話要說完整——一段往事、一個理由、一條想法的來龍去脈——就照你的思路把它說透；沒那麼多話就照常短說，不必湊長。";
-  }
+  // 充裕時不提示（六六 2026-10-08：換了模型之後，這句被讀成「每則都該說透」，大師兄開始長篇訓話）。
+  // 帳本只負責「說長了之後收」，說多長由角色自己決定。
   if (mode === "tight" && !serious) {
     return `\n【節奏】你這陣子話說得多了，這一則收著說：只說最要緊的那件事，一兩句就停。${TIGHT_VOICE[characterId] ?? ""}`;
   }

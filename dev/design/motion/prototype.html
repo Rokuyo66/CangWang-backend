@@ -9,29 +9,33 @@
   --cinnabar:#B5402E; --cinnabar-edge:#7E2A1E; --gold:#9A7B3F; --gold-edge:#6B5428;
   --hair:rgba(34,30,26,.14); --shade:rgba(40,28,14,.22);
   --c-m:#50637F; --c-f:#8A5566;
+  /* 站上的「次一階紙」與五行木。這份原型的 --paper-2 是亮紙（按鈕面），跟站上的 --paper-2 不同色；
+     輸入框、保存標籤畫的是站上那一塊，所以另接一個名字。規範頁切主題時兩個都會灌（style/index.html 的 pushMotion）。 */
+  --app-paper-2:#EBE1CC; --wx-木:#4f7a4d;
   --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
   --sans:"Noto Sans TC",system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   color-scheme:light;
 
   /* ══ 動態 token：整份規範唯一的數字來源 ══ */
+  /* @design:begin proto-motion v=a3a299f2 #a9935a22（由後端 dev/design/tokens.json 產生，不要手改） */
   --k:1;          /* 速度倍率：所有時長 × k */
   --a:1;          /* 待機幅度倍率 */
   --d:3.6px;      /* 按壓深度（元件厚度）；元件用 --dk 取比例，不直接覆寫 --d */
   --ov:1.56;      /* 回彈過衝量 */
   --tilt:6deg;    /* 按壓傾斜上限 */
 
-  --t-press:  calc(90ms  * var(--k));
-  --t-release:calc(280ms * var(--k));
-  --t-quick:  calc(160ms * var(--k));
-  --t-exit:   calc(220ms * var(--k));
-  --t-enter:  calc(360ms * var(--k));
-  --t-page:   calc(460ms * var(--k));
-  --t-hold:   calc(700ms * var(--k));
-  --stagger:  calc(45ms  * var(--k));
-  --idle-s:   calc(2.4s  * var(--k));
-  --idle-m:   calc(3.7s  * var(--k));
-  --idle-l:   calc(6.1s  * var(--k));
+  --t-press:  calc(90ms   * var(--k));
+  --t-release:calc(280ms  * var(--k));
+  --t-quick:  calc(160ms  * var(--k));
+  --t-exit:   calc(220ms  * var(--k));
+  --t-enter:  calc(360ms  * var(--k));
+  --t-page:   calc(460ms  * var(--k));
+  --t-hold:   calc(700ms  * var(--k));
+  --stagger:  calc(45ms   * var(--k));
+  --idle-s:   calc(2.4s   * var(--k));
+  --idle-m:   calc(3.7s   * var(--k));
+  --idle-l:   calc(6.1s   * var(--k));
 
   --e-out:   cubic-bezier(.22,1,.36,1);
   --e-in:    cubic-bezier(.5,0,.75,0);
@@ -39,8 +43,9 @@
   --e-breath:cubic-bezier(.45,0,.55,1);
 
   --amp-move: calc(3px  * var(--a));
-  --amp-scale:calc(.03  * var(--a));
+  --amp-scale:calc(0.05 * var(--a));
   --amp-rot:  calc(4deg * var(--a));
+  /* @design:end proto-motion */
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -205,6 +210,28 @@ td b{font-weight:700}
 .chip.on{background:var(--ink);color:var(--paper-2);--edge:#000}
 .trans-info{flex:1;min-width:240px;display:flex;flex-direction:column;gap:14px}
 
+/* ── 引導聚光（前端 src/ui/coach.js、styles/coach.css）── */
+.co-pg{position:absolute;inset:0;padding:70px 22px 0;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+.co-pg h4{margin:0;font-size:22px;letter-spacing:.2em}
+.co-q{width:100%;border-bottom:1px solid var(--hair);padding:10px 0;color:var(--ink-faint);font-size:14px}
+.co-seg{display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--app-paper-2);font-size:12.5px}
+.co-seg span{padding:6px 12px;border-radius:999px}.co-seg span:first-child{background:var(--ink);color:var(--paper-2)}
+.co-cast{padding:10px 40px;border-radius:999px;background:var(--ink);color:var(--paper-2);letter-spacing:.4em;font-size:14px}
+.co-ring{position:absolute;border-radius:12px;pointer-events:none;box-shadow:0 0 0 200vmax rgba(20,16,10,.5);outline:2px solid var(--gold);
+  transition:left var(--t-enter) var(--e-out),top var(--t-enter) var(--e-out),width var(--t-enter) var(--e-out),height var(--t-enter) var(--e-out)}
+.co-card{position:absolute;left:12px;right:12px;bottom:12px;background:var(--paper);border:1px solid var(--paper-edge);border-radius:14px;
+  box-shadow:0 10px 30px var(--shade);padding:12px 14px;text-align:left}
+.co-card.top{bottom:auto;top:12px}
+.co-card.in > *{animation:co-rise var(--t-enter) var(--e-out) both}
+.co-card.in > :nth-child(2){animation-delay:var(--stagger)}.co-card.in > :nth-child(3){animation-delay:calc(var(--stagger)*2)}
+@keyframes co-rise{from{opacity:0;transform:translateY(8px)}}
+.co-head{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px}
+.co-head i{width:24px;height:24px;border-radius:50%;background:var(--c-f);display:inline-block}
+.co-head small{color:var(--ink-faint);font-size:10.5px;letter-spacing:.1em}
+.co-head .sk{margin-left:auto;color:var(--ink-faint);font-size:11.5px;letter-spacing:.12em}
+.co-txt{font-size:13px;line-height:1.75}
+.co-acts{display:flex;justify-content:flex-end;margin-top:8px}
+
 /* ══════════ D 待機生命 ══════════ */
 .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .ic{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:14px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -336,6 +363,47 @@ td b{font-weight:700}
 .rm .m-press,.rm .m-press.is-down{transform:none!important;transition:filter var(--t-quick) ease!important}
 .rm .m-press.is-down{filter:brightness(.88)}
 
+/* ── 通用下拉（前端 src/styles/dropdown.css 的 .dd／.dd-b／.dd-m／.dd-o，同一組數字）── */
+.dd{position:relative;display:inline-block}
+.dd.full{display:block}
+.dd-b{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-family:var(--serif);font-size:12.5px;line-height:1.3;letter-spacing:.08em;color:var(--ink);text-align:left;background:transparent;border:1px solid var(--hair);border-radius:999px;padding:6px 12px}
+.dd-b.wide{display:flex;width:100%;gap:10px;font-size:13px;padding:8px 14px}
+.dd-b small{font-size:11px;letter-spacing:.04em;color:var(--ink-faint)}
+.dd-b.on{border-color:var(--ink-faint)}
+.dd-car{width:6px;height:6px;flex-shrink:0;border-right:1.5px solid var(--ink-faint);border-bottom:1.5px solid var(--ink-faint);transform:translateY(-2px) rotate(45deg);transition:transform var(--t-quick) ease}
+.dd-b.on .dd-car{transform:translateY(1px) rotate(-135deg)}
+.dd-m{position:absolute;z-index:5;top:calc(100% + 4px);right:0;min-width:120px;padding:4px 0;background:var(--paper);border:1px solid var(--hair);border-radius:10px;max-height:220px;overflow-y:auto}
+.dd-m.full{left:0}
+.dd-grp{padding:6px 14px 2px;font-size:11px;letter-spacing:.14em;color:var(--gold)}
+.dd-o{display:flex;align-items:baseline;gap:10px;width:100%;padding:8px 14px;border:0;background:none;cursor:pointer;text-align:left;font-family:var(--serif);font-size:13px;letter-spacing:.06em;color:var(--ink)}
+.dd-o + .dd-o{border-top:1px solid var(--hair)}
+.dd-o:hover{background:var(--app-paper-2)}
+.dd-o.on{color:var(--cinnabar)}
+.dd-o small{margin-left:auto;font-size:11px;color:var(--ink-faint)}
+.dd-o i{font-style:normal;width:3.2em;color:var(--gold);font-size:12px}
+/* ── 搜尋框與保存標籤（前端 src/base/10-calendar.css 的 .cal-search／.keep-tag／.cal-keep） ── */
+.sr-field{display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;background:var(--app-paper-2);
+  border:1.5px solid var(--hair);border-radius:999px;transition:border-color var(--t-quick) ease}
+.sr-field:focus-within{border-color:var(--ink-faint)}
+.sr-field input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--ink);font:inherit;font-size:14px;padding:9px 0;letter-spacing:.04em}
+.sr-field input::placeholder{color:var(--ink-faint)}
+.sr-field input::-webkit-search-cancel-button{-webkit-appearance:none}
+.sr-go{width:32px;height:32px;display:grid;place-items:center;border:none;background:none;color:var(--ink-soft);cursor:pointer;border-radius:50%}
+.sr-go:hover{color:var(--cinnabar)}
+.sr-go svg{width:18px;height:18px}
+.sr-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--hair)}
+.sr-row .q{font-size:14.5px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-row .m{font-size:11.5px;color:var(--ink-soft);letter-spacing:.04em;margin-top:3px}
+.sr-row .h{font-size:11.5px;color:var(--cinnabar);margin-top:4px;letter-spacing:.04em}
+.sr-row .g{margin-left:auto;font-size:13px;color:var(--cinnabar);letter-spacing:.06em;flex-shrink:0}
+.keep-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;margin-right:6px;vertical-align:1px;background:var(--app-paper-2);color:var(--ink-faint)}
+.keep-tag.kept{background:color-mix(in srgb,var(--wx-木) 16%,transparent);color:var(--wx-木)}
+.keep-tag.soon{background:color-mix(in srgb,var(--cinnabar) 13%,transparent);color:var(--cinnabar);font-weight:700}
+.sr-keep{padding:11px 12px;border-top:1px solid var(--hair);font-size:12px;line-height:1.75;color:var(--ink-soft);letter-spacing:.04em}
+.sr-keep.warn{border:1px solid var(--cinnabar);border-radius:8px;color:var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 8%,transparent)}
+.sr-keep button{border:none;background:none;padding:0 0 0 6px;font:inherit;font-weight:700;color:var(--cinnabar);cursor:pointer;white-space:nowrap}
+.sr-keep button:hover{text-decoration:underline}
+
 /* 規則卡 */
 .rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
 .rule{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:12px;padding:14px 16px}
@@ -438,6 +506,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
           <tr><td>放開</td><td>全部回到原位，過衝一次</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
           <tr><td>取消（手指拖出）</td><td>同放開，但不觸發動作</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
           <tr><td>停用</td><td>左右搖 4 下，振幅遞減</td><td class="v">360ms × k</td><td class="v">--e-out</td></tr>
+          <tr><td>整片可點的底</td><td>不壓。對話幕的對話框「點哪裡都算下一句」，但它是一片遮罩，不是一顆鈕——縮了會露出底下的場景。裡面的選項、按鈕照壓（前端標 <code>data-m-surface</code>）</td><td class="v">—</td><td class="v">—</td></tr>
           <tr><td>長按</td><td>外框描邊填滿，完成時彈一下</td><td class="v">--t-hold</td><td class="v">linear</td></tr>
           <tr><td>切換</td><td>滑塊位移，途中橫向拉長 1.35</td><td class="v">--t-release</td><td class="v">--e-spring</td></tr>
         </tbody>
@@ -493,6 +562,100 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ A · 通用下拉 ══ -->
+  <section id="dropdown">
+    <div class="sec-h">
+      <div class="tag">A 互動回饋 · 通用元件</div>
+      <h2>通用下拉</h2>
+      <p>選項會一直長的（月份、年份、行程）不排成一排頁籤，收成一顆下拉。它是<b>平的</b>：一條細框的膠囊、一條細框的清單，沒有厚度、沒有陰影、按下不下沉——它是「切換看哪一份」，不是一個要人下決心按的動作，做成有厚度的按鈕在頁面上太搶眼。點開試試。</p>
+    </div>
+    <div class="body">
+      <div class="tg-box">
+        <div class="tg-cap"><b>小顆 · 靠右</b><span>信箱›觀中誌「更新日誌」的月份</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--sans);font-size:11px;letter-spacing:.24em;color:var(--ink-faint)">
+          <span>更 新 日 誌</span>
+          <div class="dd" data-dd><button class="dd-b" type="button">10 月<small>3 則</small><i class="dd-car"></i></button>
+            <div class="dd-m" hidden><button class="dd-o on" type="button">10 月<small>3 則</small></button><button class="dd-o" type="button">9 月<small>5 則</small></button><button class="dd-o" type="button">8 月<small>4 則</small></button><button class="dd-o" type="button">7 月<small>2 則</small></button></div></div>
+        </div>
+      </div>
+      <div class="tg-box" style="padding-bottom:200px">
+        <div class="tg-cap"><b>撐滿 · 分組</b><span>問事頁「從行程起題」</span></div>
+        <div class="dd full" data-dd><button class="dd-b wide" type="button"><span>從行程起題</span><small style="flex:1">今日 2 則・明日 1</small><i class="dd-car"></i></button>
+          <div class="dd-m full" hidden><div class="dd-grp">今天</div><button class="dd-o" type="button"><i>14:00</i>跟客戶開會</button><button class="dd-o" type="button"><i>19:30</i>晚餐</button><div class="dd-grp">明天</div><button class="dd-o" type="button"><i>全天</i>出差</button></div></div>
+      </div>
+      <div class="tg-spec">
+        <div><b>鈕</b>透明底、1px --hair 框<br>全圓角、不套 .btn</div>
+        <div><b>字</b>12.5px（撐滿 13px）<br>附註 11px --ink-faint</div>
+        <div><b>展開</b>框轉 --ink-faint<br>箭頭轉向（--t-quick）</div>
+        <div><b>清單</b>--paper 底、1px --hair 框<br>圓角 10px、<b style="display:inline;color:inherit">無陰影</b></div>
+        <div><b>選項</b>13px、列間 1px --hair<br>滑過 --paper-2 底</div>
+        <div><b>現在這一項</b>硃砂字<br>不加底色、不加勾</div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>情況</th><th>前端寫法</th></tr></thead>
+        <tbody>
+          <tr><td>外框（定位）</td><td><code>.dd</code></td></tr>
+          <tr><td>鈕</td><td><code>.dd-b</code>（撐滿加 <code>.wide</code>），展開時 <code>.on</code>；箭頭 <code>i.dd-car</code></td></tr>
+          <tr><td>清單</td><td><code>.dd-m</code>（撐滿加 <code>.full</code>），收起用 <code>hidden</code></td></tr>
+          <tr><td>選項／分組</td><td><code>.dd-o</code>（現在這一項 <code>.on</code>）／<code>.dd-grp</code></td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">格數固定、兩到六格的「一排選一個」仍然用頁籤；會隨時間變多的才用下拉。點外面收起、選了就收起。</p>
+    </div>
+  </section>
+
+  <!-- ══ A · 搜尋框 ══ -->
+  <section id="search">
+    <div class="sec-h">
+      <div class="tag">A 互動回饋 · 通用元件</div>
+      <h2>搜尋框與保存標籤</h2>
+      <p>一格膠囊、一顆放大鏡。按 Enter（手機鍵盤的「搜尋」）或放大鏡才查，不邊打邊查——中文輸入法選字前的拼音也會被送出去。結果每一列前面一顆保存標籤，告訴人這一卦還會留多久；底部一行講規則，該引導持牒的地方給一顆字鈕。點框、打字、按 Enter 試試。</p>
+    </div>
+    <div class="body">
+      <div class="tg-box">
+        <div class="tg-cap"><b>搜尋框</b><span>手帳›卦曆最上面</span></div>
+        <form class="sr-field" id="srDemo" role="search" onsubmit="return false">
+          <input type="search" enterkeyhint="search" maxlength="50" placeholder="搜尋問過的事、卦名" aria-label="搜尋舊卦">
+          <button class="sr-go" type="submit" aria-label="搜尋"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></button>
+        </form>
+        <p class="note" id="srEcho" style="font-size:12px">未查詢</p>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>結果列 · 保存標籤三態</b><span>永久／剩 N 天／快到期（≤14 天）</span></div>
+        <div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag">剩 50 天</span>今年換工作好不好</div><div class="m">2026-09-07 · 師妹</div></div><div class="g">風雷益</div></div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag soon">剩 9 天</span>工作上跟主管的關係</div><div class="m">2026-07-28 · 觀貓</div><div class="h">快到期了。點開印證，或收進心跡，就永久留著。</div></div><div class="g">火澤睽</div></div>
+          <div class="sr-row"><div style="min-width:0"><div class="q"><span class="keep-tag kept">永久</span>去年那份工作的考核</div><div class="m">2026-03-31 · 師妹 · ✅ 已印證</div></div><div class="g">乾為天</div></div>
+        </div>
+      </div>
+      <div class="tg-box">
+        <div class="tg-cap"><b>規則行 · 依牒切換</b><span>平常一條細線；斷牒寬限期改硃砂框</span></div>
+        <div class="sr-keep">卦留 90 天。印證過、收進心跡的永久保存。持牒可延至一年，藏往永不清理。<button type="button">看玉牒 ›</button></div>
+        <div class="sr-keep warn">玉牒已到期。11/05 前續牒，舊卦照原規格保留；之後只留最近 90 天。<button type="button">續牒 ›</button></div>
+      </div>
+      <div class="tg-spec">
+        <div><b>框</b><i class="tg-sw" style="background:var(--app-paper-2)"></i>--paper-2 底<br>1.5px --hair 框、全圓角</div>
+        <div><b>聚焦</b>框轉 --ink-faint<br>不加外光暈</div>
+        <div><b>字</b>14px · 字距 .04em<br>提示字 --ink-faint</div>
+        <div><b>放大鏡</b>32px 點擊區、18px 圖<br>--ink-soft，滑過硃砂</div>
+        <div><b>保存標籤</b>10px · 圓角 6px<br>剩 N 天＝--paper-2 底、--ink-faint 字</div>
+        <div><b>永久</b><i class="tg-sw" style="background:var(--wx-木)"></i>五行「木」16% 底<br>同色字</div>
+        <div><b>快到期</b><i class="tg-sw" style="background:var(--cinnabar)"></i>硃砂 13% 底、粗體<br>下面加一行硃砂說明</div>
+        <div><b>寬限期</b>硃砂 1px 框、8% 底<br>字鈕「續牒 ›」</div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>情況</th><th>前端寫法</th></tr></thead>
+        <tbody>
+          <tr><td>搜尋框</td><td><code>form.cal-search</code> ＞ <code>input[type=search]</code> ＋ <code>.cal-search-go</code></td></tr>
+          <tr><td>保存標籤</td><td><code>.keep-tag</code>；永久加 <code>.kept</code>，≤14 天加 <code>.soon</code>（天數一律用後端回的 <code>daysLeft</code>）</td></tr>
+          <tr><td>快到期說明</td><td><code>.cal-keep-hint</code></td></tr>
+          <tr><td>規則行</td><td><code>.cal-keep</code>，寬限期加 <code>.warn</code>；字鈕 <code>.cal-keep-plan</code></td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">硃砂只給「快到期」與「寬限期」：那是真的有事要人處理。其餘一律淡色——每一列都標紅，就等於沒有一列是急的。「永久」借五行的木，不另配色，五套主題都有定義。保存天數、14 天的門檻都不寫在畫面裡，數字從後端來（後端 <code>dev/web/CAST-SEARCH-API.md</code>）。</p>
+    </div>
+  </section>
+
   <!-- ══ B ══ -->
   <section>
     <div class="sec-h">
@@ -541,6 +704,47 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
               <tr><td>移入 Move in</td><td>暫時覆蓋，完成就收回</td><td>底部抽屜、選擇器</td></tr>
               <tr><td>溶解 Dissolve</td><td>平行切換，沒有前後</td><td>底部分頁列</td></tr>
               <tr><td>智慧過渡 Smart animate</td><td>同一件東西展開</td><td>卡片 → 全頁、卦 → 解讀</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 引導聚光 ══ -->
+  <section id="coach">
+    <div class="sec-h">
+      <div class="tag">B 容器 · 引導</div>
+      <h2>引導聚光</h2>
+      <p>初次使用的教學：在真的畫面上，其餘壓暗、只亮一塊，旁邊一張引路人的對話卡。框從上一處滑到下一處，卡片內文逐行浮上（同彈框）。按「繼續」走下一步。</p>
+    </div>
+    <div class="body">
+      <div class="phone-row">
+        <div class="phone" id="coPhone">
+          <div class="co-pg">
+            <h4>問事</h4>
+            <div class="co-q" id="coQ">例：這段關係能否安穩？</div>
+            <div class="co-seg" id="coSeg"><span>搖卦</span><span>報三數</span><span>手動排盤</span></div>
+            <div class="co-cast" id="coCast">起　卦</div>
+          </div>
+          <div class="co-ring" id="coRing"></div>
+          <div class="co-card" id="coCard"></div>
+        </div>
+        <div class="trans-info">
+          <div class="rules">
+            <div class="rule"><b>擋住整層</b><p>引導期間底下的畫面點不到。要玩家做的事放在卡片的選項上，由腳本代按——示範卦是假的，按到真的「入觀解卦」就會扣靈石、打 AI。</p></div>
+            <div class="rule"><b>卡片不蓋聚光框</b><p>下面放得下放下面，否則上面；上下都不夠（桌機上整張盤）擺到框旁邊，寬度跟著空間縮。</p></div>
+            <div class="rule"><b>遮罩同彈框</b><p>暗度與彈框遮罩同一個色；框線用金。卡片吃主題色，夜觀、硃砂一樣成立。</p></div>
+            <div class="rule"><b>永遠能略過</b><p>右上「略過」、返回鍵都算略過，收尾跟走完一樣（清掉示範的問句與盤）。這是例外於「初次引導不放 ✕」的那一條：略過是字，不是 ✕。</p></div>
+            <div class="rule"><b>看不見的不聚光</b><p>目標被收起來（桌機小浮窗沒有「履歷」鈕）就整步跳過，或改成不聚光、只說話——不要對著空白處講「這顆」。</p></div>
+            <div class="rule"><b>只演一次</b><p>看過記在本機；頁尾留一個入口能重看（「起卦示範」）。</p></div>
+          </div>
+          <div class="tbl-wrap"><table style="min-width:360px">
+            <thead><tr><th>狀態</th><th>變化</th><th>時長</th><th>曲線</th></tr></thead>
+            <tbody>
+              <tr><td>框換位置</td><td>left／top／寬高補間（單發，不是常駐）</td><td class="v">--t-enter</td><td class="v">--e-out</td></tr>
+              <tr><td>卡片換字</td><td>內文逐行浮上 8px</td><td class="v">--t-enter ＋ --stagger</td><td class="v">--e-out</td></tr>
+              <tr><td>目標在畫面外</td><td>先捲到畫面中央，落地再量框</td><td class="v">320ms</td><td class="v">smooth</td></tr>
             </tbody>
           </table></div>
         </div>
@@ -648,6 +852,9 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
           <tr><td>彈框內逐行出場</td><td>子元素設 <code>--i: 0, 1, 2…</code></td></tr>
           <tr><td>待機 icon</td><td>套九型之一的 keyframes，時長只用 <code>--idle-s / m / l</code></td></tr>
           <tr><td>偶發</td><td>容器加 <code>data-occ</code>，由排程器加上 <code>.fire</code> 播一次</td></tr>
+          <tr><td>搜尋框、保存標籤</td><td>見上方「搜尋框與保存標籤」那一段的表</td></tr>
+          <tr><td>下拉（月份、行程這類會一直長的選項）</td><td>見上方「通用下拉」那一段的表（平的，不套 <code>.m-press</code>）</td></tr>
+          <tr><td>初次引導</td><td><code>Coach.step({ at, who, text, choices })</code>（前端 <code>src/ui/coach.js</code>），腳本在 <code>src/pages/tour.js</code></td></tr>
         </tbody>
       </table></div>
       <div class="copy-row"><h3 style="margin:0">Token 原始碼</h3><button class="m-press chip" type="button" id="copy">複製</button></div>
@@ -662,8 +869,42 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   const $=id=>document.getElementById(id);
   const K=()=>parseFloat(getComputedStyle(root).getPropertyValue('--k'))||1;
 
+  /* ── 動態 token：來自 dev/design/tokens.json（唯一真相）；總控預設值、token 表、範例碼都讀這一份 ── */
+  // @design:begin proto-motion-js v=a3a299f2 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
+  const MOTION = {"_說明":"時長的 ms 都會乘上速度倍率 k。spec＝規範與原型用的變數名；web＝前端 styles/motion.css 用的變數名（前端加 m- 前綴；press 的時長叫 --m-press-t，因為 --m-press 是按壓進度）。","base":{"k":1,"a":1,"d":3.6,"ov":1.56,"tilt":6},"durations":[{"k":"press","ms":90,"spec":"--t-press","web":"--m-press-t","u":"按下"},{"k":"release","ms":280,"spec":"--t-release","web":"--m-release","u":"放開、切換滑塊"},{"k":"quick","ms":160,"spec":"--t-quick","web":"--m-quick","u":"小狀態變化"},{"k":"exit","ms":220,"spec":"--t-exit","web":"--m-exit","u":"彈框、提示離場；內容溶解（切頁籤）"},{"k":"enter","ms":360,"spec":"--t-enter","web":"--m-enter","u":"彈框、提示入場；進一層／退一層"},{"k":"page","ms":460,"spec":"--t-page","web":"--m-page","u":"頁面切換"},{"k":"hold","ms":700,"spec":"--t-hold","web":"--m-hold","u":"長按蓄力"},{"k":"stagger","ms":45,"spec":"--stagger","web":"--m-stagger","u":"內容逐項間隔"},{"k":"idleS","ms":2400,"spec":"--idle-s","web":"--m-idle-s","u":"待機短週期"},{"k":"idleM","ms":3700,"spec":"--idle-m","web":"--m-idle-m","u":"待機中週期"},{"k":"idleL","ms":6100,"spec":"--idle-l","web":"--m-idle-l","u":"待機長週期（靈石掠光的間隔）"}],"easings":[{"k":"out","v":"cubic-bezier(.22,1,.36,1)","spec":"--e-out","web":"--m-e-out","u":"入場、按下"},{"k":"in","v":"cubic-bezier(.5,0,.75,0)","spec":"--e-in","web":"--m-e-in","u":"離場"},{"k":"spring","v":"cubic-bezier(.34,OV,.64,1)","spec":"--e-spring","web":"--m-e-spring","u":"放開、彈出（唯一允許過衝）"},{"k":"breath","v":"cubic-bezier(.45,0,.55,1)","spec":"--e-breath","web":"--m-e-breath","u":"待機循環"}],"amp":{"_說明":"待機幅度上限，會乘上幅度倍率 a。scale 0.05＝放大 5%（六六 2026-09-29：3% 存在感太低）","move":3,"scale":0.05,"rot":4}};
+  // @design:end proto-motion-js
+  /* ── 引導聚光示範：三步，框滑過去、卡片換字 ── */
+  {
+    const CO=[
+      {at:'coQ',t:'問卦，先把事情寫成一句。一次只問一件事。'},
+      {at:'coSeg',t:'起卦有三種：搖卦、報三數、手動排盤。這次用搖卦。'},
+      {at:'coCast',t:'靜下來，想著這件事。準備好就按。'},
+    ];
+    let ci=0;
+    const ph=$('coPhone'), ring=$('coRing'), card=$('coCard');
+    function coDraw(){
+      const s=CO[ci], el=$(s.at), pr=ph.getBoundingClientRect(), r=el.getBoundingClientRect();
+      Object.assign(ring.style,{left:(r.left-pr.left-6)+'px',top:(r.top-pr.top-6)+'px',width:(r.width+12)+'px',height:(r.height+12)+'px'});
+      card.classList.toggle('top', r.top-pr.top+r.height/2 > pr.height*.55);
+      card.innerHTML=`<div class="co-head"><i></i><b>師妹</b><small>幾知觀管事</small><span class="sk">略過</span></div><div class="co-txt">${s.t}</div><div class="co-acts"><button class="m-press btn primary" type="button">${ci<CO.length-1?'繼續':'再看一次'}</button></div>`;
+      card.classList.remove('in'); void card.offsetWidth; card.classList.add('in');
+      card.querySelector('button').addEventListener('click',()=>{ ci=(ci+1)%CO.length; coDraw(); });
+    }
+    requestAnimationFrame(coDraw);
+    addEventListener('resize',coDraw);
+  }
+  /* ── 通用下拉示範：點鈕開關、點選項收起、點外面收起 ── */
+  document.querySelectorAll('[data-dd]').forEach(dd=>{
+    const b=dd.querySelector('.dd-b'), m=dd.querySelector('.dd-m');
+    b.addEventListener('click',e=>{e.stopPropagation();const on=m.hidden;document.querySelectorAll('[data-dd] .dd-m').forEach(x=>x.hidden=true);document.querySelectorAll('[data-dd] .dd-b').forEach(x=>x.classList.remove('on'));m.hidden=!on;b.classList.toggle('on',on);});
+    m.addEventListener('click',e=>{const o=e.target.closest('.dd-o');if(!o)return;if(o.querySelector('small')){m.querySelectorAll('.dd-o').forEach(x=>x.classList.toggle('on',x===o));b.firstChild.textContent=o.firstChild.textContent;b.querySelector('small').textContent=o.querySelector('small').textContent;}m.hidden=true;b.classList.remove('on');});
+  });
+  document.addEventListener('click',e=>{if(!e.target.closest('[data-dd]')){document.querySelectorAll('[data-dd] .dd-m').forEach(x=>x.hidden=true);document.querySelectorAll('[data-dd] .dd-b').forEach(x=>x.classList.remove('on'));}});
+  /* ── 搜尋框示範：Enter 或放大鏡才「查」 ── */
+  $('srDemo').addEventListener('submit',e=>{e.preventDefault();const q=e.target.querySelector('input').value.trim();$('srEcho').textContent=q?`查詢「${q}」（真的畫面會換成結果列）`:'空的不查，游標留在框裡';});
   /* ── 總控 ── */
-  const DEF={k:1,a:1,d:3.6,ov:1.56};
+  const DEF={k:MOTION.base.k,a:MOTION.base.a,d:MOTION.base.d,ov:MOTION.base.ov};
+  for(const key in DEF){ $(key).value=DEF[key]; }
   const fmt={k:v=>'×'+(+v).toFixed(2),a:v=>'×'+(+v).toFixed(2),d:v=>v+'px',ov:v=>(+v).toFixed(2)};
   function setVar(key,v){
     root.style.setProperty('--'+key,key==='d'?v+'px':v);
@@ -677,49 +918,33 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   try{if(matchMedia('(prefers-reduced-motion: reduce)').matches){$('rm').checked=true;root.classList.add('rm')}}catch(e){}
 
   /* ── Token 表 ── */
-  const TOK=[
-    ['--t-press',90,'按下'],['--t-release',280,'放開、切換滑塊'],['--t-quick',160,'小狀態變化'],
-    ['--t-exit',220,'彈框、提示離場'],['--t-enter',360,'彈框、提示入場'],['--t-page',460,'頁面切換'],
-    ['--t-hold',700,'長按蓄力'],['--stagger',45,'內容逐項間隔'],
-    ['--idle-s',2400,'待機短週期'],['--idle-m',3700,'待機中週期'],['--idle-l',6100,'待機長週期'],
-  ];
-  const EASE=[['--e-out','cubic-bezier(.22,1,.36,1)','入場、按下'],['--e-in','cubic-bezier(.5,0,.75,0)','離場'],['--e-spring',null,'放開、彈出（唯一允許過衝）'],['--e-breath','cubic-bezier(.45,0,.55,1)','待機循環']];
+  const TOK=MOTION.durations.map(d=>[d.spec,d.ms,d.u]);
+  const EASE=MOTION.easings.map(e=>[e.spec,e.v.includes('OV')?null:e.v,e.u]);
   function renderTokens(){
     const k=K(),a=+$('a').value,d=+$('d').value,ov=(+$('ov').value).toFixed(2);
     const ms=v=>v>=1000?(v*k/1000).toFixed(2)+'s':Math.round(v*k)+'ms';
     let h=TOK.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${ms(v)}</td><td>${u}</td></tr>`).join('');
     h+=EASE.map(([n,v,u])=>`<tr><td class="v">${n}</td><td class="v">${v||`cubic-bezier(.34,${ov},.64,1)`}</td><td>${u}</td></tr>`).join('');
     h+=`<tr><td class="v">--d</td><td class="v">${d}px</td><td>按壓深度＝元件厚度；卡片 ×.75、標籤 ×.5</td></tr>`;
-    h+=`<tr><td class="v">--tilt</td><td class="v">6deg</td><td>按壓傾斜上限</td></tr>`;
-    h+=`<tr><td class="v">--amp-move / scale / rot</td><td class="v">${(3*a).toFixed(1)}px / ${(3*a).toFixed(1)}% / ${(4*a).toFixed(1)}°</td><td>待機幅度上限</td></tr>`;
+    h+=`<tr><td class="v">--tilt</td><td class="v">${MOTION.base.tilt}deg</td><td>按壓傾斜上限</td></tr>`;
+    h+=`<tr><td class="v">--amp-move / scale / rot</td><td class="v">${(MOTION.amp.move*a).toFixed(1)}px / ${(MOTION.amp.scale*100*a).toFixed(1)}% / ${(MOTION.amp.rot*a).toFixed(1)}°</td><td>待機幅度上限</td></tr>`;
     $('tok').innerHTML=h;
+    const dur=MOTION.durations.map(x=>`  ${(x.spec+':').padEnd(12)}calc(${(x.ms>=1000?(x.ms/1000)+'s':x.ms+'ms').padEnd(6)} * var(--k));`).join('\n');
+    const eas=MOTION.easings.map(e=>`  ${(e.spec+':').padEnd(11)}${e.v.replace('OV','var(--ov)')};`).join('\n');
     $('code').textContent=`:root{
   /* 倍率：只改這四個 */
-  --k:${k};  --a:${a};  --d:${d}px;  --ov:${ov};  --tilt:6deg;
+  --k:${k};  --a:${a};  --d:${d}px;  --ov:${ov};  --tilt:${MOTION.base.tilt}deg;
 
   /* 時長 */
-  --t-press:  calc(90ms  * var(--k));
-  --t-release:calc(280ms * var(--k));
-  --t-quick:  calc(160ms * var(--k));
-  --t-exit:   calc(220ms * var(--k));
-  --t-enter:  calc(360ms * var(--k));
-  --t-page:   calc(460ms * var(--k));
-  --t-hold:   calc(700ms * var(--k));
-  --stagger:  calc(45ms  * var(--k));
-  --idle-s:   calc(2.4s  * var(--k));
-  --idle-m:   calc(3.7s  * var(--k));
-  --idle-l:   calc(6.1s  * var(--k));
+${dur}
 
   /* 曲線 */
-  --e-out:   cubic-bezier(.22,1,.36,1);
-  --e-in:    cubic-bezier(.5,0,.75,0);
-  --e-spring:cubic-bezier(.34,var(--ov),.64,1);
-  --e-breath:cubic-bezier(.45,0,.55,1);
+${eas}
 
   /* 待機幅度上限 */
-  --amp-move: calc(3px  * var(--a));
-  --amp-scale:calc(.03  * var(--a));
-  --amp-rot:  calc(4deg * var(--a));
+  --amp-move: calc(${MOTION.amp.move}px  * var(--a));
+  --amp-scale:calc(${MOTION.amp.scale} * var(--a));
+  --amp-rot:  calc(${MOTION.amp.rot}deg * var(--a));
 }`;
   }
   renderTokens();

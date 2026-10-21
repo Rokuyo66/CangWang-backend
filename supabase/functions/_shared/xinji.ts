@@ -38,7 +38,7 @@ const ok = (payload: Record<string, unknown>): XinjiResult => ({ ok: true, paylo
 /** 同時「在記」幾件事。額度不落資料——查詢時判，所以升降方案立即生效。
  *  免費 1 件是刻意的：它足以讓人體會「被記著」是什麼感覺，而第二件事就是付費點。
  *  已了結的不佔額度（了結是好事，不該罰）。 */
-export const PLAN_THREADS: Record<string, number> = { free: 1, guanwei: 3, zhiji: 8, cangwang: 20 };
+export const PLAN_THREADS: Record<string, number> = { free: 1, wengua: 8, gonglue: 3, shendu: 20, guanwei: 3, zhiji: 8, cangwang: 20 };
 export const threadQuotaOf = (plan: string) => PLAN_THREADS[plan] ?? PLAN_THREADS.free;
 
 /** 一條心事多久沒動，就算「擱著」。角色會為此留一句話。 */

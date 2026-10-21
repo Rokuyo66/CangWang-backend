@@ -13,8 +13,8 @@
 # 用法（Token 與 -ProjectRef 規則同 lingshi.ps1）：
 #   .\dev\yudie.ps1 -Email you@example.com                      # 只看：目前方案與各項額度（預設，什麼都不動）
 #   .\dev\yudie.ps1 -Find 六六                                  # 忘了帳號：用暱稱/信箱片段找人
-#   .\dev\yudie.ps1 -Email you@example.com -Plan zhiji          # 開知幾，無期限
-#   .\dev\yudie.ps1 -Email you@example.com -Plan cangwang -Days 30
+#   .\dev\yudie.ps1 -Email you@example.com -Plan wengua          # 開問卦，無期限
+#   .\dev\yudie.ps1 -Email you@example.com -Plan shendu -Days 30
 #   .\dev\yudie.ps1 -TgId 8674594142 -Expire                    # 保留方案名，把期限撥到一分鐘前（測到期）
 #   .\dev\yudie.ps1 -Email you@example.com -Off                 # 收牒：改回 free、清掉期限
 #
@@ -26,7 +26,7 @@ param(
   [string]$TgId,
   [string]$UserId,
   [string]$Find,
-  [ValidateSet('free','guanwei','zhiji','cangwang')]
+  [ValidateSet('free','wengua','gonglue','shendu','guanwei','zhiji','cangwang')]
   [string]$Plan,                         # 要開哪一階
   [int]$Days = 0,                        # 幾天後到期（0＝無期限）
   [switch]$Expire,                       # 把期限撥到過去，測「到期即視同 free」
@@ -95,18 +95,20 @@ $IDENT_VIEW =
 #   心跡在記   xinji.ts PLAN_THREADS
 #   語音收藏   voice.ts PLAN_CLIPS
 #   卦案存檔   case-run.ts keptQuota
-$PLAN_LABEL = @{ free = '無牒（free）'; guanwei = '觀微'; zhiji = '知幾'; cangwang = '藏往' }
+# 2026-10-19 起在賣的是三條線（0088）；舊三階停售，既有訂閱照舊，-Plan 仍收得下舊 id 方便測
+$PLAN_LABEL = @{ free = '無牒（free）'; wengua = '問卦'; gonglue = '攻略'; shendu = '深度'; guanwei = '觀微（停售）'; zhiji = '知幾（停售）'; cangwang = '藏往（停售）' }
 $QUOTAS = @(
-  @{ n = '每日免費起卦'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 8   },
-  @{ n = '每日免費追問'; free = 2; guanwei = 3;  zhiji = 5;  cangwang = 20  },
-  @{ n = '每日免費閒聊'; free = 8; guanwei = 12; zhiji = 30; cangwang = 100 },
-  @{ n = '共憶注入則數'; free = 6; guanwei = 12; zhiji = 24; cangwang = 40  },
-  @{ n = '注入對話輪數'; free = 6; guanwei = 8;  zhiji = 12; cangwang = 16  },
-  @{ n = '可釘選回憶'  ; free = 0; guanwei = 1;  zhiji = 3;  cangwang = 5   },
-  @{ n = '心跡同時在記'; free = 1; guanwei = 3;  zhiji = 8;  cangwang = 20  },
-  @{ n = '語音收藏段數'; free = 3; guanwei = 10; zhiji = 30; cangwang = 100 },
-  @{ n = '每月免費朗讀'; free = 0; guanwei = 0;  zhiji = 0;  cangwang = 8   },   # 次數，不再是字數（0059）
-  @{ n = '卦案記憶檔案'; free = 1; guanwei = 3;  zhiji = 3;  cangwang = 3   }
+  @{ n = '每日免費起卦'; free = 1;  wengua = 4;  gonglue = 2;   shendu = 5   },
+  @{ n = '每日免費追問'; free = 1;  wengua = 4;  gonglue = 1;   shendu = 6   },
+  @{ n = '每日免費閒聊'; free = 15; wengua = 15; gonglue = 100; shendu = 100 },
+  @{ n = '閒聊道緣'    ; free = '封頂299'; wengua = '×1'; gonglue = '×1.5'; shendu = '×1.5' },
+  @{ n = '共憶注入則數'; free = 6;  wengua = 12; gonglue = 40;  shendu = 40  },
+  @{ n = '注入對話輪數'; free = 6;  wengua = 8;  gonglue = 16;  shendu = 16  },
+  @{ n = '可釘選回憶'  ; free = 0;  wengua = 1;  gonglue = 5;   shendu = 5   },
+  @{ n = '心跡同時在記'; free = 1;  wengua = 8;  gonglue = 3;   shendu = 20  },
+  @{ n = '語音收藏段數'; free = 3;  wengua = 10; gonglue = 30;  shendu = 100 },
+  @{ n = '每月免費朗讀'; free = 0;  wengua = 0;  gonglue = 0;   shendu = 8   },   # 次數，不再是字數（0059）
+  @{ n = '卦案記憶檔案'; free = 1;  wengua = 3;  gonglue = 3;   shendu = 3   }
 )
 
 # ── 找人 ───────────────────────────────────────────────────────────
@@ -198,9 +200,9 @@ if ($acts.Count -eq 0) {
     [pscustomobject]@{
       '項目'   = $q.n
       '無牒'   = $q.free
-      '觀微'   = $q.guanwei
-      '知幾'   = $q.zhiji
-      '藏往'   = $q.cangwang
+      '問卦'   = $q.wengua
+      '攻略'   = $q.gonglue
+      '深度'   = $q.shendu
     }
   }
   $rows | Format-Table -AutoSize
@@ -216,7 +218,7 @@ if ($acts.Count -eq 0) {
   # 當成字面字元吃進 SQL 裡，錯得很難看出來。
   $q = "select coalesce(sum(chars),0) as chars, coalesce(sum(readings),0) as n, coalesce(sum(free_readings),0) as f from tts_usage where user_id = " + (Q $t.id) + "::uuid and day >= $m1::date and day < ($m1::date + interval '1 month');"
   $tts = @(Invoke-Sql $q)[0]
-  $ttsFree = @{ free = 0; guanwei = 0; zhiji = 0; cangwang = 8 }[[string]$effective]
+  $ttsFree = @{ free = 0; wengua = 0; gonglue = 0; shendu = 8; guanwei = 0; zhiji = 0; cangwang = 8 }[[string]$effective]
   if (-not $ttsFree) { $ttsFree = 0 }
   $freeUsed = [int]$tts.f
   $freeLeft = [Math]::Max(0, $ttsFree - $freeUsed)
@@ -235,7 +237,7 @@ if ($acts.Count -eq 0) {
   Write-Host "  · 全站日熔斷   只擋 free；持牒者不受 DAILY_GLOBAL_CAP 影響"
   Write-Host "  · 貼紙付費包   與方案無關，是靈石另外買的（dev\lingshi.ps1）"
   Write-Host ""
-  Write-Host "（唯讀檢視。要撥用 -Plan zhiji ／ -Expire ／ -Off）"
+  Write-Host "（唯讀檢視。要撥用 -Plan wengua ／ -Expire ／ -Off）"
   exit 0
 }
 
@@ -245,7 +247,7 @@ if ($Off) {
   $desc = "收牒 → free，清掉期限"
 } elseif ($Expire) {
   if ($dbPlan -eq 'free') {
-    Write-Host "`n這個帳號本來就是 free，沒有牒可以過期。先 -Plan zhiji 開一張。" -ForegroundColor Yellow
+    Write-Host "`n這個帳號本來就是 free，沒有牒可以過期。先 -Plan wengua 開一張。" -ForegroundColor Yellow
     exit 1
   }
   # 撥到一分鐘前而不是「現在」：planOf 是 < now() 才算過期，設成現在會卡在邊界上

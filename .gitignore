@@ -17,3 +17,4 @@ dev/widget.html
 # 進 repo 的是四張 .dc.html 與 canvas.json（真正的設計來源），成品用它們重建：
 #   見 dev/design/xinji/README.md
 dev/design/*/[a-z]*-*.html
+dev/model-ab-*.md

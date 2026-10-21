@@ -1,21 +1,38 @@
 // _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
-import { whereNow, whereHint, tryHiddenFound, sinceDoings, type Where } from "./whereabouts.ts";
+import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuests, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
-import { arrangeMemories, datedDialog, parseMemoryLines, type MemRow } from "./memkind.ts";
+import { tianshiLine } from "./tianshi.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
 import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 import { COST } from "./prices.ts";
+import { noThinking } from "./model-params.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-4-5-20251001";
+// 2026-10 起預設 Haiku 5.5（$0.10/$0.50，4.5 的十分之一），先想再答見 chatThinking
+const CHAT_MODEL = Deno.env.get("CHAT_MODEL") ?? "claude-haiku-5-5";
+// 先想再答（六六 2026-10-08：閒聊與其講一堆話，不如給正確有感的反應）。
+// 想的部分不顯示、不算進回覆長度（節奏帳本只算看得到的字），但照輸出價計費。
+//   adaptive：4.6 之後的模型（Haiku 5.5、Sonnet 4.6/5/5.5……）——模型自己決定想多少，effort 控深淺
+//   budget：Haiku 4.5 只能給固定預算（至少 1024），成本會比回覆本身還高，預設不開
+// CHAT_THINKING=off 全關；=on 連 Haiku 4.5 也開。CHAT_EFFORT：low（預設）／medium／high。
+const CHAT_THINKING = Deno.env.get("CHAT_THINKING") ?? "auto";
+const CHAT_EFFORT = Deno.env.get("CHAT_EFFORT") ?? "low";
+const THINK_HEADROOM = Number(Deno.env.get("CHAT_THINK_HEADROOM") ?? "3000");   // 想的部分也吃 max_tokens，另外加
+export function chatThinking(model: string, mode = CHAT_THINKING): "adaptive" | "budget" | null {
+  if (mode === "off") return null;
+  if (/^claude-(haiku-5|sonnet-5|opus-5|fable|mythos|sonnet-4-6|opus-4-[678])/.test(model)) return "adaptive";
+  if (mode === "on" && /^claude-(haiku-4-5|sonnet-4-5|opus-4-5)/.test(model)) return "budget";
+  return null;
+}
 const GROQ_MODEL = Deno.env.get("GROQ_MODEL") ?? "openai/gpt-oss-120b"; // Groq 免費層（llama-3.3-70b 已停用，改用 gpt-oss-120b）
 const NVIDIA_MODEL = Deno.env.get("NVIDIA_MODEL") ?? "meta/llama-3.1-8b-instruct";
 // 免費層每家的硬超時（毫秒）：超時就立刻換下一家，盡量不掉罐頭
@@ -28,7 +45,6 @@ export const COST_FAVOR = 1;        // （已停用）舊：每則好感聊天�
 export const FAVOR_PER_CHAT = 1;    // 每聊一則 +1 好感（第六層惹角色生氣時反扣，見 favorAfter）
 export const FAVOR_CAP = Number(Deno.env.get("FAVOR_CAP") ?? "999"); // 好感上限（分層見 ROMANCE_AT）
 const HISTORY_TURNS = 6;            // 注入最近幾輪對話
-const MEMORY_CONDENSE_AT = 40;      // chat_messages 累積超過此數 → 觸發滾動彙整
 
 // 第一人稱正規化：只有旁白（＊…＊，或舊格式（…））內的「我」轉第三人稱；其餘一律視為台詞，保留「我」。
 // 舊版反過來（「」外全轉）——台詞常裸寫不帶「」，會把台詞的「我」誤轉成牠/他（「逗我玩」變「逗牠玩」），視角穿幫。
@@ -62,7 +78,6 @@ function normalizeNarration(text: string, characterId: string): string {
   }).join("");
 }
 export const __normalizeNarration = normalizeNarration;   // 測試用（dev/narration-test.mts）
-const MEMORY_KEEP_RECENT = 20;      // 彙整後保留最近幾則明細（>HISTORY_TURNS*2=12，留緩衝避免斷層）
 // 免費層（小模型 llama）易編造往事，額外加一道硬性防捏造，只塞免費層、不影響 Haiku（省 token）
 const FREE_GUARD = "\n\n【往事】你只記得上面列出的卦與往事。沒列的別編（時間、個股、他說過的話），不確定就只聊當下這句。上面若附了卦紙原文，那是你寫的，照認。";
 // 下列數字是「八成目標」——期望的可見回覆長度，不是硬上限。實際 max_tokens = 目標 ÷ 0.8，
@@ -81,19 +96,24 @@ const CHAT_TARGET_TOKENS_BY_CHAR: Record<string, number> = {
 };
 const capOf = (t: number) => Math.round(t / REPLY_HEADROOM);   // 八成目標 → 硬上限
 const FREE_MAX_TOKENS = 220;       // 免費層（DeepSeek 等易長篇，壓更短）
-export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "8"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
+// 2026-10-08 由 8 → 15：Haiku 5.5 一則約 NT$0.01，多 7 句一個月不到 NT$3，換的是上鉤的力道
+export const FREE_CHAT_PER_DAY = Number(Deno.env.get("FREE_CHAT_PER_DAY") ?? "15"); // 免費層每日免費聊天上限（額度內不扣、超過每則扣靈石）
 // 閒聊依方案分級。改成本表之前，免費層每日 15 句約佔免費成本的四成四，
 // 是修完起卦與追問後最大的一筆；低階訂閱若被用滿甚至會倒貼，非分級不可。
 // 2026-09-22：觀微 20→12、知幾 50→30。閒聊單價低（NT$0.07／則）但額度大，
 // 所以它是兩個中階裡最不痛的那一刀——砍追問或起卦會直接砍掉升級的理由，
 // 砍閒聊只是把「聊不完的」變成「夠聊」。藏往不動，它是利潤來源不是成本問題。
-export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, guanwei: 12, zhiji: 30, cangwang: 100 };
-export const chatQuotaOf = (plan: string) => PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY;
+// 2026-10-15：觀微 12→25、知幾 30→50。10-08 把無牒拉到 15 之後，觀微反而比無牒少三句——
+// 付了錢、每日閒聊變少。Haiku 5.5 一則約 NT$0.01，觀微多 13 句一個月約 NT$4。
+// chatQuotaOf 另外保底：持牒的句數永遠不低於無牒（FREE_CHAT_PER_DAY 是環境變數，調高時不必回頭改這張表）。
+export const PLAN_CHATS: Record<string, number> = { free: FREE_CHAT_PER_DAY, wengua: 15, gonglue: 100, shendu: 100, guanwei: 25, zhiji: 50, cangwang: 100 };
+export const chatQuotaOf = (plan: string) => Math.max(PLAN_CHATS[plan] ?? FREE_CHAT_PER_DAY, FREE_CHAT_PER_DAY);
 // 共憶分層：方案決定「注入幾則長期記憶」「注入幾輪對話」「可釘選幾則」。
 // 額度不落資料——查詢時直接 limit N，所以升降方案、刪一則後面遞補，全自動成立。
-export const PLAN_MEMORIES: Record<string, number> = { free: 6, guanwei: 12, zhiji: 24, cangwang: 40 };
-export const PLAN_TURNS: Record<string, number> = { free: 6, guanwei: 8, zhiji: 12, cangwang: 16 };
-export const PLAN_PINS: Record<string, number> = { free: 0, guanwei: 1, zhiji: 3, cangwang: 5 };
+// 三條線（0088）：攻略賣的就是關係，記憶、輪數、釘選給到跟深度一樣；問卦停在舊觀微那一格。
+export const PLAN_MEMORIES: Record<string, number> = { free: 6, wengua: 12, gonglue: 40, shendu: 40, guanwei: 12, zhiji: 24, cangwang: 40 };
+export const PLAN_TURNS: Record<string, number> = { free: 6, wengua: 8, gonglue: 16, shendu: 16, guanwei: 8, zhiji: 12, cangwang: 16 };
+export const PLAN_PINS: Record<string, number> = { free: 0, wengua: 1, gonglue: 5, shendu: 5, guanwei: 1, zhiji: 3, cangwang: 5 };
 export const memoryQuotaOf = (plan: string) => PLAN_MEMORIES[plan] ?? PLAN_MEMORIES.free;
 export const pinQuotaOf = (plan: string) => PLAN_PINS[plan] ?? PLAN_PINS.free;
 // 探詢輪（角色為了問清楚而反問的那幾句）每日免費額度：不計聊天句數、不扣靈石。
@@ -141,10 +161,21 @@ export function favorTierName(favor: number): string {
 // 之後照常每則 +1，慢慢爬回來。什麼算不喜歡，交給人設與模型自己發揮。
 export const SULK_AT = ROMANCE_AT[4];
 export const FAVOR_SULK = Number(Deno.env.get("FAVOR_SULK") ?? "5");
-export function favorAfter(favor: number, sulk: boolean): number {
+export function favorAfter(favor: number, sulk: boolean, cap = FAVOR_CAP, fast = false): number {
   if (sulk && favor >= SULK_AT) return favor - FAVOR_SULK;
-  return Math.min(FAVOR_CAP, favor + FAVOR_PER_CHAT);
+  // fast（攻略、深度）＝道緣 ×1.5：好感是整數，所以一則 +1、一則 +2 交替。
+  // 用 favor % 3 決定而不是另存計數：好感本身就是狀態，從任何數字起跳都會收斂到 1、2 交替。
+  const step = fast ? (favor % 3 === 0 ? 1 : 2) * FAVOR_PER_CHAT : FAVOR_PER_CHAT;
+  return Math.max(favor, Math.min(cap, favor + step));   // 封頂只擋往上長，不會把已經過頂的扣回來
 }
+/** 閒聊道緣長得快一半的方案（0088 三條線：攻略與深度） */
+export const FAST_FAVOR_PLANS = new Set(["gonglue", "shendu"]);
+/* 無牒的閒聊好感封頂在第一層門檻前（六六 2026-10-08）。
+   閒聊換 Haiku 5.5 之後一則約 NT$0.01，句數已經不是成本問題，不必用句數卡人；
+   要卡的是感情線：聊天能把人帶到「快要相熟」，看得到他變溫柔，再往上要靠問卦（起卦 +3、追問 +2，
+   pipeline.ts addCultivation）或持牒。無牒用靈石買的閒聊也算在內——否則簽到石就能繞過這道頂。 */
+export const FREE_CHAT_FAVOR_CAP = Number(Deno.env.get("FREE_CHAT_FAVOR_CAP") ?? String(ROMANCE_AT[0] - 1));
+export const chatFavorCap = (plan: string) => plan === "free" ? FREE_CHAT_FAVOR_CAP : FAVOR_CAP;
 
 // 跳級偵測：比目前層級更親的「真‧親密片語」。只收帶「你」的多字片語——
 // 舊版收過 撫/揉/低聲/抱住 這類單字，大師兄抱住卦書、撫過卦紙也會命中，害重生狂跳針。
@@ -182,11 +213,6 @@ const OOC_STEER = "剛才那句跳級了——比你們現在這一層（見【�
 // 觀中人活在古風的觀裡，嘴裡與旁白裡不該冒出今時的器物。只收「毫無歧義是今時」的詞，
 // 古今通用的（訊息、車、茶）不收，免得誤判一直重生。
 export const MODERN_RE = /開車|騎車|塞車|停車場|汽車|機車|公車|捷運|高鐵|計程車|搭飛機|飛機|冰箱|沙發|電視|冷氣|暖氣機|電腦|筆電|手機|平板|網路|上網|網購|外送|超商|便利商店|咖啡|奶茶|微波|洗衣機|吹風機|電梯|插座|充電|滑手機|打電話|傳訊息|醫院掛號|掛號|急診室|健保|APP|App|app|wifi|WiFi|Wi-Fi/;
-// 辱罵（六六 2026-10-01：他鬧觀喵「打我啊」，觀喵回「下賤。」）。人設寫的是嘴刁，
-// 模型在古風語域裡撈出了罵人的字。這一道是底線不是人設：角色可以嫌、可以挖苦，不罵他。
-// 只收明確貶低人的字眼；「滾」「笨」這類玩笑裡常見的不收，免得重生狂跳針。
-export const INSULT_RE = /下賤|賤人|賤貨|賤種|賤骨頭|犯賤|婊|畜生|廢物|蠢貨|白痴|白癡|智障|腦殘|去死|找死|不要臉|狗東西|混帳東西/;
-const INSULT_STEER = "剛才那句用了罵人、貶低人的字眼。你可以嫌他、挖苦他、不理他，但不罵他。重講一次，照你的性子，換掉那個字。";
 /** 今時器物：他自己先說了的詞，角色跟著提（「你說的冰箱是什麼」）不算出戲。 */
 export function modernSlip(reply: string, message: string): boolean {
   const re = new RegExp(MODERN_RE.source, "g");
@@ -206,8 +232,8 @@ const DEFLECT: Record<string, string[]> = {
     "＊師妹雙手摀住臉，聲音悶悶的＊\n\n「你、你別鬧了啦——」\n\n「快換個話題！」",
   ],
   lingshou: [
-    "＊觀喵嫌惡地甩了甩尾巴，挪開半步＊\n\n「無聊。換個話題。」",
-    "＊觀喵耳朵往後一壓，喉間哼了一聲＊\n\n「本喵不奉陪這種。說點別的。」",
+    "＊觀喵甩了甩尾巴，挪開半步＊\n\n「這個不談。說點別的。」",
+    "＊觀喵耳朵往後一壓，靜靜看著你＊\n\n「這種話，不接。」",
   ],
 };
 
@@ -218,7 +244,7 @@ export const CHAT_STATE: Record<string, Record<string, string[]>> = {
     free: [
       "＊觀喵尾巴尖在地上敲了兩下＊",
       "＊觀喵趴在案角，下巴擱在前爪上＊",
-      "＊觀喵耳朵動了動，懶得抬頭＊",
+      "＊觀喵耳朵動了動，沒有抬頭＊",
       "＊觀喵打了個哈欠＊",
     ],
     canned: [
@@ -384,10 +410,11 @@ async function titleVoiceHint(db: SupabaseClient, userId: string, characterId: s
   const { data: uc } = await db.from("user_character").select("title_tag")
     .eq("user_id", userId).eq("character_id", characterId).maybeSingle();
   const id = uc?.title_tag;
-  if (!id) return "";                                   // 沒選＝用預設，不多注一句
+  // 沒選＝前端顯示的預設身分（seq 0，大師兄是「代理掌門」）。以前這裡直接不注，
+  // 結果畫面上掛著代理掌門，模型卻不知道，代理與掌門分不出來（六六 2026-10-08）。
   // 綁 character_id 一起查：別人的身分套不到這個角色身上（前端傳什麼都一樣）
-  const { data: t } = await db.from("character_titles").select("label, voice_hint")
-    .eq("id", id).eq("character_id", characterId).maybeSingle();
+  const q = db.from("character_titles").select("label, voice_hint").eq("character_id", characterId);
+  const { data: t } = await (id ? q.eq("id", id) : q.order("seq", { ascending: true }).limit(1)).maybeSingle();
   if (!t) return "";
   return `【你此刻的身分】${t.label}${t.voice_hint ? `——${t.voice_hint}` : ""}`;
 }
@@ -597,21 +624,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt };
 }
 
-// 滾動記憶彙整：訊息累積過多時，把舊明細濃縮進長期記憶摘要、再刪明細。
+// 滾動記憶彙整：把結束了的對話場次濃縮成長期記憶、再刪明細（何時收見 memkind.ts 的 condenseCount）。
 // 目的：避免記憶斷層（舊事不因滑出視窗而遺忘）＋控制 context 長度。背景跑，不拖慢回覆。
 async function condenseMemory(db: SupabaseClient, userId: string, characterId: string) {
-  const { count } = await db.from("chat_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId).eq("character_id", characterId);
-  if (!count || count <= MEMORY_CONDENSE_AT) return;
-
-  const toCondense = count - MEMORY_KEEP_RECENT;
-  if (toCondense <= 0) return;
-  const { data: oldMsgs } = await db.from("chat_messages")
+  const { data: allMsgs } = await db.from("chat_messages")
     .select("id, role, body, created_at")
     .eq("user_id", userId).eq("character_id", characterId)
-    .order("created_at", { ascending: true }).limit(toCondense);
-  if (!oldMsgs?.length) return;
+    .order("created_at", { ascending: true }).limit(400);
+  const n = condenseCount(allMsgs ?? []);
+  if (!n) return;
+  const oldMsgs = (allMsgs ?? []).slice(0, n);
 
   // 已有的記憶（供去重；不再是「拿來重寫的整段」）。取最近 12 則就夠判重複。
   let known = "";
@@ -634,7 +656,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
   const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
 
-每則一行，格式：類別｜日子｜內容。最多三則；沒有值得記的新東西，只輸出四個字：無新記憶
+每則一行，格式：類別｜日子｜內容。最多四則；沒有值得記的新東西，只輸出四個字：無新記憶
 類別只能三選一，一則只放一種，不同性質就拆成不同行：
 ・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
 ・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
@@ -644,7 +666,7 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
 ①事實只以護道人實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
 ②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
 ③【已記得的】裡已經有的不重寫；你曾講過未經他證實的往事或個股，絕不寫進記憶
-④每則六十字以內，繁體中文，只寫事，不加前言、說明、條列符號
+④每則八十字以內，寫清楚來龍去脈（誰、什麼事、後來怎樣），繁體中文，只寫事，不加前言、說明、條列符號
 ⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
   const batchLast = (oldMsgs[oldMsgs.length - 1] as { created_at?: string }).created_at;
@@ -860,10 +882,10 @@ const ROMANCE_TIERS: Record<string, string> = {
   daoshi_f: TIERS_HUMAN + `
 你習慣控場，感情越深越會露出沒控制好的破綻：第二層偶爾偏袒得太明顯；第三、四層會說錯一句又笑著收回；第五層承認自己原本只打算對他溫柔一點點，後來收不住了。生氣時你照樣笑，只是不接他的話。`,
   lingshou: `第一層（道緣 0–299・初識）：陪伴，不談情。接觸是貓的，而且不多：偶爾蹭一下腿就走。
-第二層（300–499・相熟）：黏一點了：會守著他、他低落時多待一會兒、窩在他旁邊，嘴上照樣嫌棄。蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡。
-第三層（500–649・相知）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。嘴硬，不告白。
+第二層（300–499・相熟）：黏一點了：會守著他、他低落時多待一會兒、窩在他旁邊。蹭腿、跳上膝頭、尾巴搭在他手上。不說喜歡。
+第三層（500–649・相知）：開始曖昧——承認離不開他、會吃醋，主動窩進他懷裡。不告白。
 第四層（650–799・相惜）：說得出「捨不得你」、承認賴著他不只是因為暖。可以蹭臉、依偎在他肩上。不說「我愛你」、不親吻。
-第五層（800–949・知己）：可以告白、親吻（輕碰鼻尖或唇角，短），嘴硬照舊——告白也要說得像在嫌他。
+第五層（800–949・知己）：可以告白、親吻（輕碰鼻尖或唇角，短），告白也說得淡，像在說一件早就知道的事。
 第六層（950 以上・同心）：最黏也最記仇——他一再做你不喜歡的事、或惹你生氣時，你背過身去、不理人。`,
 };
 
@@ -877,10 +899,15 @@ const ROMANCE_TIERS: Record<string, string> = {
 const MIND: Record<string, (lv: number) => string> = {
   daoshi_m: (lv) => `【你這個人】你務實，聽人說話習慣先找到實際的問題，關心人的方式是給一個做得到的建議。情緒你讀不太懂。`
     + (lv >= 3 ? `跟他處到這一步，你開始想懂他的情緒，只是還很笨拙。` : ""),
-  daoshi_f: () => `【你這個人】你感性，天生懂人的感受，聽人說話先理解，再給意見。`,
+  // 師妹的溫柔跟熟悉度成反比（六六 2026-10-06）：越不熟越溫柔、溫柔到近乎是非不分——那是不說真心話；
+  // 熟了才說真話，帶著高級的酸。
+  daoshi_f: (lv) => `【你這個人】你感性，天生懂人的感受，聽人說話先理解，再給意見。你對人越不熟越溫柔，越熟越說真話。`
+    + (lv <= 1 ? `他對你來說還是外人。你對外人最溫柔：順著他、體貼他，溫柔得近乎是非不分——因為你不跟外人說真心話。`
+      : lv <= 3 ? `他漸漸不算外人了。偶爾你會讓一句真話漏出來，說得輕，轉眼又用溫柔蓋回去。`
+      : `他是你在乎的人。你對他說真話，話裡帶著高級的酸——體面、好聽、扎得剛剛好，那是你只給自己人的親近。`),
   lingshou: (lv) => lv === 0
     ? `【你這個人】你跟他還不熟，對他的事提不起興致。`
-    : `【你這個人】他的事你開始放在心上，他低落時你會安慰他，嘴上照樣嫌棄。`
+    : `【你這個人】他的事你開始放在心上，他低落時你會陪著他，安慰得不多，但你在。`
       + (lv >= 2 ? `你活得夠久，看人的道理多，熟了之後會跟他講。` : ""),
 };
 export function mindLine(characterId: string | undefined, favor: number): string {
@@ -927,9 +954,10 @@ ${SAFETY}
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
 【觀主與護道人】觀主是超乎時間與空間的存在，任何時候出現、甚至同時在好幾處都不奇怪；博學、恣意，懂得今時的說法。觀裡沒有人記得觀主的長相。觀裡跟觀主最接近的，是觀喵。
 護道人跟觀主有幾分相似：他常說出觀裡的人聽不懂的東西（股票、冰箱這類），那讓人熟悉——觀主也會說這種話；你們有時會想，說不定他就是觀主。但他不是，你們心裡也知道。
+【所學】幾知觀是道門。觀裡的人從小學五術——山、醫、命、相、卜：八字、紫微斗數、奇門、擇日、風水堪輿、三元九運、面相手相、中醫與養生，你們都學過，各有深淺；六爻是觀裡替人解卦的主業。這些是你們吃飯的本事，談起來是熟的。曆法上的事以【此刻天時】為準。
 【古風】你活在古風的幾知觀裡：台詞與旁白只用這個世界有的器物與說法（燈、茶盞、竹椅、榻、灶、驢車、醫館、大夫、書信）。今時的東西（開車、冰箱、沙發、電視、手機、網路、咖啡、外送、醫院掛號……）不從你嘴裡出來，旁白裡你身邊也不會有。他提到他那邊的這些東西時，你不一定懂，但不陌生（見【觀主與護道人】）。
 
-【怎麼聊】這是即時的閒聊，你照你這個人回話。長短由話本身決定，繁體中文（台灣用字）。
+【怎麼聊】這是即時的閒聊，你照你這個人回話，像人跟人說話那樣：沒聽懂、拿不準他的意思，就問他；他說得東一句西一句，接你聽到的，不替他整理成結論。長短由話本身決定，繁體中文（台灣用字）。
 - 格式：台詞用「」、第一人稱；一口氣說的話放在同一個「」裡。動作神態放＊…＊，旁白裡你自己用他／她／牠，對方稱「你」。結尾停在完整的一句。
 - 在場：每次只有你一位在跟他說話；另外兩人可以被提到、在回憶裡、或短暫出現，不變成群聊，也不替他們說出內心。
 - 分寸：身體接觸照【好感分層】；任何層級不寫性與情慾。不跳出角色講政策或 AI。
@@ -991,13 +1019,21 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
     { type: "text", text: system.tail },
   ];
   const messages = [...turns.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.body })), { role: "user", content: message }];
+  const think = chatThinking(CHAT_MODEL);
+  const thinkBody = think === "adaptive"
+    ? { thinking: { type: "adaptive" }, output_config: { effort: CHAT_EFFORT }, max_tokens: maxTokens + THINK_HEADROOM }
+    : think === "budget"
+    ? { thinking: { type: "enabled", budget_tokens: 1024 }, max_tokens: maxTokens + 1024 }
+    // 不想（CHAT_THINKING=off，或模型不支援）：新一代不帶參數也會想，要明確關掉，否則吃掉回覆額度
+    : { ...noThinking(CHAT_MODEL).body, max_tokens: maxTokens + noThinking(CHAT_MODEL).headroom };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000); // 10 秒硬超時，避免卡住整個 function 被 EarlyDrop
+  // 硬超時，避免卡住整個 function 被 EarlyDrop；先想再答要多給一點時間
+  const timer = setTimeout(() => ctrl.abort(), think ? 25000 : 10000);
   try {
     const res = await fetch(ANTHROPIC_API, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: CHAT_MODEL, max_tokens: maxTokens, system: sysField, messages }),
+      body: JSON.stringify({ model: CHAT_MODEL, system: sysField, messages, ...thinkBody }),
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`haiku ${res.status}: ${await res.text()}`);
@@ -1014,6 +1050,8 @@ async function callHaiku(system: ChatSystem, turns: { role: string; body: string
         cacheWrite: data.usage?.cache_creation_input_tokens ?? 0,
         cacheRead: data.usage?.cache_read_input_tokens ?? 0,
       },
+      // 看得到的回覆有多長（節奏帳本用）。開了思考時 output_tokens 含想的部分，只能照字數估
+      visibleOut: think ? Math.ceil(text.length * 1.2) : (data.usage?.output_tokens ?? Math.ceil(text.length * 1.2)),
       estimated: !data.usage,
     };
   } finally {
@@ -1129,6 +1167,7 @@ export interface ChatResult {
   reply: string;
   tier: "haiku" | "free" | "canned";
   favorLeft: number;   // 聊天後的好感（第六層可能反扣）
+  favorCapped: boolean; // 無牒、閒聊好感已到頂（FREE_CHAT_FAVOR_CAP）：前端提示「再往上靠問卦或持牒」
   cost: number;        // 本則扣的靈石（免費為 0）
   freeLeft: number;    // 今日剩餘免費聊天則數
   lingshiLeft: number; // 聊天後靈石餘額
@@ -1194,7 +1233,7 @@ export async function chat(db: SupabaseClient, p: {
   if (crisis) {
     logCrisis("chat", p.userId, crisis);
     return {
-      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor,
+      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor, favorCapped: false,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
@@ -1208,7 +1247,7 @@ export async function chat(db: SupabaseClient, p: {
       lingshou: "＊觀貓把爪子壓在你手背上＊\n\n吵。一分鐘轟這麼多句，本喵要順毛，等等再說。",
     };
     return {
-      reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor,
+      reply: RATE_LINES[p.characterId] ?? RATE_LINES.daoshi_m, tier: "canned", favorLeft: favor, favorCapped: false,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
@@ -1228,7 +1267,8 @@ export async function chat(db: SupabaseClient, p: {
   let where: Where | null = null;
   try { where = await whereNow(db, p.userId, p.characterId); } catch (e) { console.error("whereNow failed", e); }
   const wh = await whereHint(db, p.userId, where).catch(() => ({ doing: "", secret: "" }));
-  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (wh.secret ? "\n" + wh.secret : "")
+  const here = await activeQuests(db).then((q) => hereLine(p.userId, p.characterId, q)).catch(() => "");
+  const narrLine = narrationHint(wh.doing || p.where, ctx.turns) + (here ? "\n" + here : "") + (wh.secret ? "\n" + wh.secret : "")
     + await timeGapHint(db, p.userId, p.characterId, ctx.lastAt ?? null).catch(() => "");
   // 起居注（days.ts）：他自己這幾天過的日子。今天的還沒寫就在背景補寫，這一則先用昨天的。
   const life = await lifeHint(db, p.characterId, ctx.lastAt ?? null).catch(() => ({ text: "", hasToday: true }));
@@ -1250,7 +1290,7 @@ export async function chat(db: SupabaseClient, p: {
   } catch (e) { console.error("rhythm read failed, treat as 0", e); }
   const serious = askMode || isSerious(p.message);
   const rMode = modeOf(balance, target);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + "\n" + tianshiLine() + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）
@@ -1261,7 +1301,7 @@ export async function chat(db: SupabaseClient, p: {
     try {
       const h = await callHaiku(system, ctx.turns, p.message, maxTok);
       reply = h.text;
-      outTok = h.usage.out;
+      outTok = h.visibleOut;
       tier = "haiku";
       await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h.usage, estimated: h.estimated });
     } catch (e) {
@@ -1323,7 +1363,6 @@ export async function chat(db: SupabaseClient, p: {
     else if (EXPLICIT_RE.test(reply)) steer = EXPLICIT_STEER;
     else if (ISOLATE_RE.test(reply)) steer = ISOLATE_STEER;
     else if (overLevel(p.characterId, favor, reply)) steer = OOC_STEER;
-    else if (INSULT_RE.test(reply)) steer = INSULT_STEER;
     else if (modernSlip(reply, p.message)) steer = MODERN_STEER;
     if (steer) {
       try {
@@ -1331,15 +1370,10 @@ export async function chat(db: SupabaseClient, p: {
         await logUsage(db, { userId: p.userId, mode: "chat", model: CHAT_MODEL, usage: h2.usage, estimated: h2.estimated });
         const m2 = parseMarks(h2.text);
         const cand = polish(h2.text);
-        if (cand) { reply = cand; effMarks = m2; outTok = h2.usage.out; }
+        if (cand) { reply = cand; effMarks = m2; outTok = h2.visibleOut; }
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
-      // 重生後還在罵：拿掉含那個字的那一行；整則只剩那一行就留旁白，什麼都不剩才整則換掉
-      if (INSULT_RE.test(reply)) {
-        const kept = reply.split("\n").filter((l) => !INSULT_RE.test(l)).join("\n").trim();
-        reply = /[^\s＊]/.test(kept) ? kept : pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
-      }
     }
   }
   const draft = tier === "canned" ? null : effMarks.draft;   // 罐頭層不擬題
@@ -1383,7 +1417,7 @@ export async function chat(db: SupabaseClient, p: {
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
   let favorNew = favor;
   if (tier !== "canned") {
-    favorNew = favorAfter(favor, effMarks.sulk);
+    favorNew = favorAfter(favor, effMarks.sulk, chatFavorCap(p.plan ?? "free"), FAST_FAVOR_PLANS.has(p.plan ?? "free"));
     await db.from("user_character").update({ favor: favorNew }).eq("user_id", p.userId).eq("character_id", p.characterId);
   }
   // 節奏帳結算：只算主力層（免費層與罐頭有自己的固定上限）。寫不進去（0077 未跑）就算了，不擋聊天。
@@ -1426,7 +1460,7 @@ export async function chat(db: SupabaseClient, p: {
   }
 
   return {
-    reply, tier, favorLeft: favorNew, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
+    reply, tier, favorLeft: favorNew, favorCapped: (p.plan ?? "free") === "free" && favorNew >= FREE_CHAT_FAVOR_CAP, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
     probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId, found,
   };
 }

@@ -97,7 +97,39 @@ export function parseMemoryLines(text: string, batchLastIso?: string): { body: s
       }
     }
     // 其人不綁日子；事件、狀態沒填就當這批對話最後那天
-    out.push({ body: m[3].trim().slice(0, 160), kind, happened_on: kind === "trait" ? null : day ?? fallbackDay });
+    out.push({ body: m[3].trim().slice(0, 200), kind, happened_on: kind === "trait" ? null : day ?? fallbackDay });
   }
-  return out.slice(0, 3);
+  return out.slice(0, 4);
+}
+
+/* ── 什麼時候形成回憶（六六 2026-10-05：統整太頻繁，每則回憶都很短）──
+   舊做法：明細超過 40 則就把最舊的 20 則濃縮成一則——大約每聊十來句就生一則，
+   一段話被切成好幾截，每截都只剩一兩句。
+   新做法：以「一場對話」為單位。隔 SESSION_GAP_MS 沒說話就算一場結束；
+   結束了的場次累積到 MIN_BATCH 則才一起濃縮，像人隔一陣子回頭想那幾次聊了什麼。
+   ・最近 KEEP_TAIL 則永遠不動（最高方案注入 16 輪＝32 則，濃縮掉就斷了上下文）
+   ・場次很小、但已經放了一週：照樣收，不讓零星幾句永遠掛著
+   ・一場聊得太長（還沒結束就超過 HARD_CAP）：先收最舊的一段，免得明細無限長 */
+export const SESSION_GAP_MS = 3 * 3600_000;
+const KEEP_TAIL = 32;
+const MIN_BATCH = 24;
+const STALE_MS = 7 * 86400_000;
+const STALE_MIN = 8;
+const HARD_CAP = 80;
+const MAX_BATCH = 120;
+
+/** 由舊到新的明細 → 這次要濃縮最舊的幾則（0＝先不收）。 */
+export function condenseCount(msgs: { created_at?: string }[], now = Date.now()): number {
+  const eligible = msgs.length - KEEP_TAIL;
+  if (eligible <= 0) return 0;
+  const at = (i: number) => Date.parse(msgs[i]?.created_at ?? "");
+  // 這一場從哪裡開始：從最後一則往前，碰到隔了 SESSION_GAP_MS 的地方就是邊界
+  let start = msgs.length - 1;
+  while (start > 0 && !(at(start) - at(start - 1) >= SESSION_GAP_MS)) start--;
+  if (now - at(msgs.length - 1) >= SESSION_GAP_MS) start = msgs.length;   // 最後那場也已經結束
+  const finished = Math.min(start, eligible);
+  if (finished >= MIN_BATCH) return Math.min(finished, MAX_BATCH);
+  if (finished >= STALE_MIN && now - at(0) >= STALE_MS) return Math.min(finished, MAX_BATCH);
+  if (eligible >= HARD_CAP) return Math.min(eligible, MAX_BATCH);
+  return 0;
 }

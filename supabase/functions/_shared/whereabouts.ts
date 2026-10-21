@@ -18,6 +18,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 export const PLACES: Record<string, string> = {
   guanmen: "觀門", qianting: "前廳", dadian: "大殿", zhongting: "中庭", langxia: "廊下",
   xiangfang: "廂房", zaofang: "灶房", houyuan: "後院", wuji: "屋脊", cangjingge: "藏經閣",
+  kezhan: "山下客棧",   // 廣場的底圖（六六 2026-10-20：師兄他們偶爾出門晃過去）——權重都只給 1，偶爾才撞見
 };
 
 /** 時段：n 深夜 0–5／d 清晨 5–9／m 上午 9–12／z 午間 12–14／a 午後 14–18／e 傍晚 18–22／l 夜 22–24 */
@@ -42,6 +43,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下喝茶",     bands: "za", w: 4 },
     { place: "zhongting",  doing: "在中庭看天色",   bands: "de", w: 2 },
     { place: "guanmen",    doing: "在觀門送客",     bands: "ma", w: 1 },
+    { place: "kezhan",     doing: "下山到客棧打聽消息", bands: "ae", w: 1 },
     { place: "xiangfang",  doing: "在廂房擦劍",     bands: "el", w: 2 },
     { place: "xiangfang",  doing: "還沒睡",         bands: "nl", w: 5 },
   ],
@@ -55,6 +57,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下縫補",     bands: "a",  w: 2 },
     { place: "dadian",     doing: "在大殿上香",     bands: "de", w: 3 },
     { place: "guanmen",    doing: "在觀門收信",     bands: "m",  w: 2 },
+    { place: "kezhan",     doing: "下山到客棧採買", bands: "ma", w: 1 },
     { place: "cangjingge", doing: "在藏經閣整理帳冊", bands: "a", w: 1 },
     { place: "xiangfang",  doing: "在燈下抄經",     bands: "nl", w: 5 },
   ],
@@ -68,6 +71,7 @@ export const ROUTINE: Record<string, Act[]> = {
     { place: "langxia",    doing: "在廊下舔爪",     bands: "zae", w: 3 },
     { place: "zaofang",    doing: "在灶房門口蹲著", bands: "ze", w: 3 },
     { place: "qianting",   doing: "在前廳帳簿上趴著", bands: "ma", w: 2 },
+    { place: "kezhan",     doing: "溜去客棧討魚吃", bands: "ze", w: 1 },
     { place: "xiangfang",  doing: "在廂房窩著",     bands: "nl", w: 2 },
   ],
 };
@@ -183,4 +187,19 @@ export async function sinceDoings(db: SupabaseClient, uid: string, charId: strin
     out.push(w.doing);
   }
   return out;
+}
+
+const NAMES: Record<string, string> = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀喵" };
+
+/** 談心用：此刻觀裡三人各在哪（六六 2026-10-02：觀堂上明明看到觀喵和師妹都在廂房，
+ *  問觀喵「你在陪師妹抄經嗎」，牠說師妹在雜房、小子在藏經閣——角色只知道自己在哪，
+ *  另外兩人的位置是編的）。跟觀堂同一個抽法、同一個種子，所以他看到的就是角色知道的。 */
+export function hereLine(uid: string, charId: string, quests: Quest[], now = Date.now()): string {
+  const all = Object.keys(ROUTINE).map((id) => ({ id, w: pickWhere(uid, id, quests, now) }))
+    .filter((x): x is { id: string; w: Where } => !!x.w);
+  if (!all.length) return "";
+  const me = all.find((x) => x.id === charId);
+  const parts = all.map((x) => `${x.id === charId ? "你" : NAMES[x.id]}在${x.w.placeName}（${x.w.doing}）`);
+  const together = me ? all.filter((x) => x.id !== charId && x.w.place === me.w.place).map((x) => NAMES[x.id]) : [];
+  return `【此刻觀裡】${parts.join("；")}。${together.length ? `你和${together.join("、")}在同一處。` : ""}他在觀堂看得到你們三個各在哪。`;
 }
