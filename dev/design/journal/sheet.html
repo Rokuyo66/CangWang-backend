@@ -146,16 +146,53 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .status{display:flex;gap:6px;flex-wrap:wrap}
 .status button{border:1px solid var(--edge);background:none;border-radius:12px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--ink-soft)}
 .status button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+/* 兩種稿紙：角色事件（主線章節）｜江湖事件（你是主角、可重玩的短局） */
+.modes{display:flex;gap:4px;padding:3px;border-radius:999px;background:var(--paper-2);border:1px solid var(--edge)}
+.modes button{border:0;background:none;border-radius:999px;padding:4px 14px;cursor:pointer;color:var(--ink-soft);font-family:var(--f-display);letter-spacing:.08em}
+.modes button.on{background:var(--ink);color:var(--paper)}
+/* 江湖：事件卡、結局卡、數值 */
+.evs{display:flex;flex-direction:column;gap:10px}
+.ev,.en{border:1px solid var(--edge);border-radius:6px;background:var(--paper-2);padding:10px 12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.evhead{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.evhead b{font-family:var(--f-mono);color:var(--ink-faint);font-size:12px}
+.evhead .meta{font-size:12px;color:var(--ink-faint);white-space:nowrap}
+.rowops{display:flex;gap:2px}
+.rowops button{background:none;border:0;cursor:pointer;color:var(--ink-faint);padding:2px 4px}
+.rowops button:hover{color:var(--cinnabar)}
+.gua{display:flex;flex-wrap:wrap;gap:6px}
+.gua label{display:flex;gap:4px;align-items:center;border:1px solid var(--edge);border-radius:12px;padding:1px 9px;font-size:13px;cursor:pointer;background:var(--paper)}
+.gua label:has(input:checked){border-color:var(--gold);color:var(--gold)}
+.gua input{margin:0}
+.need{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:13px}
+.need span{display:flex;gap:4px;align-items:center}
+.need input{width:58px;padding:3px 6px}
+.er{display:grid;grid-template-columns:110px 120px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--hair)}
+.er textarea{font-family:var(--f-display);font-size:15px;min-height:54px}
+.er.narr textarea{text-align:center;color:var(--ink-soft)}
+.er .chs{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;border-left:2px solid var(--gold);padding:2px 0 2px 10px}
+.ec{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto 150px 26px;gap:6px;align-items:center}
+.ec input,.ec select{padding:3px 6px;font-size:13px}
+.fx{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--ink-faint)}
+.fx input{width:44px}
+@media (max-width:900px){.er{grid-template-columns:1fr 1fr}.er textarea,.er .rowops{grid-column:1/-1}.ec{grid-template-columns:1fr 1fr}.ec .lbl{grid-column:1/-1}}
+.stats{display:flex;gap:8px;flex-wrap:wrap}
+.stats span{border:1px solid var(--edge);border-radius:12px;padding:1px 10px;font-size:13px;background:var(--paper);font-variant-numeric:tabular-nums}
+.simlog{display:flex;flex-direction:column;gap:12px}
+.evmark{font-size:12px;color:var(--gold);letter-spacing:.15em;border-top:1px solid var(--hair);padding-top:8px}
+.fxnote{font-family:var(--f-mono);font-size:11px;color:var(--ink-faint)}
+.endcard{border:1px solid var(--gold);border-radius:6px;padding:12px;background:var(--paper)}
+.endcard h3{font-size:17px;margin-bottom:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
 <header class="top">
   <h1>道緣劇本稿紙</h1>
-  <span class="sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</span>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button></div>
+  <span class="sub" id="mode-sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</span>
   <span class="save" id="save">連線中…</span>
 </header>
 <div class="banner" id="banner" hidden></div>
-<div class="wrap">
+<div class="wrap" id="m-char">
   <aside class="rail">
     <section class="sec">
       <h3>目錄</h3>
@@ -178,7 +215,8 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
         <li>場景跟上一幕不同＝換場：黑場、打地名、立繪先收起。</li>
         <li>分支各自寫到結尾，每條最後一幕勾「到此結束」。</li>
         <li>兩種 voice_hint 只寫立場、稱謂、在意的事，<b>不寫親密程度</b>。換身分、換稱呼不會讓他變熱絡。</li>
-        <li>獎勵每一項都可以留空：靈石、頭像、外觀、兩個稱號、他會記住的話，這章給什麼就填什麼。</li>
+        <li>角色事件是<b>他的故事</b>：向玩家立起他是什麼樣的人。主要的獎勵是他的身分（稱號）與衣裝，依道緣、修為開放。</li>
+        <li>獎勵每一項都可以留空：靈石、頭像、他的衣裝、外觀、兩個稱號、他會記住的話，這章給什麼就填什麼。</li>
         <li>記憶是他之後聊天會引用的一句，寫成他記得的那件事。不寫也可以。</li>
         <li>道緣門檻：初識 0・相熟 300・相知 500・知己 800。修為門檻選境界，跟道緣兩個都要到才開。</li>
         <li>要跳到別的幕（分支）時，在「演完往哪」或選項的「跳到」選第幾幕就好，不用另外取名。</li>
@@ -186,6 +224,35 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
     </section>
   </aside>
   <main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main>
+</div>
+<div class="wrap" id="m-jh" hidden>
+  <aside class="rail">
+    <section class="sec">
+      <h3>江湖・目錄</h3>
+      <div class="chlist" id="jh-list"></div>
+    </section>
+    <section class="sec">
+      <h3>新開一程</h3>
+      <div class="newch">
+        <input id="jn-title" type="text" placeholder="例：下山採藥" aria-label="這一程的名字" style="grid-column:1/-1">
+        <button class="btn" id="jn-go">開這一程</button>
+      </div>
+    </section>
+    <section class="sec">
+      <h3>寫的時候記得</h3>
+      <ul class="rules">
+        <li>江湖事件是<b>你的故事</b>：你是主角，收集的是你自己的稱號。可以一玩再玩，每次走法不同。</li>
+        <li>一程＝一個出門的理由（下山採藥、替人送信…）。一局從這一程的事件池抽幾件串起來。</li>
+        <li>三位可以登場，但<b>會改變你和他們關係的事只寫在角色事件</b>：江湖裡他們的言行不能跟主線打架。</li>
+        <li>選項可以讓三項隱藏數值加減（預設「心・緣・劫」，名字可改）。玩家看不到數字，數字決定結局。</li>
+        <li>事件可以綁卦象：這一局起的本卦，上卦或下卦符合才抽得到。不勾＝什麼卦都可能。</li>
+        <li>「最早／最晚第幾件」控制它出現在一局的哪一段：開頭的事、收尾的事分開寫。</li>
+        <li>結局由上往下比，第一個符合的就是它；<b>最後一個留空條件當保底</b>。一個結局發一個你的稱號。</li>
+        <li>一件事 1～4 幕就好，短才耐玩。寫完按「試走一局」親自走幾次。</li>
+      </ul>
+    </section>
+  </aside>
+  <main class="main" id="jh-main"><div class="empty">從左邊選一程，或新開一程。</div></main>
 </div>
 
 <script>
@@ -208,7 +275,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<"
 function blank(cid, no) {
   return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
     require_favor: (TIERS[no - 1] || TIERS[3])[0], require_event: no > 1 ? `${cid}_c${no - 1}` : "",
-    require_cultivation: 0, reward_lingshi: 0, reward_avatar: "", reward_theme: "", reward_other: "", reward_memory: "",
+    require_cultivation: 0, reward_lingshi: 0, reward_avatar: "", reward_outfit: "", reward_theme: "", reward_other: "", reward_memory: "",
     char_title: { label: "", voice_hint: "", desc: "" },
     player_title: { id: "", label: "", call_as: "", voice_hint: "" },
     status: "draft", note: "", scenes: [{ bg: "guanmen", text: "" }], updated_at: "" };
@@ -308,6 +375,7 @@ function paintMain() {
       <label class="field"><span>靈石</span><input type="number" id="f-ls" min="0" data-k="reward_lingshi" data-num value="${+c.reward_lingshi || 0}"></label>
       <label class="field"><span>頭像 <em>（r01～r13；新頭像要先做圖）</em></span><input type="text" id="f-av" data-k="reward_avatar" value="${esc(c.reward_avatar)}" placeholder="不發就留空"></label>
       <label class="field"><span>外觀</span><select id="f-theme" data-k="reward_theme">${sel(THEMES, c.reward_theme || "")}</select></label>
+      <label class="field"><span>他的衣裝 <em>（他的立繪／頭像換裝，寫名字或 key；美術要先做）</em></span><input type="text" id="f-outfit" data-k="reward_outfit" value="${esc(c.reward_outfit)}" placeholder="不發就留空"></label>
       <label class="field"><span>其他外觀 <em>（頭像框之類，寫給 Claude 看）</em></span><input type="text" id="f-other" data-k="reward_other" value="${esc(c.reward_other)}" placeholder="不發就留空"></label>
       <label class="field wide"><span>他會記住的一句話 <em>（可不寫；寫了會進他的記憶，聊天時會引用）</em></span><input type="text" id="f-mem" data-k="reward_memory" value="${esc(c.reward_memory)}" placeholder="不寫就留空"></label>
     </div>
@@ -319,7 +387,7 @@ function paintMain() {
         <label class="field"><span>聲口 voice_hint <em>（立場、稱謂、在意的事）</em></span><textarea id="t-c-voice" rows="2" data-t="char_title.voice_hint">${esc(c.char_title.voice_hint)}</textarea></label>
       </div>
       <div class="tcard">
-        <h3>你的新稱號<small>他眼中的你・不發就留空</small></h3>
+        <h3>你的新稱號<small>他眼中的你・通常留空：你自己的稱號主要從江湖事件拿</small></h3>
         <label class="field"><span>顯示的字 <em>（廣場、道籍上那個）</em></span><input type="text" id="t-p-label" data-t="player_title.label" value="${esc(c.player_title.label)}" placeholder="例：執卷人"></label>
         <label class="field"><span>他怎麼叫你 call_as <em>（空白＝照舊叫暱稱）</em></span><input type="text" id="t-p-call" data-t="player_title.call_as" value="${esc(c.player_title.call_as)}"></label>
         <label class="field"><span>聲口 voice_hint</span><textarea id="t-p-voice" rows="2" data-t="player_title.voice_hint">${esc(c.player_title.voice_hint)}</textarea></label>
@@ -517,6 +585,7 @@ function checks(c) {
   if (!c.player_title.label.trim() && (c.player_title.voice_hint.trim() || c.player_title.call_as.trim())) E("你的新稱號寫了稱呼或聲口，但沒有「顯示的字」。");
   if (c.reward_theme) W(`外觀「${THEMES[c.reward_theme]}」：後端還沒有「事件送配色」，定稿時 Claude 要先接上才發得出去。`);
   if ((c.reward_other || "").trim()) W("其他外觀：要先做美術、後端再接，定稿時跟 Claude 對一下。");
+  if ((c.reward_outfit || "").trim()) W("他的衣裝：立繪／頭像要先做好，後端「事件送衣裝」定稿時 Claude 再接。");
   for (const [k, v] of [["他的新身分", c.char_title.voice_hint], ["你的新稱號", c.player_title.voice_hint]])
     if (INTIMATE.test(v || "")) E(`${k}的 voice_hint 寫到了親密程度（「${(v.match(INTIMATE) || [""])[0]}」）。只寫立場、稱謂、在意的事。`);
   if (c.reward_avatar && !/^r\d\d$/.test(c.reward_avatar)) W("頭像 key 的格式是 r01～r13；新的頭像要前端先有。");
@@ -545,8 +614,8 @@ function rowText(c) {
     ["require_cultivation", c.require_cultivation || 0], ["require_event", c.require_event],
     ["reward_lingshi", c.reward_lingshi], ["reward_avatar", c.reward_avatar], ["reward_title", c.char_title.label],
     ["reward_memory", c.reward_memory], ["reward_player_title", ptId],
-    ["rewards", c.reward_theme || (c.reward_other || "").trim()
-      ? JSON.stringify(Object.assign({}, c.reward_theme ? { theme: c.reward_theme } : {}, (c.reward_other || "").trim() ? { other: c.reward_other.trim() } : {}))
+    ["rewards", c.reward_theme || (c.reward_other || "").trim() || (c.reward_outfit || "").trim()
+      ? JSON.stringify(Object.assign({}, c.reward_theme ? { theme: c.reward_theme } : {}, (c.reward_outfit || "").trim() ? { outfit: c.reward_outfit.trim() } : {}, (c.reward_other || "").trim() ? { other: c.reward_other.trim() } : {}))
       : ""],
     ["choices", "（清空：選項已寫在幕裡）"],
   ].map(([k, v]) => `${k.padEnd(20)} ${v ?? ""}`).join("\n");
@@ -567,6 +636,8 @@ document.addEventListener("click", async (e) => {
 });
 
 /* ── 開場 ── */
+/* 江湖那一段在下一個 <script>：頁面還在載入就等它載完再叫 */
+const whenReady = (f) => document.readyState === "loading" ? addEventListener("DOMContentLoaded", f) : f();
 function apply(list) {
   for (const d of list) if (!dirty.has(d.id)) chapters[d.id] = d;
   paintRail();
@@ -579,11 +650,427 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
+    whenReady(() => jhInit());
     return;
   }
+  whenReady(() => jhInit());
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
   }, () => setSave("雲端存檔斷線，重新整理頁面", true));
 })();
+</script>
+<script>
+/* ══ 江湖事件 ══
+   你是主角的短局：一程有一個事件池，一局照「本卦、第幾件、隱藏數值」從池裡抽幾件串起來，
+   選項加減數值，最後由結局表決定你拿到哪個稱號。格式說明：後端 dev/design/journal/JIANGHU-SCRIPT.md。
+   存在同一個雲端存檔的 jianghu 這一欄（角色事件是 chapters）。 */
+const TRI = { qian:"乾 ☰", dui:"兌 ☱", li:"離 ☲", zhen:"震 ☳", xun:"巽 ☴", kan:"坎 ☵", gen:"艮 ☶", kun:"坤 ☷" };
+const SK = ["s1", "s2", "s3"];
+let jh = {}, jcur = null, jview = "write", jopen = {}, sim = null;
+const jdirty = new Set(), jtimers = {}, jrev = {};
+const JLS = "script-sheet-jianghu";
+
+function jblank(id, title) {
+  return { id, title, summary: "", status: "draft", note: "", require_cultivation: 0, length: 6,
+    stats: [{ k: "s1", name: "心" }, { k: "s2", name: "緣" }, { k: "s3", name: "劫" }],
+    opening: { bg: "guanmen", text: "" }, events: [],
+    endings: [{ id: newId(), title: "平平而歸", need: {}, rare: false, text: "", player_title: { label: "", desc: "", call_as: "" } }],
+    updated_at: "" };
+}
+const jevent = () => ({ id: newId(), title: "", weight: 1, once: true, step: [1, 99], gua: [], need: {}, scenes: [{ text: "" }] });
+const sname = (j, k) => (j.stats.find((x) => x.k === k) || {}).name || k;
+
+/* ── 存檔：跟章節同一套，只是放在 jianghu ── */
+function jtouch(id) {
+  const j = jh[id]; if (!j) return;
+  j.updated_at = new Date().toISOString();
+  jrev[id] = (jrev[id] || 0) + 1; jdirty.add(id); setSave("有未存的修改…");
+  clearTimeout(jtimers[id]); jtimers[id] = setTimeout(() => jflush(id), 900);
+  if (id === jcur) { jChecks(); jOut(); }
+}
+async function jflush(id) {
+  const j = jh[id]; if (!j) return;
+  if (!db) { try { localStorage.setItem(JLS, JSON.stringify(jh)); } catch (e) {} jdirty.delete(id); setSave("已存在這台瀏覽器"); return; }
+  try {
+    setSave("存檔中…"); const r = jrev[id];
+    await db.collection("jianghu").doc(id).set(JSON.parse(JSON.stringify(j)));
+    if (jrev[id] !== r) return;
+    jdirty.delete(id);
+    setSave("已存檔 " + new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }));
+  } catch (e) {
+    setSave(e && e.code === "invalid_argument" ? "你沒有寫入權限：這裡只能看" : "存檔失敗，稍後會再試", true);
+    if (e && e.code !== "invalid_argument") jtimers[id] = setTimeout(() => jflush(id), 5000);
+  }
+}
+
+/* ── 分頁切換 ── */
+$("modes").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-mode]"); if (!b) return;
+  const jhOn = b.dataset.mode === "jh";
+  $("modes").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("m-char").hidden = jhOn; $("m-jh").hidden = !jhOn;
+  $("mode-sub").textContent = jhOn ? "一程一張。你是主角；事件池＋結局表，可以先在這裡試走。"
+    : "一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。";
+  try { localStorage.setItem("script-sheet-mode", b.dataset.mode); } catch (err) {}
+});
+
+/* ── 目錄 ── */
+function jRail() {
+  const list = Object.values(jh).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  $("jh-list").innerHTML = list.length ? list.map((j) => `
+    <button class="ch${j.id === jcur ? " on" : ""}" data-jopen="${esc(j.id)}">
+      <b>${esc(j.title || "（未命名）")}</b><span class="pill ${esc(j.status)}">${STATUS[j.status] || j.status}</span>
+      <small>${esc(j.id)}・事件 ${(j.events || []).length}・結局 ${(j.endings || []).length}</small>
+    </button>`).join("") : `<div class="empty" style="padding:8px 0">還沒有任何一程。</div>`;
+}
+$("jh-list").addEventListener("click", (e) => { const b = e.target.closest("[data-jopen]"); if (b) { jcur = b.dataset.jopen; jview = "write"; sim = null; jRail(); jMain(); } });
+$("jn-go").addEventListener("click", () => {
+  const t = $("jn-title").value.trim() || "未命名的一程";
+  const id = "jh_" + Math.random().toString(36).slice(2, 7);
+  jh[id] = jblank(id, t); $("jn-title").value = "";
+  jcur = id; jview = "write"; jtouch(id); jRail(); jMain();
+});
+
+/* ── 一程 ── */
+const whoOpts = () => ({ narr: "旁白", me: "你", ...CHARS, other: "其他人" });
+const pOpts = () => ({ keep: "沿用上一幕", none: "收起", ...CHARS });
+function needHtml(j, need, attr) {
+  return `<div class="need">${j.stats.map((st) => { const v = need[st.k] || []; return `<span>${esc(st.name)}
+    ≥ <input type="number" ${attr} data-nk="${st.k}" data-nb="0" value="${v[0] ?? ""}" placeholder="不限" aria-label="${esc(st.name)} 下限">
+    ≤ <input type="number" ${attr} data-nk="${st.k}" data-nb="1" value="${v[1] ?? ""}" placeholder="不限" aria-label="${esc(st.name)} 上限"></span>`; }).join("")}</div>`;
+}
+function jMain() {
+  const j = jh[jcur]; if (!j) { $("jh-main").innerHTML = `<div class="empty">從左邊選一程，或新開一程。</div>`; return; }
+  $("jh-main").innerHTML = `
+  <section class="sec">
+    <h2>${esc(j.title || "（未命名）")} <small>${esc(j.id)}</small></h2>
+    <div class="status" id="jh-status">${Object.entries(STATUS).map(([k, v]) => `<button data-jst="${k}" class="${j.status === k ? "on" : ""}">${v}</button>`).join("")}</div>
+    <div class="grid">
+      <label class="field"><span>這一程的名字</span><input type="text" data-jk="title" value="${esc(j.title)}"></label>
+      <label class="field wide"><span>一句摘要 <em>（選這一程時看到的那一行）</em></span><input type="text" data-jk="summary" value="${esc(j.summary)}" placeholder="例：觀裡的藥櫃空了一格，你自告奮勇下山。"></label>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>一局的規則</h2>
+    <div class="grid">
+      <label class="field"><span>一局抽幾件事</span><input type="number" min="1" max="20" data-jk="length" data-jnum value="${+j.length || 6}"></label>
+      <label class="field"><span>修為門檻 <em>（境界）</em></span><select data-jk="require_cultivation" data-jnum>${REALMS.map(([v, n]) => `<option value="${v}"${+(j.require_cultivation || 0) === v ? " selected" : ""}>${n}${v ? "（修為 " + v + "）" : ""}</option>`).join("")}</select></label>
+      ${j.stats.map((st, i) => `<label class="field"><span>隱藏數值 ${i + 1}</span><input type="text" data-stat="${i}" value="${esc(st.name)}" maxlength="4"></label>`).join("")}
+    </div>
+  </section>
+  <section class="sec">
+    <h2>開場 <small>每一局第一句，旁白</small></h2>
+    <div class="grid">
+      <label class="field"><span>場景</span><select data-op="bg">${sel({ "": "（無）", ...BGS }, j.opening.bg || "")}</select></label>
+      <label class="field wide"><span>開場旁白</span><textarea rows="2" data-op="text" placeholder="例：卯時，你揹著藥簍出了觀門。">${esc(j.opening.text)}</textarea></label>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="tabs"><button class="tab${jview === "write" ? " on" : ""}" data-jview="write">事件池與結局</button><button class="tab${jview === "sim" ? " on" : ""}" data-jview="sim">試走一局</button></div>
+    <div id="jh-body"></div>
+  </section>
+  <section class="sec"><h2>給 Claude 的備註</h2><textarea rows="2" data-jk="note" placeholder="美術需求、還沒想好的地方">${esc(j.note)}</textarea></section>
+  <section class="sec"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
+  <section class="sec"><h2>輸出 <small>格式草案：後端還沒接（JIANGHU-SCRIPT.md），定稿時 Claude 從這裡讀走</small></h2><div id="jh-out"></div></section>`;
+  jBody(); jChecks(); jOut();
+}
+function jBody() { if (jview === "sim") simPaint(); else jWrite(); }
+
+function jWrite() {
+  const j = jh[jcur];
+  const evHtml = j.events.map((ev, i) => {
+    const open = !!jopen[ev.id];
+    const meta = `權重 ${ev.weight}・第 ${ev.step[0]}～${ev.step[1] >= 99 ? "末" : ev.step[1]} 件${ev.gua.length ? "・" + ev.gua.map((g) => TRI[g].slice(0, 1)).join("") : ""}${ev.once ? "" : "・可重複"}`;
+    return `<div class="ev" data-e="${i}">
+      <div class="evhead"><b>#${i + 1}</b><input type="text" data-ef="title" value="${esc(ev.title)}" placeholder="這件事的名字（例：山路遇雨）" aria-label="事件名">
+        <span class="meta">${meta}</span>
+        <span class="rowops"><button data-ja="evToggle" title="${open ? "收起" : "展開"}">${open ? "▴" : "▾"}</button><button data-ja="evUp" title="上移">▲</button><button data-ja="evDown" title="下移">▼</button><button data-ja="evDel" title="刪掉這件事">✕</button></span></div>
+      ${open ? `
+      <div class="grid">
+        <label class="field"><span>權重 <em>（越大越常抽到）</em></span><input type="number" min="1" data-ef="weight" value="${ev.weight}"></label>
+        <label class="field"><span>最早第幾件</span><input type="number" min="1" data-ef="smin" value="${ev.step[0]}"></label>
+        <label class="field"><span>最晚第幾件 <em>（99＝不限）</em></span><input type="number" min="1" data-ef="smax" value="${ev.step[1]}"></label>
+        <label class="field"><span>一局只出一次</span><select data-ef="once"><option value="1"${ev.once ? " selected" : ""}>是</option><option value="0"${ev.once ? "" : " selected"}>可以重複</option></select></label>
+      </div>
+      <div class="field"><span>卦象 <em>（本卦上卦或下卦符合才抽得到；都不勾＝不限）</em></span>
+        <div class="gua">${Object.entries(TRI).map(([k, n]) => `<label><input type="checkbox" data-gua="${k}"${ev.gua.includes(k) ? " checked" : ""}>${n}</label>`).join("")}</div></div>
+      <div class="field"><span>數值條件 <em>（到這件事之前累積的值；留空＝不限）</em></span>${needHtml(j, ev.need, 'data-eneed')}</div>
+      <div>${ev.scenes.map((s, k) => sceneRow(j, ev, s, k)).join("")}</div>
+      <div class="addrow"><button class="btn sm" data-ja="scAdd" data-kind="narr">＋旁白</button><button class="btn sm" data-ja="scAdd" data-kind="say">＋有人說話</button><button class="btn sm" data-ja="scAdd" data-kind="me">＋你說的話</button></div>` : ""}
+    </div>`;
+  }).join("");
+  const enHtml = j.endings.map((en, i) => `<div class="en" data-n="${i}">
+      <div class="evhead"><b>${i + 1}</b><input type="text" data-nf="title" value="${esc(en.title)}" placeholder="結局名（例：藥簍裝滿）" aria-label="結局名">
+        <label class="meta"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有</label>
+        <span class="rowops"><button data-ja="enUp" title="上移">▲</button><button data-ja="enDown" title="下移">▼</button><button data-ja="enDel" title="刪掉">✕</button></span></div>
+      <div class="field"><span>條件 <em>${i === j.endings.length - 1 ? "（最後一個：請全部留空，當保底）" : "（全部符合才算；留空＝不限）"}</em></span>${needHtml(j, en.need, 'data-nneed')}</div>
+      <label class="field"><span>結語 <em>（這一局收尾的一段）</em></span><textarea rows="2" data-nf="text">${esc(en.text)}</textarea></label>
+      <div class="grid">
+        <label class="field"><span>你拿到的稱號</span><input type="text" data-pt="label" value="${esc(en.player_title.label)}" placeholder="例：採藥人"></label>
+        <label class="field"><span>他們怎麼叫你 call_as <em>（可空）</em></span><input type="text" data-pt="call_as" value="${esc(en.player_title.call_as)}"></label>
+        <label class="field wide"><span>稱號說明 <em>（圖鑑上那一句）</em></span><input type="text" data-pt="desc" value="${esc(en.player_title.desc)}"></label>
+      </div>
+    </div>`).join("");
+  $("jh-body").innerHTML = `
+    <h3 style="font-size:15px;margin:6px 0">事件池 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">${j.events.length} 件</small></h3>
+    <div class="evs">${evHtml || `<div class="empty" style="padding:8px 0">還沒有事件。</div>`}</div>
+    <div class="addrow"><button class="btn" data-ja="evAdd">＋一件事</button></div>
+    <h3 style="font-size:15px;margin:18px 0 6px">結局表 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">由上往下比，第一個符合的就是它</small></h3>
+    <div class="evs">${enHtml}</div>
+    <div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>`;
+}
+function sceneRow(j, ev, s, k) {
+  const w = whoOf(s), ss = ev.scenes;
+  const toOpts = (cur) => `<option value="">下一幕</option><option value="end"${cur === "end" ? " selected" : ""}>這件事結束</option>` +
+    ss.map((x, m) => m === k ? "" : `<option value="${m}"${x.id && x.id === cur ? " selected" : ""}>第 ${m + 1} 幕</option>`).join("");
+  return `<div class="er ${w === "narr" ? "narr" : ""}" data-s="${k}">
+    <select data-sf="who" aria-label="誰說">${sel(whoOpts(), w)}</select>
+    <select data-sf="portrait" aria-label="立繪">${sel(pOpts(), portraitOf(s))}</select>
+    <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白，一句帶過" : "「台詞」"}">${esc(s.text)}</textarea>
+      ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}
+      <div><button class="btn sm" data-ja="chAdd">＋選項</button> <label class="ck" style="display:inline-flex;gap:4px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" data-sf="end"${s.end ? " checked" : ""}> 演完這幕就結束這件事</label></div></div>
+    <span class="rowops"><button data-ja="scUp" title="上移">▲</button><button data-ja="scDown" title="下移">▼</button><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
+    ${(s.choices || []).length ? `<div class="chs">${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
+      <input class="lbl" type="text" data-cf="label" value="${esc(ch.label)}" placeholder="選項的字" aria-label="選項的字">
+      <input type="text" data-cf="hint" value="${esc(ch.hint)}" placeholder="小字提示（可空）" aria-label="提示">
+      <span class="fx">${j.stats.map((st) => `${esc(st.name)}<input type="number" data-fx="${st.k}" value="${(ch.fx || {})[st.k] ?? ""}" placeholder="0" aria-label="${esc(st.name)} 加減">`).join("")}</span>
+      <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select>
+      <span class="rowops"><button data-ja="chDel" title="刪掉這個選項">✕</button></span></div>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+/* ── 編輯 ── */
+const numOrNull = (v) => v === "" || v == null || isNaN(+v) ? null : +v;
+function setNeed(obj, k, b, v) {
+  const cur = obj[k] || [null, null]; cur[+b] = numOrNull(v);
+  if (cur[0] == null && cur[1] == null) delete obj[k]; else obj[k] = cur;
+}
+function where(t) {
+  const j = jh[jcur]; const evEl = t.closest(".ev"), enEl = t.closest(".en");
+  const ev = evEl ? j.events[+evEl.dataset.e] : null;
+  const sEl = t.closest(".er"), s = ev && sEl ? ev.scenes[+sEl.dataset.s] : null;
+  const cEl = t.closest(".ec"), ch = s && cEl ? s.choices[+cEl.dataset.c] : null;
+  return { j, ev, s, ch, en: enEl ? j.endings[+enEl.dataset.n] : null, ei: evEl ? +evEl.dataset.e : -1, si: sEl ? +sEl.dataset.s : -1, ni: enEl ? +enEl.dataset.n : -1, ci: cEl ? +cEl.dataset.c : -1 };
+}
+function onEdit(e, structural) {
+  if (!jh[jcur]) return;
+  const t = e.target, w = where(t), j = w.j;
+  if (t.dataset.jk) { j[t.dataset.jk] = t.hasAttribute("data-jnum") ? (+t.value || 0) : t.value; jtouch(jcur); if (t.dataset.jk === "title") jRail(); return; }
+  if (t.dataset.stat != null) { j.stats[+t.dataset.stat].name = t.value.trim() || SK[+t.dataset.stat]; jtouch(jcur); return; }
+  if (t.dataset.op) { j.opening[t.dataset.op] = t.value; jtouch(jcur); return; }
+  if (w.ch) {
+    if (t.dataset.cf === "to") { if (!structural) return; if (t.value === "end") w.ch.to = "end"; else if (t.value === "") delete w.ch.to; else { const x = w.ev.scenes[+t.value]; if (!x.id) x.id = newId(); w.ch.to = x.id; } }
+    else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value; if (!t.value) delete w.ch[t.dataset.cf]; }
+    else if (t.dataset.fx) { w.ch.fx = w.ch.fx || {}; const v = numOrNull(t.value); if (v) w.ch.fx[t.dataset.fx] = v; else delete w.ch.fx[t.dataset.fx]; if (!Object.keys(w.ch.fx).length) delete w.ch.fx; }
+    jtouch(jcur); return;
+  }
+  if (w.s && t.dataset.sf) {
+    const f = t.dataset.sf, s = w.s;
+    if (f === "text" || f === "speaker") { s[f] = t.value; jtouch(jcur); return; }
+    if (!structural) return;
+    if (f === "who") { delete s.me; delete s.who; delete s.speaker; if (t.value === "me") s.me = true; else if (CHARS[t.value]) s.who = t.value; else if (t.value === "other") s.speaker = ""; }
+    else if (f === "portrait") { if (t.value === "keep") delete s.portrait; else s.portrait = t.value === "none" ? null : t.value; }
+    else if (f === "end") { if (t.checked) s.end = true; else delete s.end; }
+    jtouch(jcur); jWrite(); return;
+  }
+  if (w.ev) {
+    const ev = w.ev;
+    if (t.dataset.ef === "title") { ev.title = t.value; jtouch(jcur); return; }
+    if (t.dataset.ef === "weight") ev.weight = Math.max(1, +t.value || 1);
+    else if (t.dataset.ef === "smin") ev.step[0] = Math.max(1, +t.value || 1);
+    else if (t.dataset.ef === "smax") ev.step[1] = Math.max(1, +t.value || 99);
+    else if (t.dataset.ef === "once") ev.once = t.value === "1";
+    else if (t.dataset.gua) { if (!structural) return; ev.gua = ev.gua.filter((g) => g !== t.dataset.gua); if (t.checked) ev.gua.push(t.dataset.gua); }
+    else if (t.hasAttribute("data-eneed")) setNeed(ev.need, t.dataset.nk, t.dataset.nb, t.value);
+    else return;
+    jtouch(jcur); if (structural) jWrite(); return;
+  }
+  if (w.en) {
+    const en = w.en;
+    if (t.dataset.nf === "rare") { if (!structural) return; en.rare = t.checked; }
+    else if (t.dataset.nf) en[t.dataset.nf] = t.value;
+    else if (t.dataset.pt) en.player_title[t.dataset.pt] = t.value;
+    else if (t.hasAttribute("data-nneed")) setNeed(en.need, t.dataset.nk, t.dataset.nb, t.value);
+    else return;
+    jtouch(jcur); return;
+  }
+}
+$("jh-main").addEventListener("input", (e) => onEdit(e, false));
+$("jh-main").addEventListener("change", (e) => onEdit(e, true));
+$("jh-main").addEventListener("click", (e) => {
+  const j = jh[jcur]; if (!j) return;
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.jst) { j.status = b.dataset.jst; jtouch(jcur); jRail(); $("jh-status").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); return; }
+  if (b.dataset.jview) { jview = b.dataset.jview; sim = null; jMain(); return; }
+  if (b.dataset.sim) { simAct(b); return; }
+  const a = b.dataset.ja; if (!a) return;
+  const w = where(b), mv = (arr, i, d) => { const k = i + d; if (k < 0 || k >= arr.length) return false; [arr[i], arr[k]] = [arr[k], arr[i]]; return true; };
+  if (a === "evAdd") { const ev = jevent(); j.events.push(ev); jopen[ev.id] = true; }
+  else if (a === "evToggle") { jopen[w.ev.id] = !jopen[w.ev.id]; jWrite(); return; }
+  else if (a === "evUp" || a === "evDown") { if (!mv(j.events, w.ei, a === "evUp" ? -1 : 1)) return; }
+  else if (a === "evDel") { if (!b.classList.contains("arm")) { b.classList.add("arm"); b.textContent = "刪?"; b.style.color = "var(--cinnabar)"; return; } j.events.splice(w.ei, 1); }
+  else if (a === "scAdd") { const k = b.dataset.kind; w.ev.scenes.push(k === "narr" ? { text: "" } : k === "me" ? { me: true, text: "" } : { who: "daoshi_f", text: "" }); }
+  else if (a === "scUp" || a === "scDown") { if (!mv(w.ev.scenes, w.si, a === "scUp" ? -1 : 1)) return; }
+  else if (a === "scDel") { if (w.ev.scenes.length === 1) return; w.ev.scenes.splice(w.si, 1); }
+  else if (a === "chAdd") { const used = new Set(j.events.flatMap((x) => x.scenes.flatMap((s) => (s.choices || []).map((c) => c.key)))); let n = 1; while (used.has("c" + n)) n++; (w.s.choices = w.s.choices || []).push({ key: "c" + n, label: "" }); }
+  else if (a === "chDel") { w.s.choices.splice(w.ci, 1); if (!w.s.choices.length) delete w.s.choices; }
+  else if (a === "enAdd") { j.endings.splice(Math.max(0, j.endings.length - 1), 0, { id: newId(), title: "", need: {}, rare: false, text: "", player_title: { label: "", desc: "", call_as: "" } }); }
+  else if (a === "enUp" || a === "enDown") { if (!mv(j.endings, w.ni, a === "enUp" ? -1 : 1)) return; }
+  else if (a === "enDel") { if (j.endings.length === 1) return; j.endings.splice(w.ni, 1); }
+  else return;
+  jtouch(jcur); jWrite(); jRail();
+});
+
+/* ── 試走一局：照正式規則抽事件、演、加減數值、算結局（文字版） ── */
+const needOk = (need, st) => Object.entries(need || {}).every(([k, [lo, hi]]) => (lo == null || (st[k] || 0) >= lo) && (hi == null || (st[k] || 0) <= hi));
+function pickEvent(j, step, st, used, up, lo) {
+  const pool = j.events.filter((ev) => step >= ev.step[0] && step <= ev.step[1]
+    && (!ev.gua.length || ev.gua.includes(up) || ev.gua.includes(lo))
+    && needOk(ev.need, st) && !(ev.once && used.has(ev.id)) && ev.scenes.some((s) => (s.text || "").trim()));
+  if (!pool.length) return null;
+  let r = Math.random() * pool.reduce((a, ev) => a + ev.weight, 0);
+  for (const ev of pool) { r -= ev.weight; if (r < 0) return ev; }
+  return pool[pool.length - 1];
+}
+function endingOf(j, st) { return j.endings.find((en) => needOk(en.need, st)) || null; }
+function simPaint() {
+  const j = jh[jcur];
+  if (!sim) {
+    $("jh-body").innerHTML = `<div class="stage" style="max-width:640px">
+      <p style="margin:0;font-size:13px;color:var(--ink-soft)">正式版會先起一卦，本卦的上卦、下卦決定抽得到哪些綁了卦象的事件。這裡可以指定，或隨機。</p>
+      <div class="grid"><label class="field"><span>上卦</span><select id="sim-up"><option value="">隨機</option>${sel(TRI, "")}</select></label>
+        <label class="field"><span>下卦</span><select id="sim-lo"><option value="">隨機</option>${sel(TRI, "")}</select></label></div>
+      <div><button class="btn primary" data-sim="start">出發</button></div></div>`;
+    return;
+  }
+  const stats = `<div class="stats">${j.stats.map((x) => `<span>${esc(x.name)} ${sim.st[x.k] || 0}</span>`).join("")}<span>本卦 ${TRI[sim.up].slice(0, 1)}上${TRI[sim.lo].slice(0, 1)}下</span><span>第 ${Math.min(sim.step, j.length)}／${j.length} 件</span></div>`;
+  let tail = "";
+  if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:pointer" data-sim="pick" data-i="${i}">${esc(ch.label || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
+  else if (sim.ending !== undefined) {
+    const en = sim.ending;
+    tail = en ? `<div class="endcard"><h3>${esc(en.title || "（結局沒有名字）")}${en.rare ? " ・稀有" : ""}</h3><div class="line">${esc(en.text)}</div>
+      <p style="margin:8px 0 0;font-size:13px">${en.player_title.label ? `你拿到稱號「<b>${esc(en.player_title.label)}</b>」${en.player_title.call_as ? `，他們改叫你「${esc(en.player_title.call_as)}」` : ""}` : "這個結局不發稱號。"}</p></div>`
+      : `<div class="endcard"><h3>沒有任何結局符合</h3><div class="line">結局表最後一個要留空條件當保底。</div></div>`;
+    tail += `<div><button class="btn" data-sim="again">再走一局</button> <button class="btn ghost" data-sim="reset">換卦重來</button></div>`;
+  } else tail = `<div><button class="btn primary" data-sim="next">${sim.step >= j.length ? "收尾" : "下一件"}</button></div>`;
+  $("jh-body").innerHTML = `<div class="stage" style="max-width:640px">${stats}<div class="simlog">${sim.log.join("")}</div>${tail}</div>`;
+}
+function simLine(s) {
+  const w = whoOf(s), name = w === "me" ? "你" : CHARS[w] || s.speaker || "";
+  return w === "narr" ? `<div class="line narr">${esc(s.text)}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${esc(s.text)}</div>`;
+}
+function simRun() {   // 從 sim.ev 的 sim.si 往下演，演到選項或這件事結束
+  const ss = sim.ev.scenes;
+  while (sim.si >= 0 && sim.si < ss.length) {
+    const s = ss[sim.si];
+    if ((s.text || "").trim()) sim.log.push(simLine(s));
+    if ((s.choices || []).length) { sim.choices = s.choices; return; }
+    if (s.end) break;
+    sim.si++;
+  }
+  sim.ev = null; sim.choices = null;
+}
+function simNext() {
+  const j = jh[jcur];
+  if (sim.step >= j.length) { sim.ending = endingOf(j, sim.st); return; }
+  sim.step++;
+  const ev = pickEvent(j, sim.step, sim.st, sim.used, sim.up, sim.lo);
+  if (!ev) { sim.log.push(`<div class="evmark">第 ${sim.step} 件：池裡沒有符合條件的事件，這一局提早收尾</div>`); sim.ending = endingOf(j, sim.st); return; }
+  sim.used.add(ev.id);
+  sim.log.push(`<div class="evmark">第 ${sim.step} 件・${esc(ev.title || "（未命名）")}</div>`);
+  sim.ev = ev; sim.si = 0; simRun();
+}
+function simAct(b) {
+  const j = jh[jcur], keys = Object.keys(TRI), rnd = () => keys[Math.floor(Math.random() * 8)];
+  const act = b.dataset.sim;
+  if (act === "reset") { sim = null; simPaint(); return; }
+  if (act === "start" || act === "again") {
+    const up = act === "again" ? sim.up0 : ($("sim-up").value || ""), lo = act === "again" ? sim.lo0 : ($("sim-lo").value || "");
+    sim = { up0: up, lo0: lo, up: up || rnd(), lo: lo || rnd(), st: {}, step: 0, used: new Set(), log: [], ev: null, si: 0, choices: null, ending: undefined };
+    if ((j.opening.text || "").trim()) sim.log.push(`<div class="place">${esc(BGS[j.opening.bg] || "")}</div><div class="line narr">${esc(j.opening.text)}</div>`);
+    simNext();
+  } else if (act === "next") simNext();
+  else if (act === "pick") {
+    const ch = sim.choices[+b.dataset.i];
+    const fx = Object.entries(ch.fx || {});
+    fx.forEach(([k, v]) => { sim.st[k] = (sim.st[k] || 0) + v; });
+    sim.log.push(`<div class="line me"><span class="sp">你選</span>${esc(ch.label)}${fx.length ? ` <span class="fxnote">（${fx.map(([k, v]) => sname(j, k) + (v > 0 ? "+" : "") + v).join("、")}）</span>` : ""}</div>`);
+    sim.choices = null;
+    if (ch.to === "end") sim.ev = null;
+    else { sim.si = ch.to ? sim.ev.scenes.findIndex((s) => s.id === ch.to) : sim.si + 1; simRun(); }
+  }
+  simPaint();
+}
+
+/* ── 檢查 ── */
+function jChecksOf(j) {
+  const out = [], E = (t) => out.push(["e", t]), W = (t) => out.push(["w", t]);
+  if (!(j.title || "").trim()) E("這一程還沒有名字。");
+  if (!(j.opening.text || "").trim()) W("沒有開場旁白。");
+  const evs = j.events, L = +j.length || 6;
+  if (evs.length < L) W(`事件池只有 ${evs.length} 件，一局要抽 ${L} 件：會提早收尾。要耐玩，建議池子是一局的 3 倍以上（${L * 3} 件）。`);
+  else if (evs.length < L * 2) W(`事件池 ${evs.length} 件、一局 ${L} 件：玩兩三次就會一直遇到同樣的事。建議至少 ${L * 3} 件。`);
+  for (let k = 1; k <= L; k++) {
+    if (!evs.some((ev) => k >= ev.step[0] && k <= ev.step[1] && !ev.gua.length && !Object.keys(ev.need).length))
+      W(`第 ${k} 件沒有「不綁卦象、不看數值」的事件：條件都不合時，這一局會在這裡提早收尾。`);
+  }
+  evs.forEach((ev, i) => {
+    const n = `#${i + 1}${ev.title ? "「" + ev.title + "」" : ""}`;
+    if (!(ev.title || "").trim()) W(`事件 #${i + 1} 沒有名字（試走時看不出是哪一件）。`);
+    if (ev.step[0] > ev.step[1]) E(`${n} 最早比最晚還晚，永遠抽不到。`);
+    ev.scenes.forEach((s, k) => { if (!(s.text || "").trim()) E(`${n} 第 ${k + 1} 幕沒有字。`);
+      (s.choices || []).forEach((ch, c) => { if (!(ch.label || "").trim()) E(`${n} 第 ${k + 1} 幕的第 ${c + 1} 個選項沒有字。`);
+        if (ch.to && ch.to !== "end" && !ev.scenes.some((x) => x.id === ch.to)) E(`${n} 有選項跳到找不到的幕。`); }); });
+    if (ev.scenes.length > 4) W(`${n} 有 ${ev.scenes.length} 幕：一件事 1～4 幕就好，短才耐玩。`);
+    if (!ev.scenes.some((s) => (s.choices || []).some((ch) => ch.fx))) W(`${n} 沒有任何選項加減數值：走過它不會影響結局（純過場可以，但不要太多）。`);
+  });
+  const ens = j.endings;
+  if (!ens.length) E("沒有任何結局。");
+  else if (Object.keys(ens[ens.length - 1].need).length) E("最後一個結局有條件：條件都不合時這一局會沒有結局。最後一個請留空條件當保底。");
+  ens.forEach((en, i) => {
+    if (!(en.title || "").trim()) E(`結局 ${i + 1} 沒有名字。`);
+    if (!(en.text || "").trim()) W(`結局 ${i + 1} 沒有結語。`);
+    if (!(en.player_title.label || "").trim()) W(`結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""} 不發稱號。`);
+  });
+  ens.slice(0, -1).forEach((en, i) => { if (!Object.keys(en.need).length) E(`結局 ${i + 1} 沒有條件卻不是最後一個：它會擋住下面所有結局。`); });
+  const labels = ens.map((en) => en.player_title.label).filter(Boolean);
+  if (new Set(labels).size !== labels.length) W("有兩個結局發同一個稱號。");
+  const usedStats = new Set(evs.flatMap((ev) => ev.scenes.flatMap((s) => (s.choices || []).flatMap((ch) => Object.keys(ch.fx || {})))));
+  j.stats.forEach((st) => { if (evs.length && !usedStats.has(st.k)) W(`隱藏數值「${st.name}」沒有任何選項會改到它。`); });
+  return out;
+}
+function jChecks() {
+  const el = $("jh-checks"); if (!el) return;
+  const list = jChecksOf(jh[jcur]);
+  el.innerHTML = list.length ? list.map(([lv, t]) => `<li><span class="lv ${lv}">${lv === "e" ? "要改" : "留意"}</span><span>${esc(t)}</span></li>`).join("")
+    : `<li><span class="lv o">可以</span><span>沒有問題。去「試走一局」多走幾次，再改成「定稿」。</span></li>`;
+}
+
+/* ── 輸出（格式草案）── */
+function jClean(j) {
+  const sc = (ss) => cleanScenes(ss).map((s, k) => { const o = ss[k]; if (s.choices) s.choices = s.choices.map((c, m) => { const src = (o.choices || []).filter((x) => (x.label || "").trim())[m] || {}; return src.fx ? { ...c, fx: src.fx } : c; }); return s; });
+  return { id: j.id, title: j.title, summary: j.summary, require_cultivation: j.require_cultivation || 0, length: +j.length || 6,
+    stats: j.stats, opening: j.opening,
+    events: j.events.map((ev) => ({ id: ev.id, title: ev.title, weight: ev.weight, once: ev.once, step: ev.step, gua: ev.gua, need: ev.need, scenes: sc(ev.scenes) })),
+    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, text: en.text, player_title: en.player_title })) };
+}
+function jOut() {
+  const el = $("jh-out"); if (!el) return;
+  el.innerHTML = `<div class="outhead"><b>這一程（JSON）</b><button class="btn sm" data-copy="jh-o">複製</button></div><pre class="out" id="jh-o">${esc(JSON.stringify(jClean(jh[jcur]), null, 2))}</pre>`;
+}
+
+/* ── 開場：雲端存檔的 jianghu ── */
+function jApply(list) {
+  for (const d of list) if (!jdirty.has(d.id)) jh[d.id] = d;
+  jRail();
+  if (jcur && jh[jcur] && !jdirty.has(jcur) && !document.activeElement?.closest?.("#jh-main") && jview === "write") jMain();
+}
+function jhInit() {
+  try { if (localStorage.getItem("script-sheet-mode") === "jh") $("modes").querySelector('[data-mode="jh"]').click(); } catch (e) {}
+  if (!db) { try { jh = JSON.parse(localStorage.getItem(JLS) || "{}"); } catch (e) { jh = {}; } jRail(); return; }
+  db.collection("jianghu").onSnapshot((snap) => {
+    jApply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
+  }, () => setSave("雲端存檔斷線，重新整理頁面", true));
+}
 </script>

@@ -59,3 +59,7 @@
 伺服器 `event_finish` 判定並發獎（見 `0065_event_form.sql`：`reward_title`、`reward_lingshi`、`reward_avatar`、`reward_memory`），
 前端疊一個「此章已了」的獲得彈框：身分做成一張卡片彈出、掠光一次（動態規範 E 強調），
 靈石／頭像／記憶一行一行列在底下；身分那張有「換上這個身分」。重看已了的章不再跳彈框。
+
+---
+
+江湖事件（你是主角、可重玩的短局、收集你的稱號）是另一種格式：見 `JIANGHU-SCRIPT.md`。稿紙同一頁、另一個分頁。
