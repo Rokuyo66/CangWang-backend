@@ -1,0 +1,166 @@
+// _shared/jianghu.ts — 江湖尋訪：一趟怎麼走、走到哪個結局、亮了哪些成就。
+//
+// 格式見 dev/design/journal/JIANGHU-SCRIPT.md；稿紙（dev/design/journal/sheet.html）的「試走一趟」
+// 與這裡是同一套規則，改一邊就要改另一邊（dev/jianghu-test.mts 拿乾為天的六條路線釘住）。
+//
+// 【為什麼結局在伺服器算】
+// 客戶端只送「每個選擇點選了哪個 key」。數值、道具、旗標、結局都由這裡照劇本重演一次算出來——
+// 客戶端送「我走到了哪個結局」的話，等於把第一次達成的靈石交給玩家自己填。
+//
+// 純函式、不碰資料庫：interpret 拿它來判，測試直接 import。
+
+export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string; set?: string; to?: string };
+export type Scene = { id?: string; text?: string; end?: boolean; choices?: Choice[]; [k: string]: unknown };
+export type Ending = {
+  id: string; title: string; rare?: boolean; need?: Record<string, [number | null, number | null]>;
+  flags?: string[]; not_flags?: string[]; text?: string; insight?: string; npc_fate?: string; reward_lingshi?: number;
+  player_title?: { label?: string; desc?: string; call_as?: string };
+  hook?: { who?: string; ask?: string; memory?: string } | null;
+};
+export type Achievement = { id: string; name: string; desc?: string; kind: "ending" | "endings_all" | "changes_all" | "items_all"; ending?: string; reward_lingshi?: number };
+export type Doc = {
+  id: string; gua_no: number; gua: string; title: string;
+  npcs?: { id: string; name: string; desc?: string }[];
+  opening?: { bg?: string; text?: string };
+  identity?: { mode?: string; label?: string; reason?: string };
+  outline?: { player_summary?: string };
+  nodes: { title?: string; scenes: Scene[]; change?: { scenes: Scene[] } }[];
+  endings: Ending[];
+  achievement?: { name?: string; desc?: string; ending?: string };
+  achievements?: Achievement[];
+};
+
+/** 這一趟走完的樣子 */
+export type Walk = {
+  ok: true; st: Record<string, number>; items: string[]; flags: string[];
+  changes: number[];          // 實際演了變數的爻（0＝初爻）
+  ending: Ending;
+} | { ok: false; err: string };
+
+const hasText = (s: Scene) => !!String(s.text ?? "").trim();
+/** 這一爻動了、而且有變數幕，才會演變數 */
+export const changePlays = (doc: Doc, i: number, moving: number[]) =>
+  moving.includes(i) && (doc.nodes[i]?.change?.scenes ?? []).some(hasText);
+
+/** 照劇本重演一趟。picks＝每個選擇點選的 key，依序。多送、少送、送了當下選不到的 key 都算錯。
+ *  picks 也可以是一支函式（給測試：看當下能選的選項，回一個 key）。 */
+export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string)): Walk {
+  const chooser = typeof picks === "function" ? picks : null, keys: string[] = chooser ? [] : picks as string[];
+  const st: Record<string, number> = {}, items: string[] = [], flags: string[] = [], changes: number[] = [];
+  let p = 0;
+  const run = (list: Scene[]): string | null => {
+    let si = 0, guard = 0;
+    while (si >= 0 && si < list.length) {
+      if (++guard > 500) return "劇本繞圈";
+      const s = list[si];
+      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req)));
+      if (cs.length) {
+        if (chooser) keys.push(chooser(cs));
+        const key = keys[p++];
+        const c = cs.find((x) => x.key === key);
+        if (!c) return `第 ${p} 個選擇對不上（${key ?? "沒送"}）`;
+        for (const [k, v] of Object.entries(c.fx ?? {})) st[k] = (st[k] ?? 0) + (Number(v) || 0);
+        if (c.get && !items.includes(c.get)) items.push(c.get);
+        if (c.set && !flags.includes(c.set)) flags.push(c.set);
+        if (c.to === "end") return null;
+        if (c.to) { si = list.findIndex((x) => x.id === c.to); if (si < 0) return `跳到找不到的幕 ${c.to}`; }
+        else si++;
+        continue;
+      }
+      if (s.end) return null;
+      si++;
+    }
+    return null;
+  };
+  for (let i = 0; i < 6; i++) {
+    const n = doc.nodes[i];
+    if (!n) return { ok: false, err: "劇本不足六節" };
+    const e1 = run(n.scenes ?? []); if (e1) return { ok: false, err: e1 };
+    if (changePlays(doc, i, moving)) {
+      changes.push(i);
+      const e2 = run(n.change!.scenes); if (e2) return { ok: false, err: e2 };
+    }
+  }
+  if (p !== keys.length) return { ok: false, err: "送來的選擇比劇本多" };
+  const ending = endingOf(doc, st, flags);
+  if (!ending) return { ok: false, err: "沒有任何結局符合（劇本少了保底）" };
+  return { ok: true, st, items, flags, changes, ending };
+}
+
+export function endingOf(doc: Doc, st: Record<string, number>, flags: string[]): Ending | null {
+  const needOk = (need: Ending["need"]) => Object.entries(need ?? {}).every(([k, [lo, hi]]) =>
+    (lo == null || (st[k] ?? 0) >= lo) && (hi == null || (st[k] ?? 0) <= hi));
+  const flagsOk = (en: Ending) => (en.flags ?? []).every((f) => flags.includes(f)) && !(en.not_flags ?? []).some((f) => flags.includes(f));
+  return doc.endings.find((en) => needOk(en.need) && flagsOk(en)) ?? null;
+}
+
+/** 成就清單。舊格式只有一個 achievement（綁結局），照樣認。 */
+export function achievementsOf(doc: Doc): Achievement[] {
+  if (Array.isArray(doc.achievements) && doc.achievements.length) return doc.achievements.filter((a) => a && a.id && a.name);
+  const a = doc.achievement;
+  return a && a.name && a.ending ? [{ id: "main", name: a.name, desc: a.desc ?? "", kind: "ending", ending: a.ending }] : [];
+}
+
+/** 劇本裡所有拿得到的道具 */
+export const allItems = (doc: Doc) => [...new Set(doc.nodes.flatMap((n) =>
+  [...(n.scenes ?? []), ...(n.change?.scenes ?? [])].flatMap((s) => (s.choices ?? []).map((c) => c.get).filter(Boolean) as string[])))];
+/** 有變數幕的爻 */
+export const changeNodes = (doc: Doc) => doc.nodes.map((_, i) => i).filter((i) => changePlays(doc, i, [i]));
+
+/** 某位玩家這一卦已經亮了哪些成就。runs＝他走完的每一趟。 */
+export function litAchievements(doc: Doc, runs: { ending_id: string; changes: number[]; items: string[] }[]): string[] {
+  const endings = new Set(runs.map((r) => r.ending_id));
+  const seen = new Set(runs.flatMap((r) => r.changes ?? []));
+  const all = allItems(doc), cn = changeNodes(doc);
+  return achievementsOf(doc).filter((a) => {
+    if (a.kind === "ending") return !!a.ending && endings.has(a.ending);
+    if (a.kind === "endings_all") return doc.endings.length > 0 && doc.endings.every((e) => endings.has(e.id));
+    if (a.kind === "changes_all") return cn.length > 0 && cn.every((i) => seen.has(i));
+    if (a.kind === "items_all") return all.length > 0 && runs.some((r) => all.every((x) => (r.items ?? []).includes(x)));
+    return false;
+  }).map((a) => a.id);
+}
+
+/** 下發給客戶端的劇本：只有演出要的東西。結局、成就條件、大綱、備註都不給——
+ *  結局表下發等於開場就把六個結局劇透完，條件下發等於把攻略送過去。 */
+export function clientDoc(doc: Doc) {
+  const sc = (s: Scene) => {
+    const o: Record<string, unknown> = {};
+    for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (s[k] !== undefined && s[k] !== "") o[k] = s[k];
+    if (s.choices?.length) o.choices = s.choices.filter((c) => String(c.label ?? "").trim())
+      .map((c) => ({ key: c.key, label: c.label, ...((c as { hint?: string }).hint ? { hint: (c as { hint?: string }).hint } : {}), ...(c.to ? { to: c.to } : {}), ...(c.req ? { req: c.req } : {}), ...(c.get ? { get: c.get } : {}) }));
+    return o;
+  };
+  return {
+    gua_no: doc.gua_no, gua: doc.gua, title: doc.title,
+    npcs: (doc.npcs ?? []).map((n) => ({ id: n.id, name: n.name })),
+    opening: doc.opening ?? {},
+    nodes: doc.nodes.map((n) => ({ title: n.title ?? "", scenes: (n.scenes ?? []).map(sc), change: (n.change?.scenes ?? []).map(sc) })),
+  };
+}
+
+/** 動爻：lines（casts.lines，6／9 是動爻，lines[0]＝初爻）→ 動的爻號 */
+export const movingOf = (lines: number[] | null | undefined) =>
+  (lines ?? []).map((v, i) => (v === 6 || v === 9) ? i : -1).filter((i) => i >= 0);
+/** 再走一趟：重搖動爻，每一爻四分之一（三枚錢：老陰八分之一＋老陽八分之一） */
+export const rollMoving = (rand: () => number = Math.random) => [0, 1, 2, 3, 4, 5].filter(() => rand() < 0.25);
+
+/** 化名：與稿紙同一支（日期＋卦＋玩家當種子，同一天固定） */
+export const ALIAS_DEFAULT = {
+  surnames: "沈陸顧蘇葉江林秦柳白溫謝韓聞裴燕晏程蕭鍾衛孟姜岳顏邵方傅杜唐莫洛",
+  compound: "司馬 歐陽 上官 慕容 南宮 公孫 東方 令狐",
+  given1: "青遠聽無明歸寒南疏知星清孤長雲寄若臨見懷照",
+  given2: "崖舟雨咎微鶴川石塵衣硯霜燈岫野渡山言辭眠",
+};
+function rng(seed: string) {
+  let x = 0; for (const c of String(seed)) x = (x * 31 + c.charCodeAt(0)) | 0;
+  return () => { x = (x * 1103515245 + 12345) | 0; return ((x >>> 16) & 0x7fff) / 0x8000; };
+}
+export function alias(seed: string, cfg: Partial<typeof ALIAS_DEFAULT> = {}) {
+  const c = { ...ALIAS_DEFAULT, ...cfg };
+  const r = rng(seed), pick = <T>(s: T[]) => s[Math.floor(r() * s.length)];
+  const comp = c.compound.split(/\s+/).filter(Boolean), sur = [...c.surnames];
+  const xing = comp.length && r() < 0.1 ? pick(comp) : pick(sur);
+  const a = pick([...c.given1]); let b = pick([...c.given2]); if (b === a) b = pick([...c.given2]);
+  return xing + (r() < 0.2 ? b : a + b);
+}

@@ -5,7 +5,7 @@
  "title": "龍不歸淵",
  "status": "review",
  "tone": "heavy",
- "note": "Claude 範本初稿（2026-10-21）：六六要先在下一版 App 裡驗證手感。場景 dukou、leitai 還沒有圖（會退回色階）；靈石數字是暫定。",
+ "note": "Claude 範本（2026-10-21）：要在下一版 App 裡驗證手感。缺圖的場景先借舊圖（渡口、龍柱借山下客棧，擂台借後院），立繪見「美術需求」頁；靈石數字暫定。",
  "outline": {
   "theme": "乾：元亨利貞。六龍由潛而亢；用九「見群龍无首，吉」——龍不必只有一條。",
   "summary": "雲渡鎮三連冠的少年要拿第四面龍旗，好把亡師的名字刻上龍柱；他不知道渡口漲三倍的渡錢落的是他的名字。",
@@ -305,7 +305,7 @@
      "speaker": "褚萬金",
      "portrait": null,
      "text": "「幾知觀的小道長！」\n萬金號的掌櫃親自迎到門口，一雙手又軟又熱。\n「坐，坐。觀主身子可好？二十年前他老人家在雲渡給我起過一卦，說我這輩子財來財去——你看，準不準。」\n他笑著拍了拍自己的肚子。",
-     "bg": "kezhan",
+     "bg": "wanjin",
      "place": "萬金號"
     },
     {
@@ -679,7 +679,7 @@
    "scenes": [
     {
      "text": "按雲渡的老規矩，魁首要親手把龍旗掛上龍柱頂。龍柱九丈，柱身刻滿了往年魁首的名字，最底下那一圈還空著。",
-     "bg": "dukou",
+     "bg": "longzhu",
      "place": "龍柱"
     },
     {
@@ -980,5 +980,36 @@
   "desc": "讓龍旗不再屬於一個人。",
   "ending": "e6ww3r"
  },
- "updated_at": "2026-10-21T12:00:00.000Z"
+ "updated_at": "2026-10-21T12:00:00.000Z",
+ "achievements": [
+  {
+   "id": "qun",
+   "name": "見群龍无首",
+   "desc": "讓龍旗不再屬於一個人。",
+   "kind": "ending",
+   "ending": "e6ww3r",
+   "reward_lingshi": 30
+  },
+  {
+   "id": "liulong",
+   "name": "時乘六龍",
+   "desc": "六爻，各動一回。",
+   "kind": "changes_all",
+   "reward_lingshi": 60
+  },
+  {
+   "id": "liuwei",
+   "name": "六位時成",
+   "desc": "六條路，都走到底。",
+   "kind": "endings_all",
+   "reward_lingshi": 80
+  },
+  {
+   "id": "pinwu",
+   "name": "品物流形",
+   "desc": "一趟之內，把江湖上帶得走的，都帶在身上。",
+   "kind": "items_all",
+   "reward_lingshi": 50
+  }
+ ]
 }

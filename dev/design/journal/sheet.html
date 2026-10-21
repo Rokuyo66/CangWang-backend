@@ -183,11 +183,32 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .endcard{border:1px solid var(--gold);border-radius:6px;padding:12px;background:var(--paper)}
 .endcard h3{font-size:17px;margin-bottom:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ── 美術需求 ── */
+.artwrap{ max-width:980px; margin:0 auto; padding:16px }
+.artintro{ font-size:13px; line-height:1.8; color:var(--ink-soft); background:var(--paper-2); border-radius:10px; padding:10px 14px; margin-bottom:12px }
+.artintro p{ margin:2px 0 }
+.artfilter{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 10px }
+.artfilter button{ font:inherit; font-size:12.5px; padding:4px 12px; border-radius:999px; border:1px solid var(--hair); background:transparent; color:var(--ink-soft); cursor:pointer }
+.artfilter button.on{ background:var(--ink); color:var(--paper); border-color:var(--ink) }
+.artlist{ display:flex; flex-direction:column; gap:10px }
+.artrow{ display:grid; grid-template-columns:120px 1fr; gap:12px; border:1px solid var(--hair); border-radius:12px; padding:12px; background:var(--paper); outline:none }
+.artrow:focus{ box-shadow:0 0 0 2px var(--gold) }
+.artrow.drag{ outline:2px dashed var(--gold) }
+.artpic{ width:120px; aspect-ratio:3/4; border-radius:8px; background:var(--paper-2); display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:12px; color:var(--ink-faint); text-align:center; cursor:pointer }
+.artrow[data-kind="場景"] .artpic{ aspect-ratio:2/3 }
+.artpic img{ width:100%; height:100%; object-fit:cover; display:block }
+.artpic input{ display:none }
+.arthead{ display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px; margin-bottom:6px }
+.arthead b{ font-size:15px }
+.arthead code{ font-size:12px; color:var(--ink-soft) }
+.arttag{ font-size:11.5px; padding:1px 8px; border-radius:999px; background:var(--paper-2); color:var(--ink-soft) }
+.artst-todo{ color:var(--cinnabar) } .artst-old{ color:var(--gold) } .artst-done, .artst-skip{ color:var(--ink-faint) }
+@media (max-width:560px){ .artrow{ grid-template-columns:90px 1fr } .artpic{ width:90px } }
 </style>
 
 <header class="top">
   <h1>道緣劇本稿紙</h1>
-  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button></div>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術需求</button></div>
   <span class="sub" id="mode-sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</span>
   <span class="save" id="save">連線中…</span>
 </header>
@@ -225,6 +246,16 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   </aside>
   <main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main>
 </div>
+<div class="artwrap" id="m-art" hidden>
+  <div class="artintro">
+    <p><b>立繪</b>：900×1200 PNG 去背，主體放在畫面中央 60%（手機左右各裁掉約 19%），頭頂約在 8% 那條線，55% 以下會被對話框壓住。</p>
+    <p><b>場景</b>：1280×1920 直式 JPG／WebP，焦點在中央 70%，下方 45% 會被對話框蓋住（畫地板、桌面這類低對比的東西），不畫人物、不放字。</p>
+    <p>手上有舊圖可以直接放：點左邊那一格選檔、把圖拖進那一列，或點一下那一列再貼上（Ctrl／⌘＋V）。狀態改成「用舊圖」或「已交」，Claude 下次就照表放進 App。</p>
+  </div>
+  <div class="artfilter" id="art-filter"></div>
+  <div id="art-list" class="artlist"><p class="fxnote">載入中…</p></div>
+  <div class="addrow"><button class="btn" id="art-add">＋一列</button></div>
+</div>
 <div class="wrap" id="m-jh" hidden>
   <aside class="rail">
     <section class="sec">
@@ -257,7 +288,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 const CHARS = { daoshi_m:"大師兄", daoshi_f:"師妹", lingshou:"觀貓" };
 const BGS = { guanmen:"觀門", cangjingge:"藏經閣", dadian:"大殿", zhongting:"中庭", langxia:"廊下",
   qianting:"前廳", xiangfang:"廂房", zaofang:"灶房", houyuan:"後院", wuji:"屋脊", cangshu:"藏書（舊 key）", houshan:"後山（舊 key）",
-  kezhan:"山下客棧", dukou:"渡口（缺圖）", leitai:"擂台（缺圖）" };
+  kezhan:"山下客棧", dukou:"渡口（缺圖）", leitai:"擂台（缺圖）", longzhu:"龍柱（缺圖）", wanjin:"萬金號（缺圖）" };
 const STATUS = { draft:"草稿", review:"待看", final:"定稿", temp:"暫用" };
 const TIERS = [[0,"初識"],[300,"相熟"],[500,"相知"],[800,"知己"]];
 const INTIMATE = /親密|喜歡|愛你|愛意|曖昧|撒嬌|熱絡|親近|心動|依戀|戀/;
@@ -649,10 +680,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => jhInit());
+    whenReady(() => { jhInit(); artInit(); });
     return;
   }
-  whenReady(() => jhInit());
+  whenReady(() => { jhInit(); artInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -753,6 +784,20 @@ const JLS = "script-sheet-jianghu-v2";
 const items = (v) => String(v || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
 const numOrNull = (v) => v === "" || v == null || isNaN(+v) ? null : +v;
 
+/* 成就：一卦可以有好幾個。kind＝怎麼亮（後端 _shared/jianghu.ts 的 litAchievements 照這四種判）。
+   舊格式只有一個 achievement（綁結局）：打開時轉成清單的第一個，存檔時兩個欄位一起寫（舊版 App 讀 achievement）。 */
+const ACH_KIND = { ending: "走到某個結局", endings_all: "所有結局都走過（累計）", changes_all: "六爻的變數都見過（累計）", items_all: "一趟之內帶齊所有道具" };
+function achList(j) {
+  if (!Array.isArray(j.achievements)) {
+    const a = j.achievement || {};
+    j.achievements = a.name || a.ending ? [{ id: "main", name: a.name || "", desc: a.desc || "", kind: "ending", ending: a.ending || "", reward_lingshi: 0 }] : [];
+  }
+  return j.achievements;
+}
+function achSync(j) {
+  const a = achList(j).find((x) => x.kind === "ending" && x.ending);
+  j.achievement = a ? { name: a.name, desc: a.desc, ending: a.ending } : { name: "", desc: "", ending: "" };
+}
 const jending = (title) => ({ id: newId(), title: title || "", need: {}, rare: false, text: "", insight: "", npc_fate: "", reward_lingshi: 0,
   player_title: { label: "", desc: "", call_as: "" }, hook: { who: "", ask: "", memory: "" } });
 function jblank(no) {
@@ -808,10 +853,11 @@ function cfgTouch() {
 /* ── 分頁切換 ── */
 $("modes").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
-  const jhOn = b.dataset.mode === "jh";
+  const m = b.dataset.mode, jhOn = m === "jh";
   $("modes").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  $("m-char").hidden = jhOn; $("m-jh").hidden = !jhOn;
-  $("mode-sub").textContent = jhOn ? "一卦一篇：今天的日運卦就是今天的江湖。六爻六節，動爻那一節出變數。"
+  $("m-char").hidden = m !== "char"; $("m-jh").hidden = !jhOn; $("m-art").hidden = m !== "art";
+  $("mode-sub").textContent = m === "art" ? "劇本要的立繪與場景。狀態、備註、圖都填在這裡，Claude 照表放進 App。"
+    : jhOn ? "一卦一篇：今天的日運卦就是今天的江湖。六爻六節，動爻那一節出變數。"
     : "一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。";
   try { localStorage.setItem("script-sheet-mode", b.dataset.mode); } catch (err) {}
 });
@@ -974,17 +1020,22 @@ function jWrite() {
         <label class="field wide"><span>寫進那位記憶的事</span><input type="text" data-hk="memory" value="${esc((en.hook || {}).memory)}"></label>
       </div>
     </div>`).join("");
-  const a = j.achievement;
+  const achs = achList(j), enOpts = { "": "（還沒指定）", ...Object.fromEntries(j.endings.map((en) => [en.id, en.title || "（未命名結局）"])) };
   $("jh-body").innerHTML = `
     <h3 style="font-size:15px;margin:6px 0">六爻節點</h3><div class="evs">${nodes}</div>
     <h3 style="font-size:15px;margin:18px 0 6px">結局表 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">由上往下比，第一個符合的就是它</small></h3>
     <div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>
-    <div class="tcard" style="margin-top:14px"><h3>這一卦的成就<small>成就榜上這一格；走到指定結局時亮起</small></h3>
+    <h3 style="font-size:15px;margin:18px 0 6px">這一卦的成就 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">亮了之後玩家在 App「道籍 › 成就」自己點領取靈石</small></h3>
+    <div class="evs">${achs.map((a, i) => `<div class="tcard" data-ach="${i}">
       <div class="grid">
-        <label class="field"><span>成就名</span><input type="text" data-ak="name" value="${esc(a.name)}" placeholder="例：待時而動"></label>
-        <label class="field"><span>綁哪個結局</span><select data-ak="ending">${sel({ "": "（還沒指定）", ...Object.fromEntries(j.endings.map((en) => [en.id, en.title || "（未命名結局）"])) }, a.ending)}</select></label>
-        <label class="field wide"><span>成就說明 <em>（玩家看得到）</em></span><input type="text" data-ak="desc" value="${esc(a.desc)}"></label>
-      </div></div>`;
+        <label class="field"><span>成就名</span><input type="text" data-acf="name" value="${esc(a.name)}" placeholder="例：待時而動"></label>
+        <label class="field"><span>怎麼亮</span><select data-acf="kind">${sel(ACH_KIND, a.kind)}</select></label>
+        ${a.kind === "ending" ? `<label class="field"><span>綁哪個結局</span><select data-acf="ending">${sel(enOpts, a.ending || "")}</select></label>` : ""}
+        <label class="field"><span>領取靈石</span><input type="number" min="0" data-acf="reward_lingshi" value="${+a.reward_lingshi || 0}"></label>
+        <label class="field wide"><span>成就說明 <em>（玩家看得到：寫成提示，不寫攻略）</em></span><input type="text" data-acf="desc" value="${esc(a.desc)}"></label>
+      </div>
+      <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div>`).join("")}</div>
+    <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`;
 }
 
 /* ── 編輯 ── */
@@ -1013,7 +1064,13 @@ function onEdit(e, structural) {
   if (t.dataset.op) { j.opening[t.dataset.op] = t.value; jtouch(jcur); return; }
   if (t.dataset.nt != null) { j.nodes[+t.dataset.nt].title = t.value; jtouch(jcur); return; }
   if (t.dataset.nf2) { j.npcs[w.npc][t.dataset.nf2] = t.value; jtouch(jcur); return; }
-  if (t.dataset.ak) { if (t.dataset.ak === "ending" && !structural) return; j.achievement[t.dataset.ak] = t.value; jtouch(jcur); return; }
+  if (t.dataset.acf) {
+    const f = t.dataset.acf, a = achList(j)[+t.closest("[data-ach]").dataset.ach];
+    if ((f === "kind" || f === "ending") && !structural) return;
+    a[f] = f === "reward_lingshi" ? Math.max(0, +t.value || 0) : t.value;
+    if (f === "kind" && a.kind !== "ending") delete a.ending;
+    achSync(j); jtouch(jcur); if (f === "kind") jWrite(); return;
+  }
   if (w.ch) {
     if (t.dataset.cf === "to") { if (!structural) return; if (t.value === "end") w.ch.to = "end"; else if (t.value === "") delete w.ch.to; else { const x = w.list[+t.value]; if (!x.id) x.id = newId(); w.ch.to = x.id; } }
     else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value; if (!t.value) delete w.ch[t.dataset.cf]; }
@@ -1070,6 +1127,8 @@ $("jh-main").addEventListener("click", (e) => {
   else if (a === "scDel") { if (w.list.length === 1 && w.list === j.nodes[w.node].scenes) return; w.list.splice(w.si, 1); }
   else if (a === "chAdd") { const used = new Set(j.nodes.flatMap((n) => [...n.scenes, ...n.change.scenes].flatMap((s) => (s.choices || []).map((c) => c.key)))); let n = 1; while (used.has("c" + n)) n++; (w.s.choices = w.s.choices || []).push({ key: "c" + n, label: "" }); }
   else if (a === "chDel") { w.s.choices.splice(w.ci, 1); if (!w.s.choices.length) delete w.s.choices; }
+  else if (a === "achAdd") { const ids = new Set(achList(j).map((x) => x.id)); let n = 1; while (ids.has("a" + n)) n++; achList(j).push({ id: "a" + n, name: "", desc: "", kind: "ending", ending: "", reward_lingshi: 0 }); achSync(j); }
+  else if (a === "achDel") { achList(j).splice(+b.closest("[data-ach]").dataset.ach, 1); achSync(j); }
   else if (a === "enAdd") { j.endings.splice(Math.max(0, j.endings.length - 1), 0, jending()); }
   else if (a === "enUp" || a === "enDown") { if (!mv(j.endings, w.ni, a === "enUp" ? -1 : 1)) return; }
   else if (a === "enDel") { if (j.endings.length === 1) return; j.endings.splice(w.ni, 1); }
@@ -1102,7 +1161,8 @@ function simPaint() {
   let tail = "";
   if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:pointer" data-sim="pick" data-i="${i}">${esc(nameIn(ch.label) || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
   else if (sim.ending !== undefined) {
-    const en = sim.ending, ach = en && j.achievement.ending === en.id && j.achievement.name;
+    const en = sim.ending, allIt = [...new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)))];
+    const ach = en && achList(j).filter((a) => (a.kind === "ending" && a.ending === en.id) || (a.kind === "items_all" && allIt.length && allIt.every((x) => sim.items.includes(x)))).map((a) => a.name).join("、");
     tail = en ? `<div class="endcard"><h3>${esc(en.title || "（結局沒有名字）")}${en.rare ? "・稀有" : ""}</h3><div class="line">${esc(nameIn(en.text))}</div>
       ${en.insight ? `<div class="line" style="margin-top:8px;color:var(--gold)">「${esc(en.insight)}」</div>` : ""}
       ${en.npc_fate ? `<p class="fxnote" style="margin:6px 0 0">人物下場：${esc(en.npc_fate)}</p>` : ""}
@@ -1202,9 +1262,15 @@ function jChecksOf(j) {
     if (h.who && !(h.memory || "").trim()) E(`${n}留了懸念給${CHARS[h.who]}，但沒寫${CHARS[h.who]}知道的事：玩家去問時會接不上。`);
   });
   if (j.npcs.length && ens.length > 1 && !ens.some((en) => (en.npc_fate || "").trim())) W("有本篇人物，但沒有任何結局寫人物下場：玩家再走一次的理由會變弱。");
-  if (!(j.achievement.name || "").trim()) W("這一卦的成就還沒取名。");
-  if (j.achievement.ending && !ens.some((en) => en.id === j.achievement.ending)) E("成就綁的結局已經被刪掉了。");
-  else if (j.achievement.name && !j.achievement.ending) W("成就還沒綁結局。");
+  if (!achList(j).length) W("這一卦還沒有成就。");
+  achList(j).forEach((a, i) => {
+    const n = `成就 ${i + 1}${a.name ? "「" + a.name + "」" : ""}`;
+    if (!(a.name || "").trim()) E(`成就 ${i + 1} 沒有名字。`);
+    if (a.kind === "ending" && !a.ending) W(`${n}還沒綁結局。`);
+    else if (a.kind === "ending" && !ens.some((en) => en.id === a.ending)) E(`${n}綁的結局已經被刪掉了。`);
+    if (a.kind === "changes_all" && !j.nodes.some((nd) => nd.change.scenes.some((x) => (x.text || "").trim()))) E(`${n}要「六爻的變數都見過」，但這一卦一段變數都沒寫。`);
+    if (a.kind === "items_all" && !allScenes(j).some(([x]) => (x.choices || []).some((c) => c.get))) E(`${n}要「帶齊所有道具」，但沒有任何選項給道具。`);
+  });
   const used = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).flatMap((c) => Object.keys(c.fx || {}))));
   if (used.size) cfg.stats.forEach((st) => { if (!used.has(st.k)) W(`數值「${st.name}」這一篇沒有選項會改到。`); });
   if (allScenes(j).some(([s]) => /你說[：:]/.test(s.text || ""))) W("有一幕寫了「你說：」。玩家選的話會自己留在畫面上，不必再寫。");
@@ -1235,7 +1301,7 @@ function jClean(j) {
     nodes: j.nodes.map((n, i) => ({ yao: i + 1, title: n.title, scenes: jScenes(n.scenes), change: jScenes(n.change.scenes) })),
     endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),
-    achievement: j.achievement, stats: cfg.stats.map((s) => s.k) };
+    achievement: j.achievement, achievements: achList(j), stats: cfg.stats.map((s) => s.k) };
 }
 function jOut() {
   const el = $("jh-out"); if (!el) return;
@@ -1249,7 +1315,7 @@ function jApply(list) {
   if (jcur && jcur !== "__cfg" && jh[jcur] && !jdirty.has(jcur) && !document.activeElement?.closest?.("#jh-main") && jview === "write") jMain();
 }
 function jhInit() {
-  try { if (localStorage.getItem("script-sheet-mode") === "jh") $("modes").querySelector('[data-mode="jh"]').click(); } catch (e) {}
+  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
   if (!db) {
     try { jh = JSON.parse(localStorage.getItem(JLS) || "{}"); Object.assign(cfg, JSON.parse(localStorage.getItem(JLS + "-cfg") || "{}")); } catch (e) {}
     jRail(); return;
@@ -1261,4 +1327,88 @@ function jhInit() {
     if (d && !cfgDirty) { Object.assign(cfg, JSON.parse(JSON.stringify(d.data()))); if (jcur === "__cfg" && !document.activeElement?.closest?.("#jh-main")) cfgMain(); }
   }, () => {});
 }
+</script>
+<script>
+/* ══ 美術需求 ══
+   一列一張圖（立繪或場景）。存在雲端 art_needs/<id>；圖放在這個頁面的資產庫（assets），列上只存 id 與網址。
+   Claude 讀這張表：狀態「用舊圖」「已交」的，把圖下載下來放進 App（前端 src/main/22-case.js 的 CASE_ART_TEST 或 assets/art/）。 */
+const ART_ST = { todo: "待畫", old: "用舊圖", done: "已交", skip: "不用了" };
+let arts = {}, artF = "", assetsNs = null;
+const artTimers = {};
+const artSorted = () => Object.values(arts).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || String(a.key).localeCompare(String(b.key)));
+function artPaint(force) {
+  const list = $("art-list"); if (!list) return;
+  const all = artSorted(), groups = [...new Set(all.map((a) => a.used_in || "其他"))];
+  $("art-filter").innerHTML = ["", ...groups].map((g) => `<button data-af="${esc(g)}" class="${g === artF ? "on" : ""}">${g ? esc(g) : "全部"}</button>`).join("")
+    + `<span class="fxnote" style="margin-left:auto">${all.filter((a) => a.status === "todo").length} 張待畫・${all.filter((a) => a.status === "old" || a.status === "done").length} 張有圖</span>`;
+  // 正在打字：別把輸入框整個換掉（雲端回寫會觸發重畫）
+  if (!force && document.activeElement && document.activeElement.closest && document.activeElement.closest("#art-list") && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  const rows = all.filter((a) => !artF || (a.used_in || "其他") === artF);
+  list.innerHTML = rows.length ? rows.map((a) => `<div class="artrow" data-art="${esc(a.id)}" data-kind="${esc(a.kind)}" tabindex="-1">
+      <label class="artpic" title="點一下選圖，或把圖拖進來">${a.asset_url ? `<img src="${esc(a.asset_url)}" alt="">` : assetsNs ? "放圖" : "（這個畫面不能放圖）"}<input type="file" accept="image/*" data-artfile></label>
+      <div>
+        <div class="arthead"><b>${esc(a.name)}</b><span class="arttag">${esc(a.kind)}</span>${a.key ? `<code>${esc(a.key)}</code>` : ""}<span class="artst-${esc(a.status)}">${ART_ST[a.status] || ""}</span></div>
+        <p class="fxnote" style="margin:0 0 6px">${esc(a.brief || "")}</p>
+        <div class="grid">
+          <label class="field"><span>狀態</span><select data-artk="status">${Object.entries(ART_ST).map(([k, v]) => `<option value="${k}"${k === a.status ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+          <label class="field"><span>現在暫用</span><input type="text" data-artk="temp" value="${esc(a.temp || "")}"></label>
+          <label class="field wide"><span>六六的備註（舊圖檔名、要改的地方…）</span><textarea data-artk="note" rows="2">${esc(a.note || "")}</textarea></label>
+        </div>
+        <p class="fxnote" style="margin:4px 0 0">用在：${esc(a.used_in || "")}${a.scenes ? `・${esc(a.scenes)}` : ""}${a.asset_name ? `・圖：${esc(a.asset_name)}` : ""}</p>
+      </div></div>`).join("") : `<p class="fxnote">這裡還沒有東西。</p>`;
+}
+function artSave(id) {
+  const a = arts[id]; if (!a) return;
+  if (!db) { try { localStorage.setItem("script-sheet-art", JSON.stringify(arts)); } catch (e) {} return; }
+  clearTimeout(artTimers[id]); setSave("有未存的修改…");
+  artTimers[id] = setTimeout(() => db.collection("art_needs").doc(id).set(JSON.parse(JSON.stringify(a)))
+    .then(() => { delete artTimers[id]; setSave("已同步"); })
+    .catch(() => { delete artTimers[id]; setSave("美術需求沒存上", true); }), 500);
+}
+async function artUpload(id, file) {
+  if (!file) return;
+  if (!assetsNs) { alert("這個畫面不能放圖：請從 claude.ai 打開稿紙。"); return; }
+  if (!/^image\//.test(file.type)) { alert("只收圖片"); return; }
+  const pic = document.querySelector(`[data-art="${CSS.escape(id)}"] .artpic`); if (pic) pic.firstChild.textContent = "上傳中…";
+  try {
+    const r = await assetsNs.upload(file);
+    Object.assign(arts[id], { asset_id: r.id, asset_url: r.url, asset_name: file.name, status: arts[id].status === "todo" ? "old" : arts[id].status });
+    artSave(id); artPaint(true);
+  } catch (e) { if (pic) pic.firstChild.textContent = "沒傳上去：" + ((e && e.message) || "再試一次"); }
+}
+function artInit() {
+  const list = $("art-list");
+  $("art-filter").addEventListener("click", (e) => { const b = e.target.closest("[data-af]"); if (!b) return; artF = b.dataset.af; artPaint(true); });
+  list.addEventListener("input", (e) => { const t = e.target, row = t.closest("[data-art]"); if (!row || !t.dataset.artk || t.tagName === "SELECT") return; arts[row.dataset.art][t.dataset.artk] = t.value; artSave(row.dataset.art); });
+  list.addEventListener("change", (e) => {
+    const t = e.target, row = t.closest("[data-art]"); if (!row) return;
+    if (t.dataset.artfile != null) { artUpload(row.dataset.art, t.files[0]); t.value = ""; return; }
+    if (t.dataset.artk === "status") { arts[row.dataset.art].status = t.value; artSave(row.dataset.art); artPaint(true); }
+  });
+  list.addEventListener("click", (e) => { const row = e.target.closest("[data-art]"); if (row && !e.target.closest("input,textarea,select,label")) row.focus(); });
+  list.addEventListener("dragover", (e) => { const row = e.target.closest("[data-art]"); if (!row) return; e.preventDefault(); row.classList.add("drag"); });
+  list.addEventListener("dragleave", (e) => { const row = e.target.closest("[data-art]"); if (row) row.classList.remove("drag"); });
+  list.addEventListener("drop", (e) => { const row = e.target.closest("[data-art]"); if (!row) return; e.preventDefault(); row.classList.remove("drag"); artUpload(row.dataset.art, e.dataTransfer.files[0]); });
+  // 貼上：先點一下那一列，再 Ctrl／⌘＋V
+  document.addEventListener("paste", (e) => {
+    if ($("m-art").hidden) return;
+    const row = document.activeElement && document.activeElement.closest && document.activeElement.closest("[data-art]"); if (!row) return;
+    const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => /^image\//.test(x.type)); if (!f) return;
+    e.preventDefault(); artUpload(row.dataset.art, f);
+  });
+  $("art-add").addEventListener("click", () => {
+    const name = prompt("要哪一張？（例：凌霄 立繪、渡口 夜景）"); if (!name) return;
+    const id = "art_" + Date.now().toString(36);
+    arts[id] = { id, name, kind: /場景|景|口|台|房|院|街|山|河/.test(name) ? "場景" : "立繪", key: "", used_in: artF || "其他", brief: "", status: "todo", temp: "", note: "", order: 900 };
+    artSave(id); artPaint(true);
+  });
+  (async () => { try { assetsNs = window.claude && claude.use ? await claude.use("assets") : null; } catch (e) { assetsNs = null; } artPaint(); })();
+  if (!db) { try { arts = JSON.parse(localStorage.getItem("script-sheet-art") || "{}"); } catch (e) {} artPaint(); return; }
+  db.collection("art_needs").onSnapshot((snap) => {
+    for (const d of snap.docs) if (d.exists && !artTimers[d.id]) arts[d.id] = JSON.parse(JSON.stringify(d.data()));
+    artPaint();
+  }, () => setSave("美術需求讀不到", true));
+}
+
+
 </script>

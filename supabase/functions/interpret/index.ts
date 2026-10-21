@@ -19,6 +19,7 @@ import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
+import { jianghuToday, jianghuStart, jianghuFinish, jianghuBoard, jianghuClaim, type JhResult } from "../_shared/jianghu-run.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyRefresh, monthlyIndex, threadQuotaOf, afterCast, hallMention,
@@ -543,6 +544,8 @@ async function handle(req: Request): Promise<Response> {
           return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
         } catch (_) { return null; }
       })() : null;
+      // 江湖尋訪（0092）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
+      const jianghu = fortuneDone ? await jianghuToday(db, uid) : null;
       // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
       // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
       const guideSeen = profErr ? true : await guideSeenOf(db, uid, prof?.guide_seen_at);
@@ -553,7 +556,7 @@ async function handle(req: Request): Promise<Response> {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jianghu, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
         followupCost: COST.followup, prices: priceTable(),
@@ -1232,6 +1235,18 @@ async function handle(req: Request): Promise<Response> {
       }
       const firstTime = !!done.first;
       return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? done.rewards : {} }, { headers: CORS });
+    }
+
+    /* ═══ 江湖尋訪（0092）═══ 規則在 _shared/jianghu.ts，服務層在 _shared/jianghu-run.ts */
+    if (typeof body.mode === "string" && body.mode.startsWith("jh_")) {
+      const isAdmin = !!ADMIN_USER_ID && uid === ADMIN_USER_ID;
+      const out = (r: JhResult) => r.ok
+        ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
+        : Response.json({ kind: "err", msg: r.msg }, { headers: CORS });
+      if (body.mode === "jh_start") return out(await jianghuStart(db, uid, isAdmin, body));
+      if (body.mode === "jh_finish") return out(await jianghuFinish(db, uid, body));
+      if (body.mode === "jh_board") return out(await jianghuBoard(db, uid, isAdmin));
+      if (body.mode === "jh_claim") return out(await jianghuClaim(db, uid, body));
     }
 
     // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）

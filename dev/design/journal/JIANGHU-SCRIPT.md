@@ -37,7 +37,10 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
     { "title": "", "scenes": [ /* 幕 */ ], "change": { "scenes": [ /* 動爻時多演的幕；空＝這一節沒有變數 */ ] } }
   ],
   "endings": [ /* 結局 */ ],
-  "achievement": { "name": "雨過天青", "desc": "玩家看得到的說明", "ending": "<結局 id>" }
+  "achievements": [                      // 一卦可以好幾個；亮了之後玩家在 App「道籍 › 成就」自己點領取
+    { "id": "qun", "name": "見群龍无首", "desc": "玩家看得到的提示", "kind": "ending", "ending": "<結局 id>", "reward_lingshi": 30 }
+  ],
+  "achievement": { "name": "雨過天青", "desc": "", "ending": "<結局 id>" }   // 舊格式（只綁結局），稿紙自動跟 achievements 同步
 }
 ```
 
@@ -47,10 +50,30 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 `to: "end"`＝這一節結束（往下一節，或先演這一節的變數）。
 `set`＝暗旗標：玩家看不到，只給結局判斷用。數值只能說「傾向」，旗標記的是「做了哪件事」——例：乾為天上爻喊「上去！」設 `登柱`，結局就一定是墜柱，不會因為前面義氣高而跑去喜劇收尾。
 
-場景 `bg`：`guanmen`（觀門）、`kezhan`（山下客棧）、`dukou`（渡口，缺圖）、`leitai`（擂台，缺圖）＋角色事件那幾張；缺圖退回色階。
+場景 `bg`：`guanmen`（觀門）、`kezhan`（山下客棧）、`dukou`（渡口）、`leitai`（擂台）、`longzhu`（龍柱）、`wanjin`（萬金號）＋角色事件那幾張。
+後四張還沒有圖：App 先借舊圖（前端 `story/engine.js` 的 `BG_BORROW`），稿紙「美術需求」頁列著要畫什麼；圖到了放進 `scene/<key>` 就自動換過去。
 
 ### 結局
 `{ id, title, rare, need: { s1: [下限|null, 上限|null] }, flags: ["要有的旗標"], not_flags: ["不能有的旗標"], text, insight, npc_fate, reward_lingshi, player_title: { label, desc, call_as }, hook: { who, ask, memory } | null }`
+
+### 成就
+`kind` 四種（後端 `_shared/jianghu.ts` 的 `litAchievements`）：
+
+| kind | 什麼時候亮 |
+|---|---|
+| `ending` | 走到 `ending` 那個結局 |
+| `endings_all` | 這一卦所有結局都走過（累計） |
+| `changes_all` | 有變數幕的爻，每一爻的變數都演過（累計；動爻靠運氣，再走一趟會重搖） |
+| `items_all` | 一趟之內，劇本裡所有道具都帶在身上 |
+
+## 上線：稿紙 → App
+1. 稿紙存好（Claude 讀雲端 `jianghu/gua_NN`）→ 存成 `dev/design/journal/jianghu/gua_NN.json`
+2. `node dev/jianghu-seed.mjs > supabase/migrations/00xx_jianghu_<名>.sql`，跑 migration（status 是 review／temp／final 的才上架）
+3. 後端照劇本重演判結局：客戶端只送每個選擇點的 key（`jh_finish`），結局表與成就條件不下發
+4. `node dev/jianghu-test.mts`：乾為天六條路線、成就、亂送 key 的檢查
+
+App 端：`src/pages/jianghu.js`（入口、演出、結局卡、成就榜）。資料表：`0092_jianghu.sql`
+（每天第一趟免費、動爻照日運卦；再走一趟扣 `jianghu_config.replay_cost`、動爻重搖；第一次走到的結局發靈石＋稱號＋寫記憶）。
 
 ## 共用設定（jianghu_cfg/main）
 `stats: [{ k: "s1"…"s4", name, desc }]`（k 固定，改名不影響已寫的選項）；化名：`surnames`、`compound`（一成機會）、`given1`、`given2`（兩成機會只取第二字當單名）。
@@ -67,4 +90,4 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 | 一卦一篇、大綱欄位、保底結局、成就綁結局、本篇人物、回觀求助的客串、試玩可重現、發佈前檢查 | 任意節點圖（改用六爻六節）、巢狀且／或／非條件、乘法效果、冷卻與延後觸發、關係值、三種範圍的旗標（只做單篇內的暗旗標）、隨機身分池（改成單一偽裝身分）、頁面內 AI 局部重生與差異比對（改成 Claude 讀寫雲端存檔） |
 
 ## 範本
-`gua_01` 乾為天「龍不歸淵」（2026-10-21，Claude 初稿）：六節、六個結局（含一個稀有、一個 NPC 死亡）、六個變數、四個道具、四個旗標。寫新篇先照它的密度：主線約 2500 字、8 處選擇。
+`gua_01` 乾為天「龍不歸淵」（2026-10-21，Claude 初稿）：六節、六個結局（含一個稀有、一個 NPC 死亡）、六個變數、六個道具、四個旗標、四個成就（見群龍无首／時乘六龍／六位時成／品物流形）。寫新篇先照它的密度：主線約 2500 字、8 處選擇。
