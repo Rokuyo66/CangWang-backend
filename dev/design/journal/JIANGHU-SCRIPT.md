@@ -72,7 +72,7 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 3. 後端照劇本重演判結局：客戶端只送每個選擇點的 key（`jh_finish`），結局表與成就條件不下發
 4. `node dev/jianghu-test.mts`：乾為天六條路線、成就、亂送 key 的檢查
 
-App 端：`src/pages/jianghu.js`（入口、演出、結局卡、成就榜）。資料表：`0092_jianghu.sql`
+App 端：`src/pages/jianghu.js`（入口、演出、結局卡、成就榜）。資料表：`0095_jianghu.sql`
 （每天第一趟免費、動爻照日運卦；再走一趟扣 `jianghu_config.replay_cost`、動爻重搖；第一次走到的結局發靈石＋稱號＋寫記憶）。
 
 ## 共用設定（jianghu_cfg/main）

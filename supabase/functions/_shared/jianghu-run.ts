@@ -1,4 +1,4 @@
-// _shared/jianghu-run.ts — 江湖尋訪的伺服端服務層（資料表與發獎在 0092_jianghu.sql，規則在 jianghu.ts）。
+// _shared/jianghu-run.ts — 江湖尋訪的伺服端服務層（資料表與發獎在 0095_jianghu.sql，規則在 jianghu.ts）。
 //
 // 四支：今天的江湖（profile 帶）、開一趟、走完、成就榜＋領獎。
 // 進度與獎勵一律在這裡判：客戶端只送「選了哪些 key」，結局是這裡照劇本重演算出來的。

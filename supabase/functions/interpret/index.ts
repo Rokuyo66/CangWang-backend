@@ -544,7 +544,7 @@ async function handle(req: Request): Promise<Response> {
           return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
         } catch (_) { return null; }
       })() : null;
-      // 江湖尋訪（0092）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
+      // 江湖尋訪（0095）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
       const jianghu = fortuneDone ? await jianghuToday(db, uid) : null;
       // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
       // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
@@ -1237,7 +1237,7 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? done.rewards : {} }, { headers: CORS });
     }
 
-    /* ═══ 江湖尋訪（0092）═══ 規則在 _shared/jianghu.ts，服務層在 _shared/jianghu-run.ts */
+    /* ═══ 江湖尋訪（0095）═══ 規則在 _shared/jianghu.ts，服務層在 _shared/jianghu-run.ts */
     if (typeof body.mode === "string" && body.mode.startsWith("jh_")) {
       const isAdmin = !!ADMIN_USER_ID && uid === ADMIN_USER_ID;
       const out = (r: JhResult) => r.ok
