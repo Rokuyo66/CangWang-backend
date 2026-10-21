@@ -198,6 +198,10 @@ async function userFromJwt(jwt: string): Promise<string | null> {
 // App 最低版本。0＝不啟用。調高即刻讓舊版 App 失去「需登入」的功能（排盤、複製、看廣場不受影響）。
 // 不寫死在程式裡：要擋哪一版是營運決定，改 env 即可，不必重新部署函式。
 const MIN_APP_BUILD = Number(Deno.env.get("MIN_APP_BUILD") ?? "0");
+// 美術版本號：前端遠端圖（Storage 的場景、立繪）網址後面的 ?v=。換了同名的圖才改它，App 下次開才重抓；
+// 平常一律吃手機上的快取（2026-10-21：原本前端用「今天日期」，每天第一次開 App 就整批重新下載）。
+// 設成 Supabase secret ART_VERSION 就不必重新部署；沒設用下面的預設。
+const ART_VERSION = Deno.env.get("ART_VERSION") ?? "20261021";
 
 // 觀前石牆：公開回評牆＋整體準驗統計（免認證唯讀；只出評語/卦名/暱稱，不含問事原文）
 let wallCache: { t: number; payload: Record<string, unknown> } | null = null;
@@ -560,6 +564,7 @@ async function handle(req: Request): Promise<Response> {
             return error || !data ? null : `${data.day}#${data.id}`;
           } catch (_) { return null; }
         })(),
+        artV: ART_VERSION,
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,

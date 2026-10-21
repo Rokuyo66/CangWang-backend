@@ -8,7 +8,7 @@
       "ink": "#1C1917",
       "ink-soft": "#37312A",
       "ink-faint": "#746958",
-      "hair": "rgba(34,30,26,.13)",
+      "hair": "rgba(55,46,37,0.4)",
       "shadow": "rgba(60,48,30,.18)",
       "cinnabar": "#B5402E",
       "cinnabar-soft": "rgba(181,64,46,.13)",
@@ -21,12 +21,12 @@
     },
     "night": {
       "paper": "#15120E",
-      "paper-2": "#2F2923",
-      "paper-edge": "#0D0A08",
+      "paper-2": "#413935",
+      "paper-edge": "#2D2824",
       "ink": "#ECE3D1",
       "ink-soft": "#D5C8AE",
       "ink-faint": "#C1A776",
-      "hair": "rgba(236,227,209,.25)",
+      "hair": "rgba(236,227,209,0.4)",
       "shadow": "rgba(0,0,0,.5)",
       "cinnabar": "#D86A52",
       "cinnabar-soft": "rgba(216,106,82,.16)",
@@ -38,11 +38,11 @@
       "wx-水": "#6fa3c4"
     },
     "bamboo": {
-      "paper": "#E7E9D8",
+      "paper": "#B3C5AF",
       "paper-2": "#D9E1C1",
-      "paper-edge": "#A9B096",
-      "ink": "#12210F",
-      "ink-soft": "#21321A",
+      "paper-edge": "#C8D5C3",
+      "ink": "#25551B",
+      "ink-soft": "#5D744E",
       "ink-faint": "#3C5D3E",
       "hair": "rgba(18,33,15,.18)",
       "shadow": "rgba(35,55,25,.24)",
@@ -56,13 +56,13 @@
       "wx-水": "#2B7F91"
     },
     "cinnabar": {
-      "paper": "#220907",
-      "paper-2": "#69120C",
-      "paper-edge": "#4E1A15",
+      "paper": "#3B100C",
+      "paper-2": "#7C0E1E",
+      "paper-edge": "#5D150E",
       "ink": "#FAE2E0",
       "ink-soft": "#FBD1CB",
       "ink-faint": "#DDA59C",
-      "hair": "rgba(250,226,224,0.3)",
+      "hair": "rgba(250,226,224,0.4)",
       "shadow": "rgba(0,0,0,0.65)",
       "cinnabar": "#E34234",
       "cinnabar-soft": "rgba(227,66,52,.18)",
@@ -77,10 +77,10 @@
       "paper": "#F5F8FC",
       "paper-2": "#DEE8F5",
       "paper-edge": "#A6BFDF",
-      "ink": "#001F52",
-      "ink-soft": "#2A477A",
-      "ink-faint": "#1456B8",
-      "hair": "rgba(0,31,82,.16)",
+      "ink": "#072350",
+      "ink-soft": "#345DA2",
+      "ink-faint": "#6D88B0",
+      "hair": "rgba(0,31,82,0.3)",
       "shadow": "rgba(0,40,110,.24)",
       "cinnabar": "#144190",
       "cinnabar-soft": "rgba(0,61,165,.13)",
@@ -473,9 +473,173 @@
       "at": "2026-10-20T16:00:00Z",
       "applied": true,
       "note": "7 項色碼（宣紙墨三階、夜觀與硃砂淡墨兩階）與字多頁墊圖（清楚段 50%、濃度 30%、模糊 1px）已套用到前端，基準更新"
+    },
+    {
+      "at": "2026-10-21T02:15:55.947Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#2F2923",
+          "to": "#413935"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#0D0A08",
+          "to": "#2D2824"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-21T02:18:13.308Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper",
+          "name": "紙",
+          "from": "#E7E9D8",
+          "to": "#B3C5AF"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#A9B096",
+          "to": "#C8D5C3"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "ink",
+          "name": "墨",
+          "from": "#12210F",
+          "to": "#25551B"
+        },
+        {
+          "kind": "token",
+          "theme": "bamboo",
+          "tn": "竹簡",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#21321A",
+          "to": "#5D744E"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-21T02:19:56.266Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "paper",
+          "name": "紙",
+          "from": "#220907",
+          "to": "#3B100C"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "paper-2",
+          "name": "次一階紙",
+          "from": "#69120C",
+          "to": "#7C0E1E"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "paper-edge",
+          "name": "紙邊",
+          "from": "#4E1A15",
+          "to": "#5D150E"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-21T02:21:52.489Z",
+      "changes": [
+        {
+          "kind": "token",
+          "theme": "xuan",
+          "tn": "宣紙",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(34,30,26,.13)",
+          "to": "rgba(55,46,37,0.4)"
+        },
+        {
+          "kind": "token",
+          "theme": "night",
+          "tn": "夜觀",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(236,227,209,.25)",
+          "to": "rgba(236,227,209,0.4)"
+        },
+        {
+          "kind": "token",
+          "theme": "cinnabar",
+          "tn": "硃砂",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(250,226,224,0.3)",
+          "to": "rgba(250,226,224,0.4)"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "ink",
+          "name": "墨",
+          "from": "#001F52",
+          "to": "#072350"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "ink-soft",
+          "name": "淡墨",
+          "from": "#2A477A",
+          "to": "#345DA2"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "ink-faint",
+          "name": "極淡墨",
+          "from": "#1456B8",
+          "to": "#6D88B0"
+        },
+        {
+          "kind": "token",
+          "theme": "porcelain",
+          "tn": "青花",
+          "key": "hair",
+          "name": "細線",
+          "from": "rgba(0,31,82,.16)",
+          "to": "rgba(0,31,82,0.3)"
+        }
+      ]
     }
   ],
-  "savedAt": "2026-10-20T15:16:02.421Z",
+  "savedAt": "2026-10-21T02:21:52.489Z",
   "backdrop": {
     "scene": {
       "h": 560,
