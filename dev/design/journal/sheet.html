@@ -908,7 +908,9 @@ const OUTLINE = [["theme", "核心卦理／主題", 1], ["summary", "一句摘�
   ["must_include", "一定要出現", 1], ["must_avoid", "不要出現", 1], ["source_notes", "卦理校對備註", 2]];
 const whoOptsJ = (j) => Object.assign({ narr: "旁白", me: "你" }, CHARS, Object.fromEntries(j.npcs.map((n) => ["npc:" + n.id, n.name || "（未命名人物）"])), { other: "其他人" });
 const whoOfJ = (s) => s.npc ? "npc:" + s.npc : whoOf(s);
-const pOptsJ = () => ({ keep: "沿用上一幕", none: "收起", ...CHARS });
+// 本篇人物也能掛立繪：圖放進 App 的 art/char/<人物 id>（美術需求頁那一列的 key）
+const pOptsJ = () => ({ keep: "沿用上一幕", none: "收起", ...CHARS,
+  ...Object.fromEntries(((jh[jcur] && jh[jcur].npcs) || []).filter((n) => n.name).map((n) => [n.id, n.name + "（本篇）"])) });
 function needHtml(need, attr) {
   return `<div class="need">${cfg.stats.map((st) => { const v = need[st.k] || []; return `<span>${esc(st.name)}
     ≥ <input type="number" ${attr} data-nk="${st.k}" data-nb="0" value="${v[0] ?? ""}" placeholder="不限" aria-label="${esc(st.name)} 下限">
