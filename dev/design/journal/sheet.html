@@ -256,7 +256,8 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 <script>
 const CHARS = { daoshi_m:"大師兄", daoshi_f:"師妹", lingshou:"觀貓" };
 const BGS = { guanmen:"觀門", cangjingge:"藏經閣", dadian:"大殿", zhongting:"中庭", langxia:"廊下",
-  qianting:"前廳", xiangfang:"廂房", zaofang:"灶房", houyuan:"後院", wuji:"屋脊", cangshu:"藏書（舊 key）", houshan:"後山（舊 key）" };
+  qianting:"前廳", xiangfang:"廂房", zaofang:"灶房", houyuan:"後院", wuji:"屋脊", cangshu:"藏書（舊 key）", houshan:"後山（舊 key）",
+  kezhan:"山下客棧", dukou:"渡口（缺圖）", leitai:"擂台（缺圖）" };
 const STATUS = { draft:"草稿", review:"待看", final:"定稿", temp:"暫用" };
 const TIERS = [[0,"初識"],[300,"相熟"],[500,"相知"],[800,"知己"]];
 const INTIMATE = /親密|喜歡|愛你|愛意|曖昧|撒嬌|熱絡|親近|心動|依戀|戀/;
@@ -934,7 +935,8 @@ function sceneRow(j, ss, s, k) {
       <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select>
       <span class="rowops"><button data-ja="chDel" title="刪掉這個選項">✕</button></span>
       <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="選了得到的道具（可空）" aria-label="得到道具">
-      <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="要有這個道具才出現（可空）" aria-label="需要道具"></div>`).join("")}</div>` : ""}
+      <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="要有這個道具才出現（可空）" aria-label="需要道具">
+      <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="設旗標（玩家看不到，結局用；可空）" aria-label="設旗標"></div>`).join("")}</div>` : ""}
   </div>`;
 }
 function jWrite() {
@@ -954,6 +956,10 @@ function jWrite() {
         <label class="meta"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有</label>
         <span class="rowops"><button data-ja="enUp" title="上移">▲</button><button data-ja="enDown" title="下移">▼</button><button data-ja="enDel" title="刪掉">✕</button></span></div>
       <div class="field"><span>條件 <em>${i === j.endings.length - 1 ? "（最後一個：請全部留空，當保底）" : "（全部符合才算；留空＝不限）"}</em></span>${needHtml(en.need, 'data-nneed')}</div>
+      <div class="grid">
+        <label class="field"><span>要有旗標 <em>（逗號分隔）</em></span><input type="text" data-nfl="flags" value="${esc((en.flags || []).join("、"))}"></label>
+        <label class="field"><span>不能有旗標</span><input type="text" data-nfl="not_flags" value="${esc((en.not_flags || []).join("、"))}"></label>
+      </div>
       <label class="field"><span>結語</span><textarea rows="2" data-nf="text">${esc(en.text)}</textarea></label>
       <div class="grid">
         <label class="field wide"><span>一句領悟</span><input type="text" data-nf="insight" value="${esc(en.insight)}"></label>
@@ -1035,6 +1041,7 @@ function onEdit(e, structural) {
     else if (t.dataset.pt) en.player_title[t.dataset.pt] = t.value;
     else if (t.dataset.hk) { if (t.dataset.hk === "who" && !structural) return; en.hook[t.dataset.hk] = t.value; }
     else if (t.hasAttribute("data-nneed")) setNeed(en.need, t.dataset.nk, t.dataset.nb, t.value);
+    else if (t.dataset.nfl) en[t.dataset.nfl] = items(t.value);
     jtouch(jcur);
   }
 }
@@ -1072,7 +1079,8 @@ $("jh-main").addEventListener("click", (e) => {
 
 /* ── 試走一趟：六爻依序演，動爻那一節多演變數，最後比結局表 ── */
 const needOk = (need, st) => Object.entries(need || {}).every(([k, [lo, hi]]) => (lo == null || (st[k] || 0) >= lo) && (hi == null || (st[k] || 0) <= hi));
-const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st)) || null;
+const flagsOk = (en, fl) => (en.flags || []).every((f) => fl.includes(f)) && !(en.not_flags || []).some((f) => fl.includes(f));
+const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st) && flagsOk(en, sim ? sim.flags : [])) || null;
 const nameIn = (t) => String(t || "").replace(/\{名\}/g, sim ? sim.name : "{名}");
 function simLine(j, s) {
   const w = whoOfJ(s), npc = s.npc && j.npcs.find((n) => n.id === s.npc);
@@ -1090,7 +1098,7 @@ function simPaint() {
       <div><button class="btn primary" data-sim="start">入場</button> <button class="btn" data-sim="rand">隨機動爻入場</button></div></div>`;
     return;
   }
-  const stats = `<div class="stats">${cfg.stats.map((x) => `<span>${esc(x.name)} ${sim.st[x.k] || 0}</span>`).join("")}<span>${esc(sim.name)}</span><span>動爻 ${sim.moving.length ? sim.moving.map((i) => YAO[i].slice(0, 1)).join("") : "無"}</span>${sim.items.length ? `<span>帶著 ${sim.items.map(esc).join("、")}</span>` : ""}</div>`;
+  const stats = `<div class="stats">${cfg.stats.map((x) => `<span>${esc(x.name)} ${sim.st[x.k] || 0}</span>`).join("")}<span>${esc(sim.name)}</span><span>動爻 ${sim.moving.length ? sim.moving.map((i) => YAO[i].slice(0, 1)).join("") : "無"}</span>${sim.items.length ? `<span>帶著 ${sim.items.map(esc).join("、")}</span>` : ""}${sim.flags.length ? `<span class="fxnote">旗標 ${sim.flags.map(esc).join("、")}</span>` : ""}</div>`;
   let tail = "";
   if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:pointer" data-sim="pick" data-i="${i}">${esc(nameIn(ch.label) || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
   else if (sim.ending !== undefined) {
@@ -1141,7 +1149,7 @@ function simAct(b) {
       moving = act === "rand" ? YAO.map((_, i) => i).filter(() => Math.random() < 0.3) : [...$("jh-body").querySelectorAll("[data-mv]:checked")].map((x) => +x.dataset.mv);
       name = $("sim-nm").value === "alias" ? alias(Date.now()) : ($("sim-own").value.trim() || "無名");
     }
-    sim = { name, moving, st: {}, items: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
+    sim = { name, moving, st: {}, items: [], flags: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
     if ((j.opening.text || "").trim()) sim.log.push(`${j.opening.bg ? `<div class="place">${esc(BGS[j.opening.bg] || "")}</div>` : ""}<div class="line narr">${esc(nameIn(j.opening.text))}</div>`);
     simStep();
   } else if (act === "next") simStep();
@@ -1149,6 +1157,7 @@ function simAct(b) {
     const ch = sim.choices[+b.dataset.i], fx = Object.entries(ch.fx || {});
     fx.forEach(([k, v]) => { sim.st[k] = (sim.st[k] || 0) + v; });
     if (ch.get && !sim.items.includes(ch.get)) sim.items.push(ch.get);
+    if (ch.set && !sim.flags.includes(ch.set)) sim.flags.push(ch.set);
     const nm = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
     sim.log.push(`<div class="line me"><span class="sp">你選</span>${esc(nameIn(ch.label))}${ch.get ? ` <span class="fxnote">（得到 ${esc(ch.get)}）</span>` : ""}${fx.length ? ` <span class="fxnote">（${fx.map(([k, v]) => nm(k) + (v > 0 ? "+" : "") + v).join("、")}）</span>` : ""}</div>`);
     sim.choices = null;
@@ -1179,8 +1188,11 @@ function jChecksOf(j) {
   });
   j.npcs.forEach((n) => { if (!(n.name || "").trim()) E("本篇人物有一位沒有名字。"); else if (!allScenes(j).some(([s]) => s.npc === n.id) && !allScenes(j).some(([s]) => (s.text || "").includes(n.name))) W(`人物「${n.name}」沒有出場。`); });
   const ens = j.endings;
-  if (Object.keys(ens[ens.length - 1].need).length) E("最後一個結局有條件：請留空當保底。");
-  ens.slice(0, -1).forEach((en, i) => { if (!Object.keys(en.need).length) E(`結局 ${i + 1} 沒有條件卻不是最後一個：它會擋住下面所有結局。`); });
+  const hasCond = (en) => Object.keys(en.need).length || (en.flags || []).length || (en.not_flags || []).length;
+  if (hasCond(ens[ens.length - 1])) E("最後一個結局有條件：請留空當保底。");
+  ens.slice(0, -1).forEach((en, i) => { if (!hasCond(en)) E(`結局 ${i + 1} 沒有條件卻不是最後一個：它會擋住下面所有結局。`); });
+  const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
+  ens.forEach((en, i) => [...(en.flags || []), ...(en.not_flags || [])].forEach((f) => { if (!sets.has(f)) E(`結局 ${i + 1} 看旗標「${f}」，但沒有任何選項會設它。`); }));
   ens.forEach((en, i) => {
     const n = `結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""}`;
     if (!(en.title || "").trim()) E(`結局 ${i + 1} 沒有名字。`);
@@ -1213,7 +1225,7 @@ function jChecks() {
 function jScenes(ss) {
   return ss.filter((s) => (s.text || "").trim()).map((s) => {
     const o = {}; for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (k in s && s[k] !== undefined && s[k] !== "") o[k] = s[k];
-    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req"]) if (c[k]) x[k] = c[k]; return x; });
+    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req", "set"]) if (c[k]) x[k] = c[k]; return x; });
     if (cs.length) o.choices = cs; return o;
   });
 }
@@ -1221,7 +1233,7 @@ function jClean(j) {
   return { id: j.id, gua_no: j.gua_no, gua: j.gua, title: j.title, tone: j.tone, player_summary: j.outline.player_summary,
     identity: j.identity, npcs: j.npcs, opening: j.opening,
     nodes: j.nodes.map((n, i) => ({ yao: i + 1, title: n.title, scenes: jScenes(n.scenes), change: jScenes(n.change.scenes) })),
-    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, text: en.text, insight: en.insight, npc_fate: en.npc_fate,
+    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),
     achievement: j.achievement, stats: cfg.stats.map((s) => s.k) };
 }
