@@ -1417,7 +1417,8 @@ function jChecksOf(j) {
   const chars = (j.opening.text || "").length + j.nodes.reduce((a, n) => a + n.scenes.reduce((b, s) => b + (s.text || "").length, 0), 0);
   const nChoice = j.nodes.reduce((a, n) => a + n.scenes.filter((s) => (s.choices || []).length).length, 0);
   const mins = chars / 300 + nChoice * 0.15;
-  if (chars) (mins < 4 || mins > 11 ? W : O)(`主線約 ${chars} 字、${nChoice} 處選擇，一趟約 ${mins.toFixed(1)} 分鐘（目標 5～10；變數另計）。`);
+  // 長度只是參考：故事說清楚優先（六六 2026-10-21），不當成警告
+  if (chars) O(`主線約 ${chars} 字、${nChoice} 處選擇，一趟約 ${mins.toFixed(1)} 分鐘（變數另計）。`);
   return out;
 }
 function jChecks() {
