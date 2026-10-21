@@ -12,7 +12,7 @@ import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
-import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { detectCrisis, crisisMessage, logCrisis, CRISIS_LINES } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
@@ -1546,6 +1546,8 @@ async function handle(req: Request): Promise<Response> {
         xinji: r.xinji,
         msg_id: r.msgId,   // 這一則要朗讀或收藏時指名用（tts / voice_keep 的 chat_id）
         found: r.found ?? null,   // 剛撞見隱藏支線：信已寄出，前端提示「有你的信」
+        // 危機：角色只接住人；求助管道由前端以旁白卡片放在這一則底下（不從角色嘴裡念電話）
+        crisis: !!(r as { crisis?: boolean }).crisis, crisis_lines: (r as { crisis?: boolean }).crisis ? CRISIS_LINES : null,
       }, { headers: CORS });
     }
 

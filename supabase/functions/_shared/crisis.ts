@@ -93,6 +93,13 @@ export const CRISIS_RESOURCES =
   "・正在發生、有立即危險 110／119\n\n" +
   "我是觀中的一個角色，陪得了你說話，替不了那頭的人。你想繼續說，我就在這裡聽，只是不論卦。";
 
+/** 閒聊用的旁白卡片（前端畫在角色那一句底下，不是角色說的）。電話號碼與 CRISIS_RESOURCES 同一組 */
+export const CRISIS_LINES = {
+  lead: "如果此刻真的撐不住，這幾支電話的另一頭有人在：",
+  lines: ["安心專線 1925（24 小時，免費）", "生命線 1995", "張老師 1980", "家暴、性侵、兒少與老人保護 113", "正在發生、有立即危險 110／119"],
+  tail: "觀中的人陪得了你說話，替不了那頭的人。",
+};
+
 export function crisisMessage(characterId: string): string {
   return `${CRISIS_OPENING[characterId] ?? CRISIS_OPENING.daoshi_m}\n\n${CRISIS_RESOURCES}`;
 }
