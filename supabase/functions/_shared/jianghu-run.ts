@@ -4,7 +4,7 @@
 // 進度與獎勵一律在這裡判：客戶端只送「選了哪些 key」，結局是這裡照劇本重演算出來的。
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { walk, clientDoc, litAchievements, achievementsOf, movingOf, rollMoving, alias, type Doc } from "./jianghu.ts";
+import { walk, clientDoc, litAchievements, achievementsOf, movingOf, rollMoving, alias, STATS_DEFAULT, type Doc } from "./jianghu.ts";
 
 export type JhResult = { ok: true; payload: Record<string, unknown> } | { ok: false; msg: string };
 const bad = (msg: string): JhResult => ({ ok: false, msg });
@@ -14,8 +14,10 @@ const good = (payload: Record<string, unknown>): JhResult => ({ ok: true, payloa
 export const taipeiDay = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 
 async function config(db: SupabaseClient) {
-  const { data } = await db.from("jianghu_config").select("replay_cost, alias").eq("id", "main").maybeSingle();
-  return { replayCost: (data?.replay_cost as number | undefined) ?? 10, alias: (data?.alias ?? {}) as Record<string, string> };
+  // select *：stats 欄是 0098 才加的，沒跑 0098 也不會整支失敗
+  const { data } = await db.from("jianghu_config").select("*").eq("id", "main").maybeSingle();
+  const stats = Array.isArray(data?.stats) && data.stats.length ? data.stats as { k: string; name: string }[] : STATS_DEFAULT;
+  return { replayCost: (data?.replay_cost as number | undefined) ?? 10, alias: (data?.alias ?? {}) as Record<string, string>, stats };
 }
 /** 今天的日運卦（名字＋動爻）。沒抽＝null */
 async function todayFortune(db: SupabaseClient, uid: string, day: string) {
@@ -83,7 +85,7 @@ export async function jianghuStart(db: SupabaseClient, uid: string, isAdmin: boo
   if (error || !r) { console.error("jianghu_start", error); return bad("江湖路斷，稍後再試"); }
   if (!r.ok) return r.reason === "lingshi" ? bad(`靈石不足：再走一趟要 ${r.cost} 顆`) : bad("開不了這一趟");
   return good({ run_id: r.run_id, moving: r.moving, cost: r.cost, balance: r.balance ?? null, resumed: r.resumed,
-    name, gua: ev.gua, gua_no: ev.gua_no, doc: clientDoc(ev.doc) });
+    name, gua: ev.gua, gua_no: ev.gua_no, doc: clientDoc(ev.doc), stats: cfg.stats.map((x) => ({ k: x.k, name: x.name })) });
 }
 
 async function finishedRuns(db: SupabaseClient, uid: string, gua: number) {

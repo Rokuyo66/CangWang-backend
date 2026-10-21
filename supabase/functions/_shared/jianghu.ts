@@ -128,7 +128,9 @@ export function clientDoc(doc: Doc) {
     const o: Record<string, unknown> = {};
     for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (s[k] !== undefined && s[k] !== "") o[k] = s[k];
     if (s.choices?.length) o.choices = s.choices.filter((c) => String(c.label ?? "").trim())
-      .map((c) => ({ key: c.key, label: c.label, ...((c as { hint?: string }).hint ? { hint: (c as { hint?: string }).hint } : {}), ...(c.to ? { to: c.to } : {}), ...(c.req ? { req: c.req } : {}), ...(c.get ? { get: c.get } : {}) }));
+      .map((c) => ({ key: c.key, label: c.label, ...((c as { hint?: string }).hint ? { hint: (c as { hint?: string }).hint } : {}), ...(c.to ? { to: c.to } : {}), ...(c.req ? { req: c.req } : {}), ...(c.get ? { get: c.get } : {}),
+        // fx 下發：選了之後畫面上那一格數值要動（六六 2026-10-21）。選之前不顯示，結局表照樣不下發
+        ...(c.fx && Object.keys(c.fx).length ? { fx: c.fx } : {}) }));
     return o;
   };
   return {
@@ -138,6 +140,11 @@ export function clientDoc(doc: Doc) {
     nodes: doc.nodes.map((n) => ({ title: n.title ?? "", scenes: (n.scenes ?? []).map(sc), change: (n.change?.scenes ?? []).map(sc) })),
   };
 }
+
+/** 四項數值的名字（全江湖共用；jianghu_config.stats 可改，這是沒設時的預設） */
+export const STATS_DEFAULT = [
+  { k: "s1", name: "正氣" }, { k: "s2", name: "眼力" }, { k: "s3", name: "名聲" }, { k: "s4", name: "人緣" },
+];
 
 /** 動爻：lines（casts.lines，6／9 是動爻，lines[0]＝初爻）→ 動的爻號 */
 export const movingOf = (lines: number[] | null | undefined) =>

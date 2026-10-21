@@ -50,7 +50,7 @@ t("亂送 key、多送、少送都拒絕", () => {
 });
 t("下發的劇本不帶結局與成就條件", () => {
   const s = JSON.stringify(J.clientDoc(doc));
-  for (const k of ["endings", "insight", "npc_fate", "achievements", "\"fx\"", "\"set\"", "outline"]) if (s.includes(k)) throw new Error("帶了 " + k);
+  for (const k of ["endings", "insight", "npc_fate", "achievements", "\"set\"", "outline"]) if (s.includes(k)) throw new Error("帶了 " + k);
 });
 t("化名同一個種子固定", () => { if (J.alias("2026-10-21|1|u") !== J.alias("2026-10-21|1|u")) throw new Error(); });
 t("動爻：6、9 是動爻", () => { if (JSON.stringify(J.movingOf([7, 9, 8, 6, 7, 7])) !== "[1,3]") throw new Error(); });
