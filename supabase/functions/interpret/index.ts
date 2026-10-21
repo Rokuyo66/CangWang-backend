@@ -535,6 +535,14 @@ async function handle(req: Request): Promise<Response> {
       const plazaUnreadCount = pnCount ?? 0;
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
+      // 今日日運卦的卦名：觀堂那一條抽過之後改成「卦名，江湖尋訪」（六六 2026-10-21；江湖的本卦＝今日日運卦）
+      const fortuneGua = fortuneDone ? await (async () => {
+        try {
+          const { data } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid).eq("category", "日運")
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
+        } catch (_) { return null; }
+      })() : null;
       // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
       // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
       const guideSeen = profErr ? true : await guideSeenOf(db, uid, prof?.guide_seen_at);
@@ -545,7 +553,7 @@ async function handle(req: Request): Promise<Response> {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
         followupCost: COST.followup, prices: priceTable(),
@@ -1894,8 +1902,10 @@ async function handle(req: Request): Promise<Response> {
 
     // 讀過某篇：清掉該篇的未讀（前端開啟貼文內頁時呼叫）
     if (body.mode === "plaza_seen") {
-      if (!body.post_id) return Response.json({ kind: "err", msg: "post_id required" }, { headers: CORS });
-      await db.from("plaza_notices").delete().eq("user_id", uid).eq("post_id", body.post_id);
+      // all:true＝進廣場一次就全部清掉（六六 2026-10-21：紅點只在觀堂的廣場鈕，點進去就算看過）
+      if (!body.post_id && body.all !== true) return Response.json({ kind: "err", msg: "post_id required" }, { headers: CORS });
+      if (body.all === true) await db.from("plaza_notices").delete().eq("user_id", uid);
+      else await db.from("plaza_notices").delete().eq("user_id", uid).eq("post_id", body.post_id);
       const { count } = await db.from("plaza_notices").select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
       return Response.json({ kind: "ok", plazaUnread: count ?? 0 }, { headers: CORS });
     }
