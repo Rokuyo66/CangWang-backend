@@ -25,7 +25,7 @@ t("拆旗 → 見群龍无首（六爻皆動）", () => { const w = keep(route([
 t("喊上去 → 亢龍有悔", () => { const w = keep(route([], ["找他","肋下","收下錦囊","回客棧","躍上","搖頭","上去"])); if (title(w) !== "亢龍有悔") throw new Error(title(w)); });
 t("陪爬 → 龍柱之上", () => { const w = keep(route([], ["替婆婆","陪你練","卦我替","揣進懷裡","當眾","把帳本","陪他一起"])); if (title(w) !== "龍柱之上") throw new Error(title(w)); });
 t("揭帳本 → 飛龍在天", () => { const w = keep(route([], ["撕下","把渡錢告示","卦我替","揣進懷裡","當眾","把帳本","攔住"])); if (title(w) !== "飛龍在天") throw new Error(title(w)); });
-t("看清不出手 → 潛龍在淵", () => { const w = keep(route([], ["撕下","肋下","推回去","繞到","只記下","站在台下","搖頭","攔住"])); if (title(w) !== "潛龍在淵") throw new Error(title(w)); });
+t("看清不出手 → 潛龍在淵", () => { const w = keep(route([], ["撕下","肋下","不敢起","推回去","繞到","只記下","站在台下","搖頭","攔住"])); if (title(w) !== "潛龍在淵") throw new Error(title(w)); });
 t("保底 → 空手而歸", () => { const w = keep(route([], ["找他","陪你練","收下","回客棧","躍上","搖頭","攔住"])); if (title(w) !== "空手而歸") throw new Error(title(w)); });
 t("六條路走完：見群龍无首、六位時成亮；時乘六龍亮（第一趟六爻皆動）", () => {
   const lit = J.litAchievements(doc, runs);

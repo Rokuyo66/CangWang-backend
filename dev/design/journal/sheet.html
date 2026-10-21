@@ -166,15 +166,49 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .need{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:13px}
 .need span{display:flex;gap:4px;align-items:center}
 .need input{width:58px;padding:3px 6px}
-.er{display:grid;grid-template-columns:110px 120px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--hair)}
+.er{display:grid;grid-template-columns:18px auto 130px 130px minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 10px 8px;border:1px solid var(--hair);border-radius:10px;background:var(--paper);margin:0}
+.er .cell{grid-column:1/-1}
+.er>.rowops{grid-column:-2/-1;justify-self:end}
+.er.target{border-color:var(--gold)}
+.er.dragging{opacity:.35}
+.grip{cursor:grab;color:var(--ink-faint);font-size:14px;line-height:1;user-select:none;touch-action:none;letter-spacing:-2px}
+.grip:active{cursor:grabbing}
+.sctag{font-size:12px;color:var(--gold);letter-spacing:.06em}
+.scflow{font-size:12px;margin:2px 2px 4px;padding:3px 10px;border-radius:999px;display:inline-block}
+.scflow.jump{background:var(--paper-2);color:var(--gold)}
+.scflow.warn{background:var(--paper-2);color:var(--cinnabar)}
+.scend{grid-column:1/-1;font-size:12px;color:var(--cinnabar);border-top:1px dashed var(--hair);padding-top:6px}
+.er-foot{grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.er-foot .ck{display:inline-flex;gap:4px;font-size:12px;color:var(--ink-soft)}
+.scins{display:flex;align-items:center;gap:4px;padding:2px 0;opacity:.35;transition:opacity .15s}
+.scins:hover,.scins:focus-within{opacity:1}
+.scins>span{font-size:11px;color:var(--ink-faint);margin-right:4px}
+.scins .btn{padding:1px 8px;font-size:11.5px}
+.sl.drag-on .scins{opacity:0;pointer-events:none}
+.dropline{height:3px;background:var(--gold);border-radius:2px;margin:2px 0}
+.chs-h{font-size:12px;color:var(--ink-soft)}
+.ec{display:flex;flex-direction:column;gap:5px;padding:8px 10px;background:var(--paper-2);border-radius:8px}
+.ec-r1{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:6px;align-items:center}
+.ec-r2{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12px;color:var(--ink-soft)}
+.ec-r2 select{max-width:280px}
+.ec-r3{display:flex;flex-wrap:wrap;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);background:var(--paper);border:1px solid var(--hair);border-radius:999px;padding:2px 4px 2px 10px}
+.pill input{border:0;background:transparent;width:120px;padding:2px 4px}
+.pill:has(input:not(:placeholder-shown)){border-color:var(--gold);color:var(--ink)}
+.er textarea{resize:none;overflow:hidden}
+.ec-note{font-size:12px;color:var(--gold)}
+.itemscard table.itab{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
+.itab th,.itab td{text-align:left;vertical-align:top;padding:4px 8px;border-top:1px solid var(--hair)}
+.itab th{color:var(--ink-faint);font-weight:400}
+.itab .bad{color:var(--cinnabar)}
 .er textarea{font-family:var(--f-display);font-size:15px;min-height:54px}
 .er.narr textarea{text-align:center;color:var(--ink-soft)}
 .er .chs{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;border-left:2px solid var(--gold);padding:2px 0 2px 10px}
-.ec{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto 150px 26px;gap:6px;align-items:center}
+
 .ec input,.ec select{padding:3px 6px;font-size:13px}
 .fx{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--ink-faint)}
 .fx input{width:44px}
-@media (max-width:900px){.er{grid-template-columns:1fr 1fr}.er textarea,.er .rowops{grid-column:1/-1}.ec{grid-template-columns:1fr 1fr}.ec .lbl{grid-column:1/-1}}
+@media (max-width:900px){.er{grid-template-columns:18px auto 1fr 1fr auto}.ec-r1{grid-template-columns:1fr auto}.ec-r1 .lbl{grid-column:1/-1}}
 .stats{display:flex;gap:8px;flex-wrap:wrap}
 .stats span{border:1px solid var(--edge);border-radius:12px;padding:1px 10px;font-size:13px;background:var(--paper);font-variant-numeric:tabular-nums}
 .simlog{display:flex;flex-direction:column;gap:12px}
@@ -961,30 +995,78 @@ function jMain() {
 }
 function jBody() { if (jview === "sim") simPaint(); else jWrite(); }
 
-function sceneList(j, list, sl) {
-  return `<div class="sl" data-sl="${sl}">${list.map((s, k) => sceneRow(j, list, s, k)).join("")}
-    <div class="addrow"><button class="btn sm" data-ja="scAdd" data-kind="narr">＋旁白</button><button class="btn sm" data-ja="scAdd" data-kind="say">＋有人說話</button><button class="btn sm" data-ja="scAdd" data-kind="me">＋你說的話</button></div></div>`;
+/* ── 一節的幕：卡片一張一幕。左邊把手拖移換順序，每一幕後面直接插入下一段；
+   被選項跳到的幕，上方標「從哪一幕的哪個選項跳來」；順著演到不了、也沒有選項跳來的幕標警示 ── */
+const scTag = (sl, k) => (sl[0] === "c" ? "變" : "幕") + (k + 1);
+const scPeek = (s) => { const t = String(s.text || "").replace(/\s+/g, " ").trim(); return t ? (t.length > 14 ? t.slice(0, 14) + "…" : t) : "（空的）"; };
+function scFalls(list, k) {   // 上一幕演完，會不會順著走到這一幕
+  if (k === 0) return true;
+  const p = list[k - 1];
+  if (p.end) return false;
+  const cs = (p.choices || []).filter((c) => (c.label || "").trim());
+  return cs.length ? cs.some((c) => !c.to) : true;
 }
-function sceneRow(j, ss, s, k) {
+function scInsBar(k) {
+  return `<div class="scins" data-at="${k}"><span>在這裡插入</span><button class="btn sm ghost" data-ja="scIns" data-kind="narr">＋旁白</button><button class="btn sm ghost" data-ja="scIns" data-kind="say">＋有人說話</button><button class="btn sm ghost" data-ja="scIns" data-kind="me">＋你說的話</button></div>`;
+}
+function sceneList(j, list, sl) {
+  return `<div class="sl" data-sl="${sl}">${scInsBar(-1)}${list.map((s, k) => sceneRow(j, list, s, k, sl) + scInsBar(k)).join("")}</div>`;
+}
+function sceneRow(j, ss, s, k, sl) {
   const w = whoOfJ(s);
-  const toOpts = (cur) => `<option value="">下一幕</option><option value="end"${cur === "end" ? " selected" : ""}>這一節結束</option>` +
-    ss.map((x, m) => m === k ? "" : `<option value="${m}"${x.id && x.id === cur ? " selected" : ""}>第 ${m + 1} 幕</option>`).join("");
-  return `<div class="er ${w === "narr" ? "narr" : ""}" data-s="${k}">
+  const toOpts = (cur) => `<option value="">↓ 順著演下一幕</option><option value="end"${cur === "end" ? " selected" : ""}>■ 這一節結束</option>` +
+    ss.map((x, m) => m === k ? "" : `<option value="${m}"${x.id && x.id === cur ? " selected" : ""}>↪ 跳到 ${scTag(sl, m)}：${esc(scPeek(x))}</option>`).join("");
+  const inc = [];
+  ss.forEach((x, m) => (x.choices || []).forEach((c) => { if (s.id && c.to === s.id) inc.push(`${scTag(sl, m)}「${esc(c.label || "（沒字的選項）")}」`); }));
+  const falls = scFalls(ss, k);
+  const flow = !falls && !inc.length ? `<div class="scflow warn">⚠ 沒有路會走到這一幕：上一幕不會順著演下來，也沒有選項跳到這裡</div>`
+    : inc.length ? `<div class="scflow jump">↪ 從 ${inc.join("、")} 跳來這裡${falls ? "（上一幕演完也會順著演到這裡）" : "（上一幕演完不會順著來，只有選了才到）"}</div>` : "";
+  return `${flow}<div class="er ${w === "narr" ? "narr" : ""}${inc.length ? " target" : ""}" data-s="${k}">
+    <span class="grip" title="按住拖移，換順序" aria-label="拖移">⋮⋮</span>
+    <b class="sctag">${scTag(sl, k)}</b>
     <select data-sf="who" aria-label="誰說">${sel(whoOptsJ(j), w)}</select>
     <select data-sf="portrait" aria-label="立繪">${sel(pOptsJ(), portraitOf(s))}</select>
+    <span class="rowops"><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
     <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白" : "「台詞」"}">${esc(s.text)}</textarea>
-      ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}
-      <div><button class="btn sm" data-ja="chAdd">＋選項</button> <label class="ck" style="display:inline-flex;gap:4px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" data-sf="end"${s.end ? " checked" : ""}> 演完這幕就結束這一節</label></div></div>
-    <span class="rowops"><button data-ja="scUp" title="上移">▲</button><button data-ja="scDown" title="下移">▼</button><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
-    ${(s.choices || []).length ? `<div class="chs">${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
-      <input class="lbl" type="text" data-cf="label" value="${esc(ch.label)}" placeholder="選項的字" aria-label="選項的字">
-      <input type="text" data-cf="hint" value="${esc(ch.hint)}" placeholder="小字提示（可空）" aria-label="提示">
-      <span class="fx">${cfg.stats.map((st) => `${esc(st.name)}<input type="number" data-fx="${st.k}" value="${(ch.fx || {})[st.k] ?? ""}" placeholder="0" aria-label="${esc(st.name)} 加減">`).join("")}</span>
-      <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select>
-      <span class="rowops"><button data-ja="chDel" title="刪掉這個選項">✕</button></span>
-      <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="選了得到的道具（可空）" aria-label="得到道具">
-      <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="要有這個道具才出現（可空）" aria-label="需要道具">
-      <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="設旗標（玩家看不到，結局用；可空）" aria-label="設旗標"></div>`).join("")}</div>` : ""}
+      ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
+    ${(s.choices || []).length ? `<div class="chs"><div class="chs-h">玩家在這裡選：</div>${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
+      <div class="ec-r1">
+        <input class="lbl" type="text" data-cf="label" value="${esc(ch.label)}" placeholder="選項的字" aria-label="選項的字">
+        <input type="text" data-cf="hint" value="${esc(ch.hint)}" placeholder="小字提示（可空）" aria-label="提示">
+        <span class="rowops"><button data-ja="chDel" title="刪掉這個選項">✕</button></span></div>
+      <div class="ec-r2"><label>選了之後 <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select></label>
+        <span class="fx">數值 ${cfg.stats.map((st) => `${esc(st.name)}<input type="number" data-fx="${st.k}" value="${(ch.fx || {})[st.k] ?? ""}" placeholder="0" aria-label="${esc(st.name)} 加減">`).join("")}</span></div>
+      <div class="ec-r3">
+        <label class="pill get">🎒 選了得到道具 <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）"></label>
+        <label class="pill req">🔒 身上帶著這道具才會出現 <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="（人人都看得到）"></label>
+        <label class="pill flag">🚩 暗旗標 <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）"></label></div>
+      ${ch.req ? `<div class="ec-note">🔒 沒帶著「${esc(ch.req)}」的玩家，看不到這個選項（${esc(itemFrom(j, ch.req) || "⚠ 沒有任何選項給這個道具")}）</div>` : ""}
+    </div>`).join("")}</div>` : ""}
+    <div class="er-foot"><button class="btn sm" data-ja="chAdd">＋選項</button>
+      <label class="ck"><input type="checkbox" data-sf="end"${s.end ? " checked" : ""}> 演完這幕，這一節就結束</label></div>
+    ${s.end ? `<div class="scend">■ 這一節到此結束${sl[0] === "n" ? "（動爻的話接著演變數，不然往下一爻）" : "（往下一爻）"}</div>` : ""}
+  </div>`;
+}
+/* 道具與旗標：在哪裡拿到、在哪裡用到 */
+function jItemsWhere(j) {
+  const out = {};
+  j.nodes.forEach((n, i) => [["n", n.scenes], ["c", n.change.scenes]].forEach(([p, list]) => list.forEach((s, k) => (s.choices || []).forEach((c) => {
+    const at = `${YAO[i]}${p === "c" ? "變數" : ""}・${scTag(p + i, k)}「${c.label || "？"}」`;
+    for (const [f, kind] of [["get", "get"], ["req", "req"], ["set", "set"]]) if (c[f]) { const o = (out[(f === "set" ? "🚩" : "🎒") + c[f]] = out[(f === "set" ? "🚩" : "🎒") + c[f]] || { get: [], req: [], set: [] }); o[kind].push(at); }
+  }))));
+  return out;
+}
+function itemFrom(j, name) { const o = jItemsWhere(j)["🎒" + name]; return o && o.get.length ? "拿到的地方：" + o.get.join("、") : ""; }
+function itemsCard(j) {
+  const all = jItemsWhere(j), its = Object.entries(all).filter(([k]) => k[0] === "🎒" || k.startsWith("🎒")), fls = Object.entries(all).filter(([k]) => k.startsWith("🚩"));
+  const ends = (f) => j.endings.filter((en) => (en.flags || []).includes(f) || (en.not_flags || []).includes(f)).map((en) => `結局「${esc(en.title)}」${(en.flags || []).includes(f) ? "要有" : "不能有"}`).join("、") || "⚠ 沒有結局看它";
+  return `<div class="tcard itemscard"><h3>道具與旗標怎麼運作</h3>
+    <p class="fxnote" style="margin:0 0 8px">某個選項填 🎒「選了得到道具」→ 玩家選了，那樣東西就帶在身上一整趟。<br>
+      另一個選項填 🔒「身上帶著這道具才會出現」（同一個名字）→ 只有帶著的人看得到那個選項；沒帶的人那一格直接不出現。<br>
+      🚩 暗旗標玩家看不到，只給結局判斷「他做過哪件事」。</p>
+    ${its.length ? `<table class="itab"><tr><th>道具</th><th>在哪裡拿到</th><th>在哪裡用到</th></tr>${its.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td>
+      <td>${o.get.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有地方給</span>"}</td><td>${o.req.map(esc).join("<br>") || "<span class='fxnote'>（拿了沒用到：只算成就「帶齊道具」）</span>"}</td></tr>`).join("")}</table>` : `<p class="fxnote">這一篇還沒有道具。</p>`}
+    ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>")}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
   </div>`;
 }
 function jWrite() {
@@ -1024,7 +1106,7 @@ function jWrite() {
     </div>`).join("");
   const achs = achList(j), enOpts = { "": "（還沒指定）", ...Object.fromEntries(j.endings.map((en) => [en.id, en.title || "（未命名結局）"])) };
   $("jh-body").innerHTML = `
-    <h3 style="font-size:15px;margin:6px 0">六爻節點</h3><div class="evs">${nodes}</div>
+    <h3 style="font-size:15px;margin:6px 0">六爻節點</h3>${itemsCard(j)}<div class="evs">${nodes}</div>
     <h3 style="font-size:15px;margin:18px 0 6px">結局表 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">由上往下比，第一個符合的就是它</small></h3>
     <div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>
     <h3 style="font-size:15px;margin:18px 0 6px">這一卦的成就 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">亮了之後玩家在 App「道籍 › 成就」自己點領取靈石</small></h3>
@@ -1125,7 +1207,17 @@ $("jh-main").addEventListener("click", (e) => {
   else if (a === "npcAdd") { j.npcs.push({ id: newId(), name: "", desc: "" }); jtouch(jcur); jMain(); return; }
   else if (a === "npcDel") { j.npcs.splice(w.npc, 1); jtouch(jcur); jMain(); return; }
   else if (a === "scAdd") { const k = b.dataset.kind; w.list.push(k === "narr" ? { text: "" } : k === "me" ? { me: true, text: "" } : { who: "daoshi_f", text: "" }); }
-  else if (a === "scUp" || a === "scDown") { if (!mv(w.list, w.si, a === "scUp" ? -1 : 1)) return; }
+  else if (a === "scIns") {
+    const sl = b.closest(".sl").dataset.sl, list = sl[0] === "n" ? j.nodes[+sl.slice(1)].scenes : j.nodes[+sl.slice(1)].change.scenes;
+    const k = b.dataset.kind, at = +b.closest(".scins").dataset.at + 1;
+    const prev = list[at - 1];
+    list.splice(at, 0, k === "narr" ? { text: "" } : k === "me" ? { me: true, text: "" } : prev && (prev.who || prev.npc) && !prev.me ? { ...(prev.who ? { who: prev.who } : { npc: prev.npc, speaker: prev.speaker }), text: "" } : { who: "daoshi_f", text: "" });
+    // 上一幕「演完就結束這一節」的話，結束記號移到新插入的這一幕，新幕才演得到
+    if (prev && prev.end && !(prev.choices || []).length) { delete prev.end; list[at].end = true; }
+    jtouch(jcur); jWrite();
+    const ta = document.querySelector(`.sl[data-sl="${sl}"] .er[data-s="${at}"] textarea`); if (ta) ta.focus();
+    return;
+  }
   else if (a === "scDel") { if (w.list.length === 1 && w.list === j.nodes[w.node].scenes) return; w.list.splice(w.si, 1); }
   else if (a === "chAdd") { const used = new Set(j.nodes.flatMap((n) => [...n.scenes, ...n.change.scenes].flatMap((s) => (s.choices || []).map((c) => c.key)))); let n = 1; while (used.has("c" + n)) n++; (w.s.choices = w.s.choices || []).push({ key: "c" + n, label: "" }); }
   else if (a === "chDel") { w.s.choices.splice(w.ci, 1); if (!w.s.choices.length) delete w.s.choices; }
@@ -1136,6 +1228,43 @@ $("jh-main").addEventListener("click", (e) => {
   else if (a === "enDel") { if (j.endings.length === 1) return; j.endings.splice(w.ni, 1); }
   else return;
   jtouch(jcur); jWrite();
+});
+
+/* 台詞框跟著字長高：一幕的話整段看得到，不必在小框裡捲 */
+const fitTa = (t) => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; };
+$("jh-main").addEventListener("input", (e) => { if (e.target.matches(".er textarea")) fitTa(e.target); });
+new MutationObserver(() => document.querySelectorAll("#jh-body .er textarea").forEach((t) => { if (!t.dataset.fit) { t.dataset.fit = 1; fitTa(t); } }))
+  .observe(document.body, { childList: true, subtree: true });
+
+/* ── 拖移換順序：按住幕左邊的 ⋮⋮ 拖到要的位置放開（同一節之內）。滑鼠、觸控都行 ── */
+let scDrag = null;
+$("jh-main").addEventListener("pointerdown", (e) => {
+  const g = e.target.closest(".grip"); if (!g || !jh[jcur]) return;
+  const row = g.closest(".er"), slEl = row.closest(".sl");
+  e.preventDefault();
+  const line = document.createElement("div"); line.className = "dropline";
+  scDrag = { row, slEl, from: +row.dataset.s, to: +row.dataset.s, line };
+  row.classList.add("dragging"); slEl.classList.add("drag-on");
+  const move = (ev) => {
+    if (!scDrag) return;
+    if (ev.clientY < 70) scrollBy(0, -14); else if (ev.clientY > innerHeight - 70) scrollBy(0, 14);
+    const rows = [...slEl.querySelectorAll(":scope > .er")];
+    let to = rows.length;
+    for (let i = 0; i < rows.length; i++) { const r = rows[i].getBoundingClientRect(); if (ev.clientY < r.top + r.height / 2) { to = i; break; } }
+    scDrag.to = to;
+    const ref = rows[to]; const before = ref ? (ref.previousElementSibling && ref.previousElementSibling.classList.contains("scflow") ? ref.previousElementSibling : ref) : null;
+    if (before) slEl.insertBefore(line, before); else slEl.appendChild(line);
+  };
+  const up = () => {
+    document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up);
+    const d = scDrag; scDrag = null; if (!d) return;
+    d.line.remove(); d.row.classList.remove("dragging"); d.slEl.classList.remove("drag-on");
+    if (d.to === d.from || d.to === d.from + 1) return;
+    const j = jh[jcur], sl = d.slEl.dataset.sl, list = sl[0] === "n" ? j.nodes[+sl.slice(1)].scenes : j.nodes[+sl.slice(1)].change.scenes;
+    const [x] = list.splice(d.from, 1); list.splice(d.to > d.from ? d.to - 1 : d.to, 0, x);
+    jtouch(jcur); jWrite();
+  };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 });
 
 /* ── 試走一趟：六爻依序演，動爻那一節多演變數，最後比結局表 ── */
