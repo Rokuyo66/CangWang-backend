@@ -23,7 +23,8 @@ const runs: { ending_id: string; changes: number[]; items: string[] }[] = [];
 const keep = (w: ReturnType<typeof route>) => { if (w.ok) runs.push({ ending_id: w.ending.id, changes: w.changes, items: w.items }); return w; };
 t("拆旗 → 見群龍无首（六爻皆動）", () => { const w = keep(route([0,1,2,3,4,5], ["撕下","下河","陪你練","捕頭也","推回去","回客棧","你收了","回渡口叫","跳下水","讓擺船","收進懷裡","把龍旗拆了","站到"])); if (title(w) !== "見群龍无首") throw new Error(title(w)); });
 t("喊上去 → 亢龍有悔", () => { const w = keep(route([], ["找他","肋下","收下錦囊","回客棧","躍上","搖頭","上去"])); if (title(w) !== "亢龍有悔") throw new Error(title(w)); });
-t("陪爬 → 龍柱之上", () => { const w = keep(route([], ["替婆婆","陪你練","卦我替","揣進懷裡","當眾","把帳本","陪他一起"])); if (title(w) !== "龍柱之上") throw new Error(title(w)); });
+t("陪爬 → 龍柱之上（五爻動、紙條折成紙鶴）", () => { const w = keep(route([4], ["替婆婆","陪你練","卦我替","揣進懷裡","當眾","把帳本","折成紙鶴","陪他一起"])); if (title(w) !== "龍柱之上") throw new Error(title(w)); });
+t("陪爬但沒折紙鶴 → 不是龍柱之上", () => { const w = route([4], ["替婆婆","陪你練","卦我替","揣進懷裡","當眾","把帳本","小心收進懷裡","陪他一起"]); if (title(w) === "龍柱之上") throw new Error("不該是龍柱之上"); });
 t("揭帳本 → 飛龍在天", () => { const w = keep(route([], ["撕下","把渡錢告示","卦我替","揣進懷裡","當眾","把帳本","攔住"])); if (title(w) !== "飛龍在天") throw new Error(title(w)); });
 t("看清不出手 → 潛龍在淵", () => { const w = keep(route([], ["撕下","肋下","不敢起","推回去","繞到","只記下","站在台下","搖頭","攔住"])); if (title(w) !== "潛龍在淵") throw new Error(title(w)); });
 t("保底 → 空手而歸", () => { const w = keep(route([], ["找他","陪你練","收下","回客棧","躍上","搖頭","攔住"])); if (title(w) !== "空手而歸") throw new Error(title(w)); });
@@ -31,15 +32,39 @@ t("六條路走完：見群龍无首、六位時成亮；時乘六龍亮（第�
   const lit = J.litAchievements(doc, runs);
   for (const id of ["qun", "liuwei", "liulong"]) if (!lit.includes(id)) throw new Error(`沒亮 ${id}（亮了 ${lit}）`);
 });
-t("品物流形：初、二爻動，一趟帶齊六樣", () => {
-  const w = route([0, 1], ["撕下","下河","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","你收了","回渡口叫","讓擺船","把龍旗拆了"]);
+t("品物流形：初、二、五爻動，一趟帶齊七樣", () => {
+  const w = route([0, 1, 4], ["撕下","下河","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","你收了","回渡口叫","讓擺船","小心收進懷裡","把龍旗拆了"]);
   if (!w.ok) throw new Error("走不完");
-  if (J.allItems(doc).length !== 6) throw new Error("道具不是六樣：" + J.allItems(doc));
+  if (J.allItems(doc).length !== 7) throw new Error("道具不是七樣：" + J.allItems(doc));
   if (!J.litAchievements(doc, [{ ending_id: w.ending.id, changes: w.changes, items: w.items }]).includes("pinwu")) throw new Error("沒亮，帶著 " + w.items);
 });
 t("品物流形：初爻沒動就湊不齊", () => {
   const w = route([1], ["撕下","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","回渡口叫","讓擺船"]);
   if (w.ok && J.litAchievements(doc, [{ ending_id: w.ending.id, changes: w.changes, items: w.items }]).includes("pinwu")) throw new Error("不該亮");
+});
+// 成就「一趟之內做到」（kind:"run"）：道具＋數值（＋結局）要在同一趟
+t("一趟之內：帶著師兄的小抄、義 ≥ 3 才亮；數值不夠、道具不在、舊紀錄沒 st 都不亮", () => {
+  const d2 = { ...doc, achievements: [{ id: "x", name: "測", kind: "run", items: ["師兄的小抄"], need: { s1: [3, null] } }] };
+  const ok = { ending_id: "a", changes: [], items: ["師兄的小抄"], st: { s1: 3 } };
+  if (!J.litAchievements(d2, [ok]).includes("x")) throw new Error("該亮");
+  if (J.litAchievements(d2, [{ ...ok, st: { s1: 2 } }]).includes("x")) throw new Error("義不夠也亮");
+  if (J.litAchievements(d2, [{ ...ok, items: [] }]).includes("x")) throw new Error("沒帶小抄也亮");
+  if (J.litAchievements(d2, [{ ...ok, st: null }]).includes("x")) throw new Error("沒 st 也亮");
+  // 兩個條件分在兩趟：不算
+  if (J.litAchievements(d2, [{ ...ok, st: { s1: 0 } }, { ...ok, items: [], st: { s1: 9 } }]).includes("x")) throw new Error("分兩趟也亮");
+});
+t("一趟之內：綁結局時也要是那個結局；什麼都沒填不亮", () => {
+  const d2 = { ...doc, achievements: [{ id: "y", name: "測", kind: "run", ending: "e05w0w", need: { s2: [5, null] } }, { id: "z", name: "空", kind: "run" }] };
+  const r = { ending_id: "e05w0w", changes: [], items: [], st: { s2: 5 } };
+  const lit = J.litAchievements(d2, [r]);
+  if (!lit.includes("y")) throw new Error("該亮"); if (lit.includes("z")) throw new Error("空條件亮了");
+  if (J.litAchievements(d2, [{ ...r, ending_id: "ea88v3" }]).includes("y")) throw new Error("結局不對也亮");
+});
+t("一趟之內：實際走一趟——潛龍在淵且智 ≥ 3", () => {
+  const w = route([], ["撕下","肋下","不敢起","推回去","繞到","只記下","站在台下","搖頭","攔住"]);
+  if (!w.ok) throw new Error("走不完");
+  const d2 = { ...doc, achievements: [{ id: "q", name: "測", kind: "run", ending: "e05w0w", need: { s2: [3, null] } }] };
+  if (!J.litAchievements(d2, [{ ending_id: w.ending.id, changes: w.changes, items: w.items, st: w.st }]).includes("q")) throw new Error("沒亮，智 " + w.st.s2);
 });
 t("財：起始 3 兩；付了渡錢剩 2，撈槍（要 3）選不到", () => {
   let saw = false;

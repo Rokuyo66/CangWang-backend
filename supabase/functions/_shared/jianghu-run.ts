@@ -88,10 +88,16 @@ export async function jianghuStart(db: SupabaseClient, uid: string, isAdmin: boo
     name, gua: ev.gua, gua_no: ev.gua_no, doc: clientDoc(ev.doc), stats: cfg.stats.map((x) => ({ k: x.k, name: x.name })) });
 }
 
-async function finishedRuns(db: SupabaseClient, uid: string, gua: number) {
-  const { data } = await db.from("jianghu_runs").select("ending_id, changes, items")
-    .eq("user_id", uid).eq("gua_no", gua).not("finished_at", "is", null);
-  return ((data ?? []) as { ending_id: string; changes: number[]; items: string[] }[]).filter((r) => r.ending_id);
+type DoneRun = { ending_id: string; changes: number[]; items: string[]; st: Record<string, number> | null; moving?: number[]; picks?: string[] | null };
+/** 走完的每一趟。st（走完時的數值，0103 起才記）沒有的舊紀錄，拿當時的選擇照現在的劇本重演一次補上；對不上就當沒有 */
+async function finishedRuns(db: SupabaseClient, uid: string, gua: number, doc?: Doc) {
+  const q = (cols: string) => db.from("jianghu_runs").select(cols).eq("user_id", uid).eq("gua_no", gua).not("finished_at", "is", null);
+  let { data, error } = await q("ending_id, changes, items, st, moving, picks");
+  if (error) ({ data } = await q("ending_id, changes, items, moving, picks"));   // 0103 還沒跑：沒有 st 欄，全部靠重演
+  return ((data ?? []) as DoneRun[]).filter((r) => r.ending_id).map((r) => {
+    if (!r.st && doc && Array.isArray(r.picks)) { const w = walk(doc, r.moving ?? [], r.picks); if (w.ok) r.st = w.st; }
+    return r;
+  });
 }
 
 /** 走完。picks＝每個選擇點選的 key（依序）。伺服器重演一次判結局 */
@@ -108,7 +114,7 @@ export async function jianghuFinish(db: SupabaseClient, uid: string, body: Recor
   const w = walk(ev.doc, (run.moving ?? []) as number[], picks);
   if (!w.ok) { console.error("jianghu walk", runId, w.err); return bad("這一趟的路對不上劇本（劇本可能剛改過），請重走一次"); }
   const en = w.ending;
-  const before = new Set(litAchievements(ev.doc, await finishedRuns(db, uid, ev.gua_no)));
+  const before = new Set(litAchievements(ev.doc, await finishedRuns(db, uid, ev.gua_no, ev.doc)));
   const pt = en.player_title?.label?.trim();
   const hook = en.hook && en.hook.who && String(en.hook.memory ?? "").trim() ? en.hook : null;
   const { data: r, error } = await db.rpc("jianghu_finish", {
@@ -119,10 +125,12 @@ export async function jianghuFinish(db: SupabaseClient, uid: string, body: Recor
     p_hook_who: hook ? hook.who : null, p_hook_memory: hook ? String(hook.memory) : null,
   });
   if (error || !r?.ok) { console.error("jianghu_finish", error ?? r); return bad("這一趟沒記上，請再試一次"); }
-  const lit = litAchievements(ev.doc, await finishedRuns(db, uid, ev.gua_no));
+  // 走完時的數值（成就「一趟之內數值達標」要看）。欄位還沒加（0103 沒跑）就略過，上面的舊紀錄重演會補
+  { const { error: e2 } = await db.from("jianghu_runs").update({ st: w.st }).eq("id", runId).eq("user_id", uid); if (e2) console.error("jianghu st", e2.message); }
+  const lit = litAchievements(ev.doc, await finishedRuns(db, uid, ev.gua_no, ev.doc));
   const newly = achievementsOf(ev.doc).filter((a) => lit.includes(a.id) && !before.has(a.id)).map((a) => ({ id: a.id, name: a.name, reward: a.reward_lingshi ?? 0 }));
   const nm = (s: string | undefined) => String(s ?? "").replaceAll("{名}", run.name as string);
-  const found = new Set((await finishedRuns(db, uid, ev.gua_no)).map((x) => x.ending_id));
+  const found = new Set((await finishedRuns(db, uid, ev.gua_no, ev.doc)).map((x) => x.ending_id));
   return good({
     ending: { id: en.id, title: en.title, rare: !!en.rare, text: nm(en.text), insight: en.insight ?? "", npc_fate: en.npc_fate ?? "",
       title_desc: en.player_title?.desc ?? "" },
@@ -141,7 +149,7 @@ export async function jianghuBoard(db: SupabaseClient, uid: string, isAdmin: boo
   const claimed = new Set((claims ?? []).map((c: { gua_no: number; ach_id: string }) => `${c.gua_no}:${c.ach_id}`));
   const out = [];
   for (const ev of (evs ?? []) as { gua_no: number; gua: string; title: string; doc: Doc; published: boolean }[]) {
-    const runs = await finishedRuns(db, uid, ev.gua_no);
+    const runs = await finishedRuns(db, uid, ev.gua_no, ev.doc);
     const found = new Set(runs.map((r) => r.ending_id));
     const lit = new Set(litAchievements(ev.doc, runs));
     out.push({
@@ -160,7 +168,7 @@ export async function jianghuClaim(db: SupabaseClient, uid: string, body: Record
   if (!ev) return bad("查無這一卦");
   const a = achievementsOf(ev.doc).find((x) => x.id === achId);
   if (!a) return bad("查無這個成就");
-  if (!litAchievements(ev.doc, await finishedRuns(db, uid, gua)).includes(achId)) return bad("還沒達成");
+  if (!litAchievements(ev.doc, await finishedRuns(db, uid, gua, ev.doc)).includes(achId)) return bad("還沒達成");
   const amount = Math.max(0, Math.min(1000, Number(a.reward_lingshi) || 0));
   const { data: r, error } = await db.rpc("jianghu_claim", { p_user: uid, p_gua: gua, p_ach: achId, p_amount: amount });
   if (error || !r) { console.error("jianghu_claim", error); return bad("領取沒能存住，請再試一次"); }

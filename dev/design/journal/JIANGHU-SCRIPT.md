@@ -59,7 +59,7 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 `{ id, title, rare, need: { s1: [下限|null, 上限|null] }, flags: ["要有的旗標"], not_flags: ["不能有的旗標"], text, insight, npc_fate, reward_lingshi, player_title: { label, desc, call_as }, hook: { who, ask, memory } | null }`
 
 ### 成就
-`kind` 四種（後端 `_shared/jianghu.ts` 的 `litAchievements`）：
+`kind` 五種（後端 `_shared/jianghu.ts` 的 `litAchievements`）：
 
 | kind | 什麼時候亮 |
 |---|---|
@@ -67,6 +67,7 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 | `endings_all` | 這一卦所有結局都走過（累計） |
 | `changes_all` | 有變數幕的爻，每一爻的變數都演過（累計；動爻靠運氣，再走一趟會重搖） |
 | `items_all` | 一趟之內，劇本裡所有道具都帶在身上 |
+| `run` | 一趟之內做到：`items`（勾的道具都帶著）、`need`（走完時的數值，格式同結局）、`ending`（選填：還要是這個結局），全部在同一趟成立。舊紀錄沒存數值的，後端照當時的選擇重演補上（`jianghu_runs.st`，0103） |
 
 ## 上線：稿紙 → App
 1. 稿紙存好（Claude 讀雲端 `jianghu/gua_NN`）→ 存成 `dev/design/journal/jianghu/gua_NN.json`

@@ -21,7 +21,10 @@ export type Ending = {
   player_title?: { label?: string; desc?: string; call_as?: string };
   hook?: { who?: string; ask?: string; memory?: string } | null;
 };
-export type Achievement = { id: string; name: string; desc?: string; kind: "ending" | "endings_all" | "changes_all" | "items_all"; ending?: string; reward_lingshi?: number };
+export type Achievement = { id: string; name: string; desc?: string; kind: "ending" | "endings_all" | "changes_all" | "items_all" | "run";
+  ending?: string; reward_lingshi?: number;
+  /** kind="run"（一趟之內做到，六六 2026-10-22）：同一趟裡這些道具都帶著、數值都在範圍內（格式同結局的 need）；ending 有填的話也要是那個結局 */
+  items?: string[]; need?: Record<string, [number | null, number | null]> };
 export type Doc = {
   id: string; gua_no: number; gua: string; title: string;
   /** 一入場身上就有的數值（通常是盤纏：{ s5: 3 }＝觀裡給了三兩） */
@@ -97,11 +100,15 @@ export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[
   return { ok: true, st, items, flags, changes, ending };
 }
 
+/** 數值都在範圍內（結局的 need 與成就的 need 同一套） */
+export const needOk = (need: Ending["need"], st: Record<string, number>) => Object.entries(need ?? {}).every(([k, r]) => {
+  const [lo, hi] = Array.isArray(r) ? r : [null, null];
+  return (lo == null || (st[k] ?? 0) >= lo) && (hi == null || (st[k] ?? 0) <= hi);
+});
+
 export function endingOf(doc: Doc, st: Record<string, number>, flags: string[]): Ending | null {
-  const needOk = (need: Ending["need"]) => Object.entries(need ?? {}).every(([k, [lo, hi]]) =>
-    (lo == null || (st[k] ?? 0) >= lo) && (hi == null || (st[k] ?? 0) <= hi));
   const flagsOk = (en: Ending) => (en.flags ?? []).every((f) => flags.includes(f)) && !(en.not_flags ?? []).some((f) => flags.includes(f));
-  return doc.endings.find((en) => needOk(en.need) && flagsOk(en)) ?? null;
+  return doc.endings.find((en) => needOk(en.need, st) && flagsOk(en)) ?? null;
 }
 
 /** 成就清單。舊格式只有一個 achievement（綁結局），照樣認。 */
@@ -117,8 +124,8 @@ export const allItems = (doc: Doc) => [...new Set(doc.nodes.flatMap((n) =>
 /** 有變數幕的爻 */
 export const changeNodes = (doc: Doc) => doc.nodes.map((_, i) => i).filter((i) => changePlays(doc, i, [i]));
 
-/** 某位玩家這一卦已經亮了哪些成就。runs＝他走完的每一趟。 */
-export function litAchievements(doc: Doc, runs: { ending_id: string; changes: number[]; items: string[] }[]): string[] {
+/** 某位玩家這一卦已經亮了哪些成就。runs＝他走完的每一趟（st＝那一趟走完時的數值；舊紀錄沒有就當不符合數值條件）。 */
+export function litAchievements(doc: Doc, runs: { ending_id: string; changes: number[]; items: string[]; st?: Record<string, number> | null }[]): string[] {
   const endings = new Set(runs.map((r) => r.ending_id));
   const seen = new Set(runs.flatMap((r) => r.changes ?? []));
   const all = allItems(doc), cn = changeNodes(doc);
@@ -127,6 +134,12 @@ export function litAchievements(doc: Doc, runs: { ending_id: string; changes: nu
     if (a.kind === "endings_all") return doc.endings.length > 0 && doc.endings.every((e) => endings.has(e.id));
     if (a.kind === "changes_all") return cn.length > 0 && cn.every((i) => seen.has(i));
     if (a.kind === "items_all") return all.length > 0 && runs.some((r) => all.every((x) => (r.items ?? []).includes(x)));
+    if (a.kind === "run") {
+      const its = (a.items ?? []).filter(Boolean), hasNeed = Object.keys(a.need ?? {}).length > 0;
+      if (!its.length && !hasNeed && !a.ending) return false;   // 什麼條件都沒填：不亮（稿紙檢查會提醒）
+      return runs.some((r) => (!a.ending || r.ending_id === a.ending) && its.every((x) => (r.items ?? []).includes(x))
+        && (!hasNeed || (!!r.st && needOk(a.need, r.st))));
+    }
     return false;
   }).map((a) => a.id);
 }

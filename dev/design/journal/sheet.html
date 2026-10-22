@@ -821,7 +821,16 @@ const numOrNull = (v) => v === "" || v == null || isNaN(+v) ? null : +v;
 
 /* 成就：一卦可以有好幾個。kind＝怎麼亮（後端 _shared/jianghu.ts 的 litAchievements 照這四種判）。
    舊格式只有一個 achievement（綁結局）：打開時轉成清單的第一個，存檔時兩個欄位一起寫（舊版 App 讀 achievement）。 */
-const ACH_KIND = { ending: "走到某個結局", endings_all: "所有結局都走過（累計）", changes_all: "六爻的變數都見過（累計）", items_all: "一趟之內帶齊所有道具" };
+const ACH_KIND = { ending: "走到某個結局", endings_all: "所有結局都走過（累計）", changes_all: "六爻的變數都見過（累計）", items_all: "一趟之內帶齊所有道具",
+  run: "一趟之內做到（指定道具／數值）" };
+/* kind=run（六六 2026-10-22）：同一趟裡，勾的道具都帶著、數值都在範圍內；「結局」有選的話也要走到那一個。後端 litAchievements 同一套 */
+const itemsOfJ = (j) => [...new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)))];
+const needFits = (need, st) => Object.entries(need || {}).every(([k, [lo, hi]]) => (lo == null || (st[k] || 0) >= lo) && (hi == null || (st[k] || 0) <= hi));
+function runAchLit(a, endingId, items, st) {
+  const its = (a.items || []).filter(Boolean), hasNeed = Object.keys(a.need || {}).length > 0;
+  if (!its.length && !hasNeed && !a.ending) return false;
+  return (!a.ending || a.ending === endingId) && its.every((x) => items.includes(x)) && (!hasNeed || needFits(a.need, st));
+}
 function achList(j) {
   if (!Array.isArray(j.achievements)) {
     const a = j.achievement || {};
@@ -1118,9 +1127,12 @@ function jWrite() {
         <label class="field"><span>成就名</span><input type="text" data-acf="name" value="${esc(a.name)}" placeholder="例：待時而動"></label>
         <label class="field"><span>怎麼亮</span><select data-acf="kind">${sel(ACH_KIND, a.kind)}</select></label>
         ${a.kind === "ending" ? `<label class="field"><span>綁哪個結局</span><select data-acf="ending">${sel(enOpts, a.ending || "")}</select></label>` : ""}
+        ${a.kind === "run" ? `<label class="field"><span>還要走到哪個結局</span><select data-acf="ending">${sel({ ...enOpts, "": "（不限結局）" }, a.ending || "")}</select></label>` : ""}
         <label class="field"><span>領取靈石</span><input type="number" min="0" data-acf="reward_lingshi" value="${+a.reward_lingshi || 0}"></label>
         <label class="field wide"><span>成就說明 <em>（玩家看得到：寫成提示，不寫攻略）</em></span><input type="text" data-acf="desc" value="${esc(a.desc)}"></label>
       </div>
+      ${a.kind === "run" ? `<div class="field"><span>要帶著的道具 <em>（勾的都要在同一趟拿到）</em></span><div class="gua">${itemsOfJ(j).map((x) => `<label><input type="checkbox" data-acitem="${esc(x)}"${(a.items || []).includes(x) ? " checked" : ""}>${esc(x)}</label>`).join("") || `<span class="fxnote">這一卦還沒有選項給道具。</span>`}</div></div>
+      <div class="field"><span>走完時的數值 <em>（留空＝不限）</em></span>${needHtml(a.need || {}, "data-aneed")}</div>` : ""}
       <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div>`).join("")}</div>
     <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`;
 }
@@ -1152,11 +1164,22 @@ function onEdit(e, structural) {
   if (t.dataset.jstart) { j.start = j.start || {}; const v = Math.max(0, +t.value || 0); if (v) j.start[t.dataset.jstart] = v; else delete j.start[t.dataset.jstart]; jtouch(jcur); return; }
   if (t.dataset.nt != null) { j.nodes[+t.dataset.nt].title = t.value; jtouch(jcur); return; }
   if (t.dataset.nf2) { j.npcs[w.npc][t.dataset.nf2] = t.value; jtouch(jcur); return; }
+  if (t.dataset.acitem != null || t.hasAttribute("data-aneed")) {
+    const a = achList(j)[+t.closest("[data-ach]").dataset.ach];
+    if (t.dataset.acitem != null) {
+      if (!structural) return;
+      const set = new Set(a.items || []); if (t.checked) set.add(t.dataset.acitem); else set.delete(t.dataset.acitem);
+      a.items = [...set]; if (!a.items.length) delete a.items;
+    } else { a.need = a.need || {}; setNeed(a.need, t.dataset.nk, t.dataset.nb, t.value); if (!Object.keys(a.need).length) delete a.need; }
+    jtouch(jcur); return;
+  }
   if (t.dataset.acf) {
     const f = t.dataset.acf, a = achList(j)[+t.closest("[data-ach]").dataset.ach];
     if ((f === "kind" || f === "ending") && !structural) return;
     a[f] = f === "reward_lingshi" ? Math.max(0, +t.value || 0) : t.value;
-    if (f === "kind" && a.kind !== "ending") delete a.ending;
+    if (f === "kind" && a.kind !== "ending" && a.kind !== "run") delete a.ending;
+    if (f === "kind" && a.kind !== "run") { delete a.items; delete a.need; }
+    if (f === "ending" && !a.ending) delete a.ending;
     achSync(j); jtouch(jcur); if (f === "kind") jWrite(); return;
   }
   if (w.ch) {
@@ -1298,7 +1321,8 @@ function simPaint() {
   if (sim.choices) tail = `<div class="opts">${sim.choices.map((ch, i) => `<button class="opt" style="text-align:left;cursor:${ch.poor ? "not-allowed;opacity:.45" : "pointer"}" data-sim="pick" data-i="${i}"${ch.poor ? " disabled" : ""}>${esc(nameIn(ch.label) || "（選項還沒寫字）")}${ch.cost ? ` <span class="fxnote">💰${ch.cost}</span>` : ""}${ch.poor ? `<small>盤纏不夠（要 ${ch.cost}，身上 ${sim.st.s5 || 0}）</small>` : ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}</button>`).join("")}</div>`;
   else if (sim.ending !== undefined) {
     const en = sim.ending, allIt = [...new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)))];
-    const ach = en && achList(j).filter((a) => (a.kind === "ending" && a.ending === en.id) || (a.kind === "items_all" && allIt.length && allIt.every((x) => sim.items.includes(x)))).map((a) => a.name).join("、");
+    const ach = en && achList(j).filter((a) => (a.kind === "ending" && a.ending === en.id) || (a.kind === "items_all" && allIt.length && allIt.every((x) => sim.items.includes(x)))
+      || (a.kind === "run" && runAchLit(a, en.id, sim.items, sim.st))).map((a) => a.name).join("、");
     tail = en ? `<div class="endcard"><h3>${esc(en.title || "（結局沒有名字）")}${en.rare ? "・稀有" : ""}</h3><div class="line">${esc(nameIn(en.text))}</div>
       ${en.insight ? `<div class="line" style="margin-top:8px;color:var(--gold)">「${esc(en.insight)}」</div>` : ""}
       ${en.npc_fate ? `<p class="fxnote" style="margin:6px 0 0">人物下場：${esc(en.npc_fate)}</p>` : ""}
@@ -1410,6 +1434,11 @@ function jChecksOf(j) {
     else if (a.kind === "ending" && !ens.some((en) => en.id === a.ending)) E(`${n}綁的結局已經被刪掉了。`);
     if (a.kind === "changes_all" && !j.nodes.some((nd) => nd.change.scenes.some((x) => (x.text || "").trim()))) E(`${n}要「六爻的變數都見過」，但這一卦一段變數都沒寫。`);
     if (a.kind === "items_all" && !allScenes(j).some(([x]) => (x.choices || []).some((c) => c.get))) E(`${n}要「帶齊所有道具」，但沒有任何選項給道具。`);
+    if (a.kind === "run") {
+      if (!(a.items || []).length && !Object.keys(a.need || {}).length && !a.ending) E(`${n}是「一趟之內做到」，但道具、數值、結局一樣都沒指定：永遠不會亮。`);
+      (a.items || []).filter((x) => !itemsOfJ(j).includes(x)).forEach((x) => E(`${n}要帶著「${x}」，但劇本裡已經沒有選項給這個道具。`));
+      if (a.ending && !ens.some((en) => en.id === a.ending)) E(`${n}綁的結局已經被刪掉了。`);
+    }
   });
   const used = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).flatMap((c) => Object.keys(c.fx || {}))));
   if (used.size) cfg.stats.forEach((st) => { if (!used.has(st.k)) W(`數值「${st.name}」這一篇沒有選項會改到。`); });
