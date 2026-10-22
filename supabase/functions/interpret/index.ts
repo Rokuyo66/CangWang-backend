@@ -1044,7 +1044,7 @@ async function handle(req: Request): Promise<Response> {
         const ai = await callInterpret("你是幾知觀的司籍，只記錄、不評斷、不安慰。", digest, {
           monthly: { ym: String(body.ym ?? "") },
         });
-        await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+        await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
         return { text: ai.reading, model: ai.model, usage: ai.usage, estimated: ai.estimated };
       });
       const ym = /^\d{4}-\d{2}$/.test(String(body.ym ?? "")) ? String(body.ym)

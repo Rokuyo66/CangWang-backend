@@ -168,7 +168,7 @@ export async function dailyFortune(db: SupabaseClient, p: {
     const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, FORTUNE_QUESTION, { calendar: false }), {
       fortune: { tierLabel, qian, jieqiLine: jieqi.line },
     });
-    await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+    await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
 
     const { data: cast } = await db.from("casts").insert({
       user_id: p.userId, character_id: p.characterId, channel: p.channel,

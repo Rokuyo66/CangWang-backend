@@ -335,6 +335,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     : (Deno.env.get("KIMI_API_KEY") && FALLBACK_KIMI !== "off" ? FALLBACK_KIMI : null);
   let usedModel = model;
   let r: Awaited<ReturnType<typeof callModel>>;
+  const t0 = Date.now();   // 耗時（含備援重打）記進 ai_usage.latency_ms：「批卦變慢」要查得到是哪天、哪個模型（六六 2026-10-22）
   try {
     r = await callModel(model);
   } catch (e) {
@@ -364,7 +365,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     ...(opts.followup ? followupTagged(reading)
       : opts.reflect ? { reading, suggested: [], due: null, category: null, digest: null, yong: null }
       : opts.deepen || opts.fortune || opts.monthly ? { reading, suggested: [], due: null, category: null, digest: null, yong: null } : parseTagged(text)),
-    usage, model: usedModel, mode, estimated, stopReason,
+    usage, model: usedModel, mode, estimated, stopReason, ms: Date.now() - t0,
   };
 }
 
@@ -395,16 +396,21 @@ export const __followupTagged = followupTagged;   // 測試用（dev/followup-du
 export async function logUsage(db: SupabaseClient, p: {
   userId: string | null; mode: string; model: string;
   usage: { in: number; out: number; cacheWrite?: number; cacheRead?: number }; estimated: boolean;
+  /** 這一次呼叫花了幾毫秒（有量的才給；0104 加的欄，沒跑 migration 就略過這一欄） */
+  ms?: number;
 }) {
   try {
-    await db.from("ai_usage").insert({
+    const row = {
       user_id: p.userId, mode: p.mode, model: p.model,
       tokens_in: p.usage.in, tokens_out: p.usage.out, estimated: p.estimated,
       // 真實輸入量 = tokens_in + cache_write + cache_read，三欄分開存才算得出
       // 快取命中率與實際成本（寫入 2 倍價、讀取 0.1 倍價，不能混在一起算）
       cache_write_tokens: p.usage.cacheWrite ?? 0,
       cache_read_tokens: p.usage.cacheRead ?? 0,
-    });
+    };
+    const { error } = await db.from("ai_usage").insert(p.ms != null ? { ...row, latency_ms: Math.round(p.ms) } : row);
+    if (error && p.ms != null) await db.from("ai_usage").insert(row);   // 0104 還沒跑：照舊記，不記耗時
+    else if (error) console.error("logUsage failed", error.message);
   } catch (e) {
     console.error("logUsage failed", e);
   }

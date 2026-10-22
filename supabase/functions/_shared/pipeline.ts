@@ -174,7 +174,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     ...(prior ? { prior } : {}),
     priority, userNotes,
   });
-  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
 
   // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。
   // 落定後存檔，追問／完整卦理／換人評卦一律沿用同一用神，不會中途改取自打嘴巴。
@@ -313,7 +313,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
     },
     ...yo, priority, userNotes,
   });
-  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   // 額度用完還硬問的，程式這一層再擋一次：模型不一定守得住【反問額度】
   const ask = prev.asks < MAX_ASKS_PER_CAST ? (ai.ask ?? null) : null;
   // 修正只認「回答了反問」的那一次：沒有反問在先就冒出來的修正，是模型自己翻案，不收。
@@ -383,7 +383,7 @@ export function reflectAfterReview(db: SupabaseClient, castId: string) {
       const ai = await callInterpret("", "", { reflect: { input } });
       return {
         text: ai.reading,
-        log: () => logUsage(db, { userId: null, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated }),
+        log: () => logUsage(db, { userId: null, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms }),
       };
     },
   }));
@@ -449,7 +449,7 @@ export async function commentCast(db: SupabaseClient, p: {
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
     priority: await loadPriorityBlock(db),
   });
-  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+  await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
 }
 
@@ -480,7 +480,7 @@ export async function deepenCast(db: SupabaseClient, p: {
   try {
     const priority = await loadPriorityBlock(db);
     const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong, priority });
-    await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+    await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
     let deep = ai.reading;
     let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
     if (incomplete) {
@@ -488,7 +488,7 @@ export async function deepenCast(db: SupabaseClient, p: {
       const cont = await callInterpret(ch!.persona_prompt, ctext, {
         deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong, priority,
       });
-      await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated });
+      await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated, ms: cont.ms });
       deep = deep.replace(/\s+$/, "") + cont.reading;
       incomplete = cont.stopReason === "max_tokens" || !endsComplete(deep);
     }
