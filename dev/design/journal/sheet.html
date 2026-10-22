@@ -237,12 +237,16 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .arthead code{ font-size:12px; color:var(--ink-soft) }
 .arttag{ font-size:11.5px; padding:1px 8px; border-radius:999px; background:var(--paper-2); color:var(--ink-soft) }
 .artst-todo{ color:var(--cinnabar) } .artst-old{ color:var(--gold) } .artst-done, .artst-skip{ color:var(--ink-faint) }
+.artsync{ font-size:12px; margin:2px 0 6px; display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--ink-soft) }
+.artsync .new{ color:var(--cinnabar); font-weight:600 } .artsync .ok{ color:var(--wx-木, var(--ink-soft)) }
+.arthist{ font-size:12px; color:var(--ink-soft); margin-top:6px } .arthist summary{ cursor:pointer } .arthist li{ margin:2px 0 }
+.artgrp{ font-size:15px; margin:18px 0 6px; display:flex; align-items:center; gap:10px } .artgrp:first-child{ margin-top:4px }
 @media (max-width:560px){ .artrow{ grid-template-columns:90px 1fr } .artpic{ width:90px } }
 </style>
 
 <header class="top">
   <h1>道緣劇本稿紙</h1>
-  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術需求</button></div>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button></div>
   <span class="sub" id="mode-sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</span>
   <span class="save" id="save">連線中…</span>
 </header>
@@ -284,7 +288,9 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   <div class="artintro">
     <p><b>立繪</b>：900×1200 PNG 去背，主體放在畫面中央 60%（手機左右各裁掉約 19%），頭頂約在 8% 那條線，55% 以下會被對話框壓住。</p>
     <p><b>場景</b>：1280×1920 直式 JPG／WebP，焦點在中央 70%，下方 45% 會被對話框蓋住（畫地板、桌面這類低對比的東西），不畫人物、不放字。</p>
-    <p>手上有舊圖可以直接放：點左邊那一格選檔、把圖拖進那一列，或點一下那一列再貼上（Ctrl／⌘＋V）。狀態改成「用舊圖」或「已交」，Claude 下次就照表放進 App。</p>
+    <p><b>這一頁是 App 所有美術的唯一上傳位置</b>：點左邊那一格選檔、把圖拖進那一列，或點一下那一列再貼上（Ctrl／⌘＋V）。<b>同一列再上傳就是覆蓋</b>，每一次都記下時間，舊的留在「歷史」裡。</p>
+    <p>Claude 只認時間：某一列的上傳時間比「進 App」的時間新（紅字「新上傳，待抓」），下次就抓最新那一張放進 App。還沒在這裡上傳過的，App 照舊用雲端那張（列上「App 現用」寫著檔名）。</p>
+    <p><b>主要角色</b>單獨一區：每位一張立繪、一張頭像（頭像也拿來做手機通知的圓形大圖），衣裝各自一列，按「＋衣裝」加。</p>
   </div>
   <div class="artfilter" id="art-filter"></div>
   <div id="art-list" class="artlist"><p class="fxnote">載入中…</p></div>
@@ -1499,33 +1505,71 @@ function jhInit() {
 }
 </script>
 <script>
-/* ══ 美術需求 ══
-   一列一張圖（立繪或場景）。存在雲端 art_needs/<id>；圖放在這個頁面的資產庫（assets），列上只存 id 與網址。
-   Claude 讀這張表：狀態「用舊圖」「已交」的，把圖下載下來放進 App（前端 src/main/22-case.js 的 CASE_ART_TEST 或 assets/art/）。 */
+/* ══ 美術資產 ══
+   App 所有美術的唯一上傳位置（六六 2026-10-22）。一列一張圖，存在雲端 art_needs/<id>；圖放在這個頁面的資產庫（assets）。
+   每次上傳：記 uploaded_at（時間）、把這一張推進 history（舊的留著備查）。同一列再上傳＝覆蓋。
+   Claude 抓圖時只看時間序：asset_id 跟 synced_asset 不同（＝上傳時間比進 App 的時間新）就抓最新那張，
+   放進前端 assets/art/<key>，再把 synced_asset／synced_at 寫回這一列。 */
 const ART_ST = { todo: "待畫", old: "用舊圖", done: "已交", skip: "不用了" };
+const ART_CHARS = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
+const ART_GROUP_ORDER = ["主要角色", "場景", "頁面底圖", "江湖・乾為天"];
 let arts = {}, artF = "", assetsNs = null;
 const artTimers = {};
-const artSorted = () => Object.values(arts).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || String(a.key).localeCompare(String(b.key)));
-function artPaint(force) {
-  const list = $("art-list"); if (!list) return;
-  const all = artSorted(), groups = [...new Set(all.map((a) => a.used_in || "其他"))];
-  $("art-filter").innerHTML = ["", ...groups].map((g) => `<button data-af="${esc(g)}" class="${g === artF ? "on" : ""}">${g ? esc(g) : "全部"}</button>`).join("")
-    + `<span class="fxnote" style="margin-left:auto">${all.filter((a) => a.status === "todo").length} 張待畫・${all.filter((a) => a.status === "old" || a.status === "done").length} 張有圖</span>`;
-  // 正在打字：別把輸入框整個換掉（雲端回寫會觸發重畫）
-  if (!force && document.activeElement && document.activeElement.closest && document.activeElement.closest("#art-list") && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
-  const rows = all.filter((a) => !artF || (a.used_in || "其他") === artF);
-  list.innerHTML = rows.length ? rows.map((a) => `<div class="artrow" data-art="${esc(a.id)}" data-kind="${esc(a.kind)}" tabindex="-1">
-      <label class="artpic" title="點一下選圖，或把圖拖進來">${a.asset_url ? `<img src="${esc(a.asset_url)}" alt="">` : assetsNs ? "放圖" : "（這個畫面不能放圖）"}<input type="file" accept="image/*" data-artfile></label>
+const artGrp = (a) => a.used_in || "其他";
+const artSorted = () => Object.values(arts).sort((a, b) => {
+  const ga = ART_GROUP_ORDER.indexOf(artGrp(a)), gb = ART_GROUP_ORDER.indexOf(artGrp(b));
+  return (ga < 0 ? 99 : ga) - (gb < 0 ? 99 : gb) || (a.order ?? 999) - (b.order ?? 999) || String(a.key).localeCompare(String(b.key));
+});
+const artTime = (iso) => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+function artSyncHtml(a) {
+  const up = a.asset_id ? `<span>上傳於 ${artTime(a.uploaded_at) || "（時間沒記到）"}${(a.history || []).length > 1 ? `・第 ${a.history.length} 版` : ""}</span>` : "";
+  let st;
+  if (a.asset_id && a.asset_id !== a.synced_asset) st = `<span class="new">新上傳，待 Claude 抓進 App</span>`;
+  else if (a.asset_id) st = `<span class="ok">已進 App（${artTime(a.synced_at)}）</span>`;
+  else st = a.temp ? `<span>App 現用：${esc(a.temp)}</span>` : `<span>App 裡還沒有這張</span>`;
+  return `<div class="artsync">${up}${st}</div>`;
+}
+function artHistHtml(a) {
+  const h = (a.history || []).slice().reverse(); if (h.length < 2) return "";
+  return `<details class="arthist"><summary>歷史 ${h.length} 版（新到舊）</summary><ul>${h.map((x, i) => `<li>${artTime(x.at)}　${esc(x.name || "")}${i === 0 ? "　← 現在這張" : ""}${x.url ? `　<a href="${esc(x.url)}" target="_blank" rel="noopener">看</a>` : ""}</li>`).join("")}</ul></details>`;
+}
+function artRowHtml(a) {
+  return `<div class="artrow" data-art="${esc(a.id)}" data-kind="${esc(a.kind)}" tabindex="-1">
+      <label class="artpic" title="點一下選圖，或把圖拖進來（再上傳＝覆蓋，舊的留在歷史）">${a.asset_url ? `<img src="${esc(a.asset_url)}" alt="">` : assetsNs ? "放圖" : "（這個畫面不能放圖）"}<input type="file" accept="image/*" data-artfile></label>
       <div>
         <div class="arthead"><b>${esc(a.name)}</b><span class="arttag">${esc(a.kind)}</span>${a.key ? `<code>${esc(a.key)}</code>` : ""}<span class="artst-${esc(a.status)}">${ART_ST[a.status] || ""}</span></div>
+        ${artSyncHtml(a)}
         <p class="fxnote" style="margin:0 0 6px">${esc(a.brief || "")}</p>
         <div class="grid">
           <label class="field"><span>狀態</span><select data-artk="status">${Object.entries(ART_ST).map(([k, v]) => `<option value="${k}"${k === a.status ? " selected" : ""}>${v}</option>`).join("")}</select></label>
-          <label class="field"><span>現在暫用</span><input type="text" data-artk="temp" value="${esc(a.temp || "")}"></label>
-          <label class="field wide"><span>六六的備註（舊圖檔名、要改的地方…）</span><textarea data-artk="note" rows="2">${esc(a.note || "")}</textarea></label>
+          <label class="field wide"><span>六六的備註（要改的地方…）</span><textarea data-artk="note" rows="2">${esc(a.note || "")}</textarea></label>
         </div>
-        <p class="fxnote" style="margin:4px 0 0">用在：${esc(a.used_in || "")}${a.scenes ? `・${esc(a.scenes)}` : ""}${a.asset_name ? `・圖：${esc(a.asset_name)}` : ""}</p>
-      </div></div>`).join("") : `<p class="fxnote">這裡還沒有東西。</p>`;
+        <p class="fxnote" style="margin:4px 0 0">用在：${esc(a.used_in || "")}${a.scenes ? `・${esc(a.scenes)}` : ""}${a.asset_name ? `・檔名：${esc(a.asset_name)}` : ""}</p>
+        ${artHistHtml(a)}
+      </div></div>`;
+}
+function artPaint(force) {
+  const list = $("art-list"); if (!list) return;
+  const all = artSorted(), groups = [...new Set(all.map(artGrp))];
+  const waiting = all.filter((a) => a.asset_id && a.asset_id !== a.synced_asset).length;
+  $("art-filter").innerHTML = ["", ...groups].map((g) => `<button data-af="${esc(g)}" class="${g === artF ? "on" : ""}">${g ? esc(g) : "全部"}</button>`).join("")
+    + `<span class="fxnote" style="margin-left:auto">${waiting ? `<b style="color:var(--cinnabar)">${waiting} 張新上傳待抓</b>・` : ""}${all.filter((a) => a.status === "todo").length} 張待畫・${all.filter((a) => a.asset_id).length} 張在這裡上傳過</span>`;
+  // 正在打字：別把輸入框整個換掉（雲端回寫會觸發重畫）
+  if (!force && document.activeElement && document.activeElement.closest && document.activeElement.closest("#art-list") && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  const rows = all.filter((a) => !artF || artGrp(a) === artF);
+  if (!rows.length) { list.innerHTML = `<p class="fxnote">這裡還沒有東西。</p>`; return; }
+  let html = "", lastG = null, lastC = null;
+  for (const a of rows) {
+    const g = artGrp(a);
+    if (g !== lastG) { html += `<h3 class="artgrp">${esc(g)}</h3>`; lastG = g; lastC = null; }
+    if (g === "主要角色" && a.cid !== lastC) {
+      lastC = a.cid;
+      html += `<h3 class="artgrp" style="font-size:14px">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-outfit="${esc(a.cid || "")}">＋衣裝</button></h3>`;
+    }
+    html += artRowHtml(a);
+  }
+  list.innerHTML = html;
 }
 function artSave(id) {
   const a = arts[id]; if (!a) return;
@@ -1533,7 +1577,7 @@ function artSave(id) {
   clearTimeout(artTimers[id]); setSave("有未存的修改…");
   artTimers[id] = setTimeout(() => db.collection("art_needs").doc(id).set(JSON.parse(JSON.stringify(a)))
     .then(() => { delete artTimers[id]; setSave("已同步"); })
-    .catch(() => { delete artTimers[id]; setSave("美術需求沒存上", true); }), 500);
+    .catch(() => { delete artTimers[id]; setSave("美術資產沒存上", true); }), 500);
 }
 async function artUpload(id, file) {
   if (!file) return;
@@ -1542,7 +1586,12 @@ async function artUpload(id, file) {
   const pic = document.querySelector(`[data-art="${CSS.escape(id)}"] .artpic`); if (pic) pic.firstChild.textContent = "上傳中…";
   try {
     const r = await assetsNs.upload(file);
-    Object.assign(arts[id], { asset_id: r.id, asset_url: r.url, asset_name: file.name, status: arts[id].status === "todo" ? "old" : arts[id].status });
+    const at = new Date().toISOString(), a = arts[id];
+    // 舊格式（10-22 以前）沒有 history：先把原本那一張補進去，時間不明就空著
+    const hist = Array.isArray(a.history) ? a.history : (a.asset_id ? [{ asset_id: a.asset_id, url: a.asset_url, name: a.asset_name, at: a.uploaded_at || "" }] : []);
+    hist.push({ asset_id: r.id, url: r.url, name: file.name, at });
+    Object.assign(a, { asset_id: r.id, asset_url: r.url, asset_name: file.name, uploaded_at: at, history: hist.slice(-30),
+      status: a.status === "todo" ? "old" : a.status });
     artSave(id); artPaint(true);
   } catch (e) { if (pic) pic.firstChild.textContent = "沒傳上去：" + ((e && e.message) || "再試一次"); }
 }
@@ -1566,6 +1615,18 @@ function artInit() {
     const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => /^image\//.test(x.type)); if (!f) return;
     e.preventDefault(); artUpload(row.dataset.art, f);
   });
+  list.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-outfit]"); if (!b) return;
+    const cid = b.dataset.outfit, label = prompt(`${ART_CHARS[cid] || cid}的哪一套衣裝？（例：夏裝、道袍、節慶）`); if (!label) return;
+    const slug = prompt("給這套一個英文代號（小寫英數，例：summer）。App 用它找圖：char/" + cid + "/<代號>", "") || "";
+    const code = slug.toLowerCase().replace(/[^a-z0-9_-]/g, "") || ("o" + Date.now().toString(36));
+    const id = `art_${cid}_${code}`;
+    if (arts[id]) { alert("這個代號已經有了"); return; }
+    arts[id] = { id, name: `${ART_CHARS[cid] || cid}・${label}`, kind: "立繪", key: `char/${cid}/${code}`, cid, outfit: code, used_in: "主要角色",
+      brief: "衣裝立繪：規格同預設立繪（900×1200 去背、頭頂與腳底跟預設那張同一條線）。要配一張同裝束的頭像，再加一列。", status: "todo", temp: "", note: "",
+      order: (Object.values(arts).filter((x) => x.cid === cid).reduce((m, x) => Math.max(m, x.order || 0), 0) || 100) + 1 };
+    artSave(id); artPaint(true);
+  });
   $("art-add").addEventListener("click", () => {
     const name = prompt("要哪一張？（例：凌霄 立繪、渡口 夜景）"); if (!name) return;
     const id = "art_" + Date.now().toString(36);
@@ -1577,7 +1638,7 @@ function artInit() {
   db.collection("art_needs").onSnapshot((snap) => {
     for (const d of snap.docs) if (d.exists && !artTimers[d.id]) arts[d.id] = JSON.parse(JSON.stringify(d.data()));
     artPaint();
-  }, () => setSave("美術需求讀不到", true));
+  }, () => setSave("美術資產讀不到", true));
 }
 
 
