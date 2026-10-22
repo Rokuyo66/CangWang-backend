@@ -151,7 +151,9 @@ async function runBroadcast(
 
 Deno.serve(async (req) => {
   // 內部鑑權：只有帶對的 secret 才放行
-  if (req.headers.get("x-internal-secret") !== INTERNAL_SECRET) {
+  // fail-closed：secret 沒設就一律拒絕（同 webhook-tg、due-reminder；2026-10-22 上線檢查）
+  if (!INTERNAL_SECRET || req.headers.get("x-internal-secret") !== INTERNAL_SECRET) {
+    if (!INTERNAL_SECRET) console.error("BROADCAST_INTERNAL_SECRET 未設定：broadcast 一律拒絕");
     return new Response("forbidden", { status: 403 });
   }
 

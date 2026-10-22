@@ -122,10 +122,17 @@ const ahUnlockedCount = (signinTotal: number) =>
 //
 //   ALLOWED_ORIGINS=https://你的網域,https://localhost
 //
-// 沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，就不會有人記得它還開著。
+// 沒設就用下面這份正式名單（2026-10-22 上線檢查 P0：原本沒設就退回萬用字元＝fail-open）。
+// 名單與 dev/web/AUTH-EMAIL.md 那一列同一份；iOS 的 capacitor://localhost 先放著，上 iOS 時不必再改。
+const DEFAULT_ORIGINS = [
+  "https://jizhiguan.com", "https://www.jizhiguan.com",
+  "https://cangwang-web.pages.dev", "*.cangwang-web.pages.dev",
+  "https://localhost",          // Android APK（Capacitor WebView）
+  "capacitor://localhost",      // iOS（Capacitor）
+];
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? Deno.env.get("ALLOWED_ORIGIN") ?? "")
   .split(",").map((o) => o.trim()).filter(Boolean);
-if (!ALLOWED_ORIGINS.length) console.warn("ALLOWED_ORIGINS 未設定：CORS 仍是萬用字元");
+if (!ALLOWED_ORIGINS.length) ALLOWED_ORIGINS.push(...DEFAULT_ORIGINS);
 
 // 各處回應仍舊帶這一份（132 個呼叫點不必動）。真正送出去的 Allow-Origin
 // 由最外層依當次請求覆寫——見檔尾 Deno.serve 的包裝。
@@ -135,7 +142,7 @@ const CORS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/** 這一次請求該回什麼 Allow-Origin。名單沒設就回 *；設了但來源不在名單上，
+/** 這一次請求該回什麼 Allow-Origin。來源不在名單上（名單沒設時用 DEFAULT_ORIGINS），
  *  就完全不給這個標頭——瀏覽器那一側會自己擋下來，而這是對的：
  *  回一個對不上的值，只會讓錯誤訊息更難懂。
  *  沒有 Origin 標頭的（TG bot、排程、curl）不受影響，CORS 本來就只管瀏覽器。 */
