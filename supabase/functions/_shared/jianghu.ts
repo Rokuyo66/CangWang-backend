@@ -186,6 +186,17 @@ function rng(seed: string) {
   let x = 0; for (const c of String(seed)) x = (x * 31 + c.charCodeAt(0)) | 0;
   return () => { x = (x * 1103515245 + 12345) | 0; return ((x >>> 16) & 0x7fff) / 0x8000; };
 }
+/** 玩家在入口自己骰的化名（六六 2026-10-22：要在外面就知道會用什麼名字進去）。
+ *  前端用同一份字庫隨機組，送來的名字要真的是字庫組得出來的：姓（單姓或複姓）＋一字（given1 或 given2）或兩字（given1＋given2） */
+export function aliasOk(name: string, cfg: Partial<typeof ALIAS_DEFAULT> = {}) {
+  const c = { ...ALIAS_DEFAULT, ...cfg };
+  const n = String(name ?? "").trim(); if (!n || n.length > 4) return false;
+  const comp = c.compound.split(/\s+/).filter(Boolean), g1 = [...c.given1], g2 = [...c.given2];
+  const rest = (r: string) => (r.length === 1 && (g1.includes(r) || g2.includes(r))) || (r.length === 2 && g1.includes(r[0]) && g2.includes(r[1]));
+  const cp = comp.find((x) => n.startsWith(x));
+  if (cp && rest(n.slice(cp.length))) return true;
+  return [...c.surnames].includes(n[0]) && rest(n.slice(1));
+}
 export function alias(seed: string, cfg: Partial<typeof ALIAS_DEFAULT> = {}) {
   const c = { ...ALIAS_DEFAULT, ...cfg };
   const r = rng(seed), pick = <T>(s: T[]) => s[Math.floor(r() * s.length)];

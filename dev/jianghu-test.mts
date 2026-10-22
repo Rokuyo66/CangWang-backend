@@ -89,6 +89,11 @@ t("下發的劇本不帶結局與成就條件", () => {
   const s = JSON.stringify(J.clientDoc(doc));
   for (const k of ["endings", "insight", "npc_fate", "achievements", "\"set\"", "outline"]) if (s.includes(k)) throw new Error("帶了 " + k);
 });
+t("化名：字庫組得出來的才收（入口自己骰的）", () => {
+  for (let i = 0; i < 200; i++) { const n = J.alias("seed" + i); if (!J.aliasOk(n)) throw new Error("自己產的不認：" + n); }
+  for (const bad of ["", "王小明", "沈", "沈青崖崖", "<b>", "司馬"]) if (J.aliasOk(bad)) throw new Error("不該收：" + bad);
+  if (!J.aliasOk("司馬崖") || !J.aliasOk("沈青崖")) throw new Error("該收");
+});
 t("化名同一個種子固定", () => { if (J.alias("2026-10-21|1|u") !== J.alias("2026-10-21|1|u")) throw new Error(); });
 t("動爻：6、9 是動爻", () => { if (JSON.stringify(J.movingOf([7, 9, 8, 6, 7, 7])) !== "[1,3]") throw new Error(); });
 console.log(`\n${pass} 過、${fail} 錯\n`); if (fail) process.exit(1);

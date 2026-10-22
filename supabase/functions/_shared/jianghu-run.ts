@@ -4,7 +4,7 @@
 // 進度與獎勵一律在這裡判：客戶端只送「選了哪些 key」，結局是這裡照劇本重演算出來的。
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { walk, clientDoc, litAchievements, achievementsOf, movingOf, rollMoving, alias, STATS_DEFAULT, type Doc } from "./jianghu.ts";
+import { walk, clientDoc, litAchievements, achievementsOf, movingOf, rollMoving, alias, aliasOk, ALIAS_DEFAULT, STATS_DEFAULT, type Doc } from "./jianghu.ts";
 
 export type JhResult = { ok: true; payload: Record<string, unknown> } | { ok: false; msg: string };
 const bad = (msg: string): JhResult => ({ ok: false, msg });
@@ -54,8 +54,11 @@ export async function jianghuToday(db: SupabaseClient, uid: string) {
     const { ev, fallback } = await eventForToday(db, f.gua);
     const { count } = await db.from("jianghu_runs").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("day", day);
     const cfg = await config(db);
+    // 化名字庫＋今天預設的那一個：入口就骰得到、看得到會用什麼名字進去
+    const parts = { ...ALIAS_DEFAULT, ...cfg.alias };
     return { gua: f.gua, ready: !!ev, fallback, event_gua: ev?.gua ?? null, title: ev?.title ?? null, gua_no: ev?.gua_no ?? null,
-      summary: ev ? (ev.doc.outline?.player_summary ?? "") : "", visited: (count ?? 0) > 0, cost: cfg.replayCost };
+      summary: ev ? (ev.doc.outline?.player_summary ?? "") : "", visited: (count ?? 0) > 0, cost: cfg.replayCost,
+      alias_parts: parts, alias_today: ev ? alias(`${day}|${ev.gua_no}|${uid}`, cfg.alias) : null };
   } catch (_) { return null; }
 }
 
@@ -75,8 +78,10 @@ export async function jianghuStart(db: SupabaseClient, uid: string, isAdmin: boo
   const pickMoving = (v: unknown) => Array.isArray(v) ? [...new Set(v.map(Number).filter((x) => x >= 0 && x <= 5))].sort() : null;
   const free = test ? (pickMoving(body.moving) ?? (f && f.gua === ev.gua ? f.moving : [])) : f!.moving;
   const { data: prof } = await db.from("profiles").select("display_name").eq("id", uid).maybeSingle();
+  // 化名：入口骰好的（alias_name，要是字庫組得出來的）；沒送或不合格就用今天預設的那一個
+  const picked = String(body.alias_name ?? "").trim();
   const name = body.name === "alias"
-    ? alias(`${day}|${ev.gua_no}|${uid}`, cfg.alias)
+    ? (picked && aliasOk(picked, cfg.alias) ? picked : alias(`${day}|${ev.gua_no}|${uid}`, cfg.alias))
     : (String(prof?.display_name ?? "").trim().slice(0, 12) || "無名");
   const { data: r, error } = await db.rpc("jianghu_start", {
     p_user: uid, p_gua: ev.gua_no, p_day: day, p_moving_free: free, p_moving_roll: rollMoving(),
