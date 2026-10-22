@@ -295,6 +295,14 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   <div class="artfilter" id="art-filter"></div>
   <div id="art-list" class="artlist"><p class="fxnote">載入中…</p></div>
   <div class="addrow"><button class="btn" id="art-add">＋一列</button></div>
+  <div class="tcard" id="art-new" hidden style="margin-top:8px">
+    <div class="grid">
+      <label class="field"><span id="art-new-l1">名稱</span><input type="text" id="art-new-name" placeholder="例：凌霄 立繪、渡口 夜景"></label>
+      <label class="field"><span>英文代號 <em>（小寫英數；App 用它找圖）</em></span><input type="text" id="art-new-code" placeholder="例：summer、dukou"></label>
+      <label class="field" id="art-new-kindf"><span>類型</span><select id="art-new-kind"><option>立繪</option><option>場景</option><option>頭像</option></select></label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" id="art-new-go">加入</button><button class="btn ghost" id="art-new-x">取消</button><span id="art-new-e" style="color:var(--cinnabar);font-size:13px"></span></div>
+  </div>
 </div>
 <div class="wrap" id="m-jh" hidden>
   <aside class="rail">
@@ -819,6 +827,7 @@ const DEF_CFG = {
 };
 let cfg = JSON.parse(JSON.stringify(DEF_CFG));
 let cfgDirty = false, cfgTimer = null;
+let jPending = null;   // 整篇匯入：第一下讀懂並報告、第二下才覆蓋
 let jh = {}, jcur = null, jview = "write", jfilter = "", sim = null, jopen = {};
 const jdirty = new Set(), jtimers = {}, jrev = {};
 const JLS = "script-sheet-jianghu-v2";
@@ -1010,7 +1019,7 @@ function jMain() {
   <section class="sec"><h2>整篇 JSON <small>交給 GPT 寫或改：複製出去、把它寫好的貼回來（格式：JIANGHU-WRITER-BRIEF.md）</small></h2>
     <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn" data-ja="jsonCopy">複製整篇</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div>
     <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製整篇」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" data-ja="jsonGo">匯入（覆蓋這一卦）</button><button class="btn ghost" data-ja="jsonX">取消</button><span id="jh-imp-e" style="color:var(--cinnabar);font-size:13px"></span></div></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" data-ja="jsonGo" id="jh-imp-go">匯入（覆蓋這一卦）</button><button class="btn ghost" data-ja="jsonX">取消</button><span id="jh-imp-e" style="color:var(--cinnabar);font-size:13px"></span></div></div>
     <div id="jh-out"></div></section>`;
   jBody(); jChecks(); jOut();
 }
@@ -1240,15 +1249,24 @@ $("jh-main").addEventListener("click", (e) => {
   if (b.dataset.sim) { simAct(b); return; }
   const a = b.dataset.ja; if (!a) return;
   const w = where(b), mv = (arr, i, d) => { const k = i + d; if (k < 0 || k >= arr.length) return false; [arr[i], arr[k]] = [arr[k], arr[i]]; return true; };
-  if (a === "jsonCopy") { const t = JSON.stringify({ ...j, updated_at: undefined }, null, 1); navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = "複製整篇"), 1500); }, () => alert("複製不了：請改用下面「輸出」那一格手動全選複製。")); return; }
-  if (a === "jsonPaste") { $("jh-imp").hidden = false; $("jh-imp-t").focus(); return; }
-  if (a === "jsonX") { $("jh-imp").hidden = true; $("jh-imp-e").textContent = ""; return; }
+  // 註：claude.ai 把稿紙放在受限的框架裡，confirm／alert／prompt 會被直接擋掉（等於按了取消）——一律在頁面上問（2026-10-22 匯入「沒反應」就是這個）
+  if (a === "jsonCopy") {
+    const t = JSON.stringify({ ...j, updated_at: undefined }, null, 1);
+    const fallback = () => { $("jh-imp").hidden = false; const ta = $("jh-imp-t"); ta.value = t; ta.focus(); ta.select(); $("jh-imp-e").textContent = "瀏覽器不讓自動複製：已經全選，請按 Ctrl／⌘＋C。"; };
+    try { navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = "複製整篇"), 1500); }, fallback); } catch (e) { fallback(); }
+    return;
+  }
+  if (a === "jsonPaste") { $("jh-imp").hidden = false; jPending = null; $("jh-imp-go").textContent = "匯入（覆蓋這一卦）"; $("jh-imp-e").textContent = ""; $("jh-imp-t").focus(); return; }
+  if (a === "jsonX") { $("jh-imp").hidden = true; jPending = null; $("jh-imp-e").textContent = ""; return; }
   if (a === "jsonGo") {
+    if (jPending && jPending.id === j.id && jPending.raw === $("jh-imp-t").value) { jh[jcur] = jPending.doc; jPending = null; jtouch(jcur); jRail(); jMain(); return; }
     const [nj, err] = jFromPaste($("jh-imp-t").value, j);
-    if (err) { $("jh-imp-e").textContent = err; return; }
+    if (err) { jPending = null; $("jh-imp-e").textContent = err; return; }
     const errs = jChecksOf(nj).filter(([lv]) => lv === "e").length;
-    if (!confirm(`要用貼上的內容整篇覆蓋「${j.gua}」嗎？${errs ? `\n（自動檢查有 ${errs} 個「要改」，匯入後在「檢查」那一節看得到）` : ""}`)) return;
-    jh[jcur] = nj; jtouch(jcur); jRail(); jMain(); return;
+    jPending = { id: j.id, doc: nj, raw: $("jh-imp-t").value };
+    $("jh-imp-go").textContent = `確定覆蓋「${j.gua}」`;
+    $("jh-imp-e").textContent = `讀得懂：${nj.nodes.length} 節、${nj.endings.length} 個結局、${(nj.achievements || []).length} 個成就${errs ? `；自動檢查有 ${errs} 個「要改」，匯入後在「檢查」看得到` : "；自動檢查沒有「要改」"}。再按一次就覆蓋。`;
+    return;
   }
   if (a === "nodeToggle") { jopen[jcur + w.node] = jopen[jcur + w.node] === false; jWrite(); return; }
   if (a === "chOpen") { jopen[jcur + "c" + w.node] = true; j.nodes[w.node].change.scenes.push({ text: "" }); }
@@ -1463,6 +1481,11 @@ function jChecksOf(j) {
   const used = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).flatMap((c) => Object.keys(c.fx || {}))));
   if (used.size) cfg.stats.forEach((st) => { if (!used.has(st.k)) W(`數值「${st.name}」這一篇沒有選項會改到。`); });
   if (allScenes(j).some(([s]) => /你說[：:]/.test(s.text || ""))) W("有一幕寫了「你說：」。玩家選的話會自己留在畫面上，不必再寫。");
+  // 2026-10-22 GPT 稿（坤為地）踩過的：閒聊式的＊動作＊、說話者名字前後不一
+  if (allScenes(j).some(([s]) => /[＊*][^＊*\n]{1,40}[＊*]/.test(s.text || ""))) W("有幕用了＊動作＊（閒聊的寫法）。劇本裡動作直接寫成旁白句，台詞用「」。");
+  j.npcs.forEach((n) => { const bad = [...new Set(allScenes(j).filter(([s]) => s.npc === n.id && s.speaker && s.speaker !== n.name).map(([s]) => s.speaker))];
+    if (bad.length) W(`人物「${n.name}」的說話者名字不一致（${bad.join("、")}）：畫面上的名字要跟人物表一樣。`); });
+  allScenes(j).forEach(([s, i, part]) => (s.text || "").split("\n").forEach((p) => { if (p.length > 120) W(`${YAO[i]}${part === "change" ? "的變數" : ""}有一段超過 120 字：App 會被迫在句號處切開，最好自己分段。`); }));
   const chars = (j.opening.text || "").length + j.nodes.reduce((a, n) => a + n.scenes.reduce((b, s) => b + (s.text || "").length, 0), 0);
   const nChoice = j.nodes.reduce((a, n) => a + n.scenes.filter((s) => (s.choices || []).length).length, 0);
   const mins = chars / 300 + nChoice * 0.15;
@@ -1617,8 +1640,8 @@ function artSave(id) {
 }
 async function artUpload(id, file) {
   if (!file) return;
-  if (!assetsNs) { alert("這個畫面不能放圖：請從 claude.ai 打開稿紙。"); return; }
-  if (!/^image\//.test(file.type)) { alert("只收圖片"); return; }
+  if (!assetsNs) { setSave("這個畫面不能放圖：請從 claude.ai 打開稿紙", true); return; }
+  if (!/^image\//.test(file.type)) { setSave("只收圖片", true); return; }
   const pic = document.querySelector(`[data-art="${CSS.escape(id)}"] .artpic`); if (pic) pic.firstChild.textContent = "上傳中…";
   try {
     const r = await assetsNs.upload(file);
@@ -1651,23 +1674,38 @@ function artInit() {
     const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => /^image\//.test(x.type)); if (!f) return;
     e.preventDefault(); artUpload(row.dataset.art, f);
   });
-  list.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-outfit]"); if (!b) return;
-    const cid = b.dataset.outfit, label = prompt(`${ART_CHARS[cid] || cid}的哪一套衣裝？（例：夏裝、道袍、節慶）`); if (!label) return;
-    const slug = prompt("給這套一個英文代號（小寫英數，例：summer）。App 用它找圖：char/" + cid + "/<代號>", "") || "";
-    const code = slug.toLowerCase().replace(/[^a-z0-9_-]/g, "") || ("o" + Date.now().toString(36));
-    const id = `art_${cid}_${code}`;
-    if (arts[id]) { alert("這個代號已經有了"); return; }
-    arts[id] = { id, name: `${ART_CHARS[cid] || cid}・${label}`, kind: "立繪", key: `char/${cid}/${code}`, cid, outfit: code, used_in: "主要角色",
-      brief: "衣裝立繪：規格同預設立繪（900×1200 去背、頭頂與腳底跟預設那張同一條線）。要配一張同裝束的頭像，再加一列。", status: "todo", temp: "", note: "",
-      order: (Object.values(arts).filter((x) => x.cid === cid).reduce((m, x) => Math.max(m, x.order || 0), 0) || 100) + 1 };
-    artSave(id); artPaint(true);
-  });
-  $("art-add").addEventListener("click", () => {
-    const name = prompt("要哪一張？（例：凌霄 立繪、渡口 夜景）"); if (!name) return;
-    const id = "art_" + Date.now().toString(36);
-    arts[id] = { id, name, kind: /場景|景|口|台|房|院|街|山|河/.test(name) ? "場景" : "立繪", key: "", used_in: artF || "其他", brief: "", status: "todo", temp: "", note: "", order: 900 };
-    artSave(id); artPaint(true);
+  // 加一列（一般／某位主角的衣裝）：在頁面上填，不用 prompt（claude.ai 的框架會擋）
+  let artNewCid = null;
+  const artNewOpen = (cid) => {
+    artNewCid = cid; $("art-new").hidden = false; $("art-new-e").textContent = "";
+    $("art-new-l1").textContent = cid ? `${ART_CHARS[cid] || cid}的哪一套衣裝？` : "名稱";
+    $("art-new-name").placeholder = cid ? "例：夏裝、道袍、節慶" : "例：凌霄 立繪、渡口 夜景";
+    $("art-new-kindf").hidden = !!cid; $("art-new-name").value = ""; $("art-new-code").value = "";
+    $("art-new").scrollIntoView({ block: "center" }); $("art-new-name").focus();
+  };
+  list.addEventListener("click", (e) => { const b = e.target.closest("[data-outfit]"); if (b) artNewOpen(b.dataset.outfit); });
+  $("art-add").addEventListener("click", () => artNewOpen(null));
+  $("art-new-x").addEventListener("click", () => { $("art-new").hidden = true; });
+  $("art-new-go").addEventListener("click", () => {
+    const name = $("art-new-name").value.trim(), code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!name) { $("art-new-e").textContent = "名稱要填"; return; }
+    const cid = artNewCid;
+    if (cid) {
+      if (!code) { $("art-new-e").textContent = "衣裝要一個英文代號"; return; }
+      const id = `art_${cid}_${code}`;
+      if (arts[id]) { $("art-new-e").textContent = "這個代號已經有了"; return; }
+      arts[id] = { id, name: `${ART_CHARS[cid] || cid}・${name}`, kind: "立繪", key: `char/${cid}/${code}`, cid, outfit: code, used_in: "主要角色",
+        brief: "衣裝立繪：規格同預設立繪（900×1200 去背、頭頂與腳底跟預設那張同一條線）。要配一張同裝束的頭像，再加一列。", status: "todo", temp: "", note: "",
+        order: (Object.values(arts).filter((x) => x.cid === cid).reduce((m, x) => Math.max(m, x.order || 0), 0) || 100) + 1 };
+      artSave(id);
+    } else {
+      const kind = $("art-new-kind").value, id = "art_" + (code || Date.now().toString(36));
+      if (arts[id]) { $("art-new-e").textContent = "這個代號已經有了"; return; }
+      const key = code ? (kind === "場景" ? "scene/" : kind === "頭像" ? "av/" : "char/n_") + code : "";
+      arts[id] = { id, name, kind, key, used_in: artF || "其他", brief: "", status: "todo", temp: "", note: "", order: 900 };
+      artSave(id);
+    }
+    $("art-new").hidden = true; artPaint(true);
   });
   (async () => { try { assetsNs = window.claude && claude.use ? await claude.use("assets") : null; } catch (e) { assetsNs = null; } artPaint(); })();
   if (!db) { try { arts = JSON.parse(localStorage.getItem("script-sheet-art") || "{}"); } catch (e) {} artPaint(); return; }
