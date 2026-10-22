@@ -1007,7 +1007,11 @@ function jMain() {
   </section>
   <section class="sec"><h2>給 Claude 的備註</h2><textarea rows="2" data-jk="note" placeholder="美術、音樂、還沒想好的地方">${esc(j.note)}</textarea></section>
   <section class="sec"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
-  <section class="sec"><h2>輸出 <small>格式草案：後端還沒接（JIANGHU-SCRIPT.md）</small></h2><div id="jh-out"></div></section>`;
+  <section class="sec"><h2>整篇 JSON <small>交給 GPT 寫或改：複製出去、把它寫好的貼回來（格式：JIANGHU-WRITER-BRIEF.md）</small></h2>
+    <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn" data-ja="jsonCopy">複製整篇</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div>
+    <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製整篇」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" data-ja="jsonGo">匯入（覆蓋這一卦）</button><button class="btn ghost" data-ja="jsonX">取消</button><span id="jh-imp-e" style="color:var(--cinnabar);font-size:13px"></span></div></div>
+    <div id="jh-out"></div></section>`;
   jBody(); jChecks(); jOut();
 }
 function jBody() { if (jview === "sim") simPaint(); else jWrite(); }
@@ -1236,6 +1240,16 @@ $("jh-main").addEventListener("click", (e) => {
   if (b.dataset.sim) { simAct(b); return; }
   const a = b.dataset.ja; if (!a) return;
   const w = where(b), mv = (arr, i, d) => { const k = i + d; if (k < 0 || k >= arr.length) return false; [arr[i], arr[k]] = [arr[k], arr[i]]; return true; };
+  if (a === "jsonCopy") { const t = JSON.stringify({ ...j, updated_at: undefined }, null, 1); navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = "複製整篇"), 1500); }, () => alert("複製不了：請改用下面「輸出」那一格手動全選複製。")); return; }
+  if (a === "jsonPaste") { $("jh-imp").hidden = false; $("jh-imp-t").focus(); return; }
+  if (a === "jsonX") { $("jh-imp").hidden = true; $("jh-imp-e").textContent = ""; return; }
+  if (a === "jsonGo") {
+    const [nj, err] = jFromPaste($("jh-imp-t").value, j);
+    if (err) { $("jh-imp-e").textContent = err; return; }
+    const errs = jChecksOf(nj).filter(([lv]) => lv === "e").length;
+    if (!confirm(`要用貼上的內容整篇覆蓋「${j.gua}」嗎？${errs ? `\n（自動檢查有 ${errs} 個「要改」，匯入後在「檢查」那一節看得到）` : ""}`)) return;
+    jh[jcur] = nj; jtouch(jcur); jRail(); jMain(); return;
+  }
   if (a === "nodeToggle") { jopen[jcur + w.node] = jopen[jcur + w.node] === false; jWrite(); return; }
   if (a === "chOpen") { jopen[jcur + "c" + w.node] = true; j.nodes[w.node].change.scenes.push({ text: "" }); }
   else if (a === "npcAdd") { j.npcs.push({ id: newId(), name: "", desc: "" }); jtouch(jcur); jMain(); return; }
@@ -1478,6 +1492,28 @@ function jClean(j) {
     endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),
     achievement: j.achievement, achievements: achList(j), stats: cfg.stats.map((s) => s.k) };
+}
+/* 整篇匯入（GPT 寫的）：照 jblank 的骨架補齊缺的欄位，id／卦號／卦名用這一卦的，不信貼進來的。
+   接受兩種 change 寫法：{ scenes:[…] } 或直接 […]（「輸出」區那種）。回傳 [整理好的一篇, 錯誤訊息] */
+function jFromPaste(raw, cur) {
+  let d; try { d = JSON.parse(String(raw).trim().replace(/^```(?:json)?|```$/g, "")); } catch (e) { return [null, "不是合法的 JSON：" + e.message]; }
+  if (!d || typeof d !== "object") return [null, "要貼一整個 { … }"];
+  if (!Array.isArray(d.nodes) || d.nodes.length !== 6) return [null, `nodes 要剛好 6 節（現在 ${Array.isArray(d.nodes) ? d.nodes.length : "沒有"}）`];
+  if (!Array.isArray(d.endings) || !d.endings.length) return [null, "endings 至少要一個（最後一個留空條件當保底）"];
+  const base = jblank(cur.gua_no), sc = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y === "object").map((y) => { const z = { ...y }; delete z.yao; return z; });
+  const j = { ...base, ...d, id: cur.id, gua_no: cur.gua_no, gua: cur.gua,
+    status: d.status && ["draft", "gen", "review", "final", "temp", "archived"].includes(d.status) ? d.status : "review",
+    outline: { ...base.outline, ...(d.outline || {}), ...(d.player_summary ? { player_summary: d.player_summary } : {}) },
+    identity: { ...base.identity, ...(d.identity || {}) }, opening: { ...base.opening, ...(d.opening || {}) },
+    npcs: (d.npcs || []).map((n) => ({ id: n.id || newId(), name: n.name || "", desc: n.desc || "" })),
+    start: d.start && typeof d.start === "object" ? d.start : {},
+    nodes: d.nodes.map((n) => ({ title: n.title || "", scenes: sc(n.scenes).length ? sc(n.scenes) : [{ text: "" }], change: { scenes: sc(Array.isArray(n.change) ? n.change : (n.change || {}).scenes) } })),
+    endings: d.endings.map((en) => { const e0 = jending(""); return { ...e0, ...en, id: en.id || e0.id, need: en.need || {}, flags: en.flags || [], not_flags: en.not_flags || [],
+      player_title: { ...e0.player_title, ...(en.player_title || {}) }, hook: { ...e0.hook, ...(en.hook || {}) } }; }),
+    achievements: Array.isArray(d.achievements) ? d.achievements.map((a, i) => ({ id: a.id || "a" + (i + 1), reward_lingshi: 0, desc: "", ...a })) : [],
+    note: cur.note || d.note || "", updated_at: cur.updated_at };
+  delete j.stats; delete j.achievement; achSync(j);
+  return [j, ""];
 }
 function jOut() {
   const el = $("jh-out"); if (!el) return;
