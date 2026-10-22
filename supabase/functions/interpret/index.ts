@@ -19,6 +19,7 @@ import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
+import { voiceReminder, CHAR_IDS } from "../_shared/reminder-voice.ts";
 import { jianghuToday, jianghuStart, jianghuFinish, jianghuBoard, jianghuClaim, type JhResult } from "../_shared/jianghu-run.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
@@ -1414,7 +1415,7 @@ async function handle(req: Request): Promise<Response> {
     // 自訂提醒：列表
     if (body.mode === "reminder_list") {
       const { data: rows } = await db.from("reminders")
-        .select("id, date, time, title, character_id, lead_days")
+        .select("*")   // voice 是 0102 才加的欄；用 * 讓沒跑 0102 時也不會整支失敗
         .eq("user_id", uid).order("date", { ascending: true });
       return Response.json({ kind: "ok", reminders: rows ?? [] }, { headers: CORS });
     }
@@ -1425,12 +1426,16 @@ async function handle(req: Request): Promise<Response> {
       const date = String(body.date ?? "");
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date))
         return Response.json({ kind: "err", msg: "提醒需有項目與日期" }, { headers: CORS });
-      const { data: row, error } = await db.from("reminders").insert({
-        user_id: uid, date, title,
-        time: body.time || null,
-        character_id: body.character_id || null,
-        lead_days: Number(body.lead_days) || 0,
-      }).select("id, date, time, title, character_id, lead_days").single();
+      // 「隨機」在這裡就抽定一位：存成空值的話，三個人的閒聊都不會提起它、通知也不知道該用誰的臉（2026-10-22）
+      const cid = (CHAR_IDS as readonly string[]).includes(String(body.character_id)) ? String(body.character_id)
+        : CHAR_IDS[Math.floor(Math.random() * CHAR_IDS.length)];
+      const time = body.time || null, lead = Number(body.lead_days) || 0;
+      // 用他的口吻寫好提醒那一句（通知是手機本機排的，跳出來那一刻不能再等網路）
+      const voice = await voiceReminder(db, { userId: uid, characterId: cid, title, date, time, leadDays: lead });
+      const base = { user_id: uid, date, title, time, character_id: cid, lead_days: lead };
+      let { data: row, error } = await db.from("reminders").insert({ ...base, voice }).select("*").single();
+      if (error) ({ data: row, error } = await db.from("reminders").insert(base).select("*").single());   // 0102 還沒跑：先不存那一句
+      if (row && !("voice" in row)) (row as Record<string, unknown>).voice = voice;
       if (error) return Response.json({ kind: "err", msg: "寫入失敗" }, { headers: CORS });
       return Response.json({ kind: "ok", reminder: row }, { headers: CORS });
     }

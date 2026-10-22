@@ -159,6 +159,12 @@
 | [ ] | 江湖結局變化：之卦尾聲（零成本）、結局後 Haiku 卦評（每趟約 NT$0.02～0.05） | 2026-10-21 提案，待六六選 |
 | [ ] | 其餘 63 卦的江湖劇本 | 沒劇本的卦暫時導向乾為天（`JIANGHU_FALLBACK_GUA`） |
 
+| [ ] | Google 登入（網頁＋Android） | 2026-10-22 六六說先做。程式待寫；六六要先在 Google Cloud 開 OAuth 用戶端（Web 一組、Android 一組，SHA-1 要填上傳金鑰與 Play App Signing 兩支）、Supabase › Auth › Providers 開 Google |
+| [ ] | 帳號綁定：同一人用 Email／Google 登入要是同一個帳號 | 2026-10-22 六六說先做。道籍›設定加「綁定 Google」（Supabase `linkIdentity`，要開 Manual Linking）；同 Email 的自動合併要先驗證過信箱 |
+| [ ] | iOS 上架時補 Apple 登入 | App Store 規定：有第三方登入就要有 Sign in with Apple |
+| [ ] | 提醒：通知用角色頭像＋角色口吻；小工具「＋」改走觀裡的提醒 | 2026-10-22 前後端寫好。要做：跑 migration `0102_reminder_voice`、部署 `interpret`、出下一版 APK 實機看。頭像暫用舊圖（`res/drawable-nodpi/rem_av_*`），等六六在美術表交三位現行頭像 |
+| [ ] | LINE 官方帳號：三位角色在 LINE 閒聊、導向閒聊訂閱 | 2026-10-22 提案評估中，架構沿用 TG bot（`webhook-tg`）；先定要不要做、走哪個方案 |
+
 （新的項目先放這裡）
 
 ---
