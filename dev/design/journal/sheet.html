@@ -1753,6 +1753,7 @@ function artItemHtml(a) {
         <dl class="kv">
           <dt>現在這張</dt><dd>${a.asset_id ? `${esc(a.asset_name || "")}・上傳於 ${artTime(a.uploaded_at) || "（時間沒記到）"}` : "還沒在這裡上傳過"}</dd>
           <dt>App 現用</dt><dd>${esc(appNow)}</dd>
+          ${a.obtain ? `<dt>獲得方式</dt><dd>${esc(a.obtain)}</dd>` : ""}
           <dt>用在</dt><dd>${esc(g)}${a.scenes ? `・${esc(a.scenes)}` : ""}</dd>
           <dt>App 代號</dt><dd><code>${esc(a.key || "（沒有）")}</code></dd>
         </dl>
