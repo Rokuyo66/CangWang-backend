@@ -268,6 +268,44 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 .bd-hall .s{font-size:13px;color:var(--ink-soft);margin-top:2px}
 .bd-hall .c{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .bd-hall .c div{height:150px;border-radius:14px;background:var(--paper-2);border:1px solid var(--paper-edge);display:flex;align-items:flex-end;padding:10px;font-size:14px;font-weight:500}
+/* ── 小工具背板（android/.../widget/Scenes.java 的 compose）──
+   1 dp 畫成 1 px。每一層照 Java 的順序疊：墨底 → 場景 → 頂端淡暗 → 由下往上的加深 → 霧面。拖金線＝霧面線、紅線＝加深從哪開始。 */
+.wg-grid{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:980px){.wg-grid{grid-template-columns:minmax(0,1fr)}}
+.wg-wall{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;padding:16px;border-radius:14px;background:linear-gradient(160deg,#4d5a63,#22292f)}
+.wg-pick button{white-space:nowrap;padding:6px 4px}
+.wg-fig{margin:0;display:flex;flex-direction:column;gap:6px;cursor:pointer}
+.wg-fig figcaption{font-size:12px;color:#E9E5DD;letter-spacing:.06em}
+.wg-fig.on figcaption{color:#fff;font-weight:700}
+.wg{position:relative;overflow:hidden;border-radius:18px;background:#0d0b08;color:#F1E8D8;font-family:var(--f-disp);touch-action:none;user-select:none;-webkit-user-select:none}
+.wg-fig.on .wg{outline:2px solid #fff;outline-offset:3px}
+.wg > i{position:absolute;inset:0;pointer-events:none}
+.wg-scene{background:center 38% / cover no-repeat}
+.wg-frost{background:#0d0b08}
+.wg-frost b{position:absolute;inset:-12px;background:center 38% / cover no-repeat}
+.wg-frost u{position:absolute;inset:0}
+.wg-txt{position:absolute;inset:0;padding:12px 14px;pointer-events:none;display:flex;flex-direction:column;gap:4px;font-size:11px;line-height:1.5}
+.wg-txt .d{color:rgba(236,227,211,.75);letter-spacing:.06em}
+.wg-txt .st{font-size:30px;font-weight:700;letter-spacing:.12em;line-height:1.2;margin-top:auto}
+.wg-txt .st small{font-size:11px;color:#E0BF7E;margin-left:4px}
+.wg-txt .x{color:#F1E8D8}
+.wg-txt .yj{color:#E0BF7E;letter-spacing:.12em}
+.wg-cal{position:absolute;left:14px;right:14px;display:grid;grid-template-columns:repeat(7,1fr);gap:6px 0;font-size:11px;text-align:center;color:#F1E8D8;pointer-events:none}
+.wg-cal i{font-style:normal}.wg-cal i.t{color:#fff;background:#B5402E;border-radius:50%;width:20px;margin:0 auto}
+.wg-rows{position:absolute;display:flex;flex-direction:column;gap:6px;font-size:11px;color:#F1E8D8;pointer-events:none}
+.wg-rows span{border-left:2px solid #C9A86A;padding-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wg-line{position:absolute;z-index:3;pointer-events:auto}
+.wg-line::before{content:"";position:absolute;border:0 dashed}
+.wg-line.h{left:0;right:0;height:18px;margin-top:-9px;cursor:ns-resize}
+.wg-line.h::before{left:0;right:0;top:8px;border-top-width:2px}
+.wg-line.v{top:0;bottom:0;width:18px;margin-left:-9px;cursor:ew-resize}
+.wg-line.v::before{top:0;bottom:0;left:8px;border-left-width:2px}
+.wg-line.at::before{border-color:#E9C46A}
+.wg-line.g0::before{border-color:#E76F51}
+.wg-line em{position:absolute;font-style:normal;font-family:var(--f-body);font-size:10.5px;padding:0 6px;border-radius:999px;white-space:nowrap}
+.wg-line.h em{right:6px;top:-4px}.wg-line.v em{top:6px;left:12px}
+.wg-line.at em{background:#E9C46A;color:#1E1A16}.wg-line.g0 em{background:#E76F51;color:#fff}
+.wg-line.g0.h em{right:auto;left:6px}
 </style>
 
 <div id="root"></div>
@@ -295,7 +333,26 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
   const BD_SETS = [["text", "字多的頁"], ["scene", "觀堂（字少）"]];
   const bdDefault = () => ({ h: 560, opL: 30, opD: 42, mid: 40, midA: 80, blur: 0, pad: 0 });
   STATE.bdBase = STATE.bdBase || { scene: bdDefault(), text: bdDefault() };
-  let cur = clone({ themes: STATE.themes, buttons: STATE.buttons, backdrop: STATE.backdrop || STATE.bdBase });
+  // widget：小工具背板五種尺寸（tokens.json 的 widget.bg；STATE.wgBase 是站上現值）
+  const WG_KEYS = [
+    ["scene", "場景濃度", "%", 0, 100, 1, "整張場景圖疊在墨底上的不透明度", 0],
+    ["top", "頂端淡暗", "%", 0, 100, 1, "最上面那條字（干支、日期）後面的暗", 0],
+    ["gStart", "加深從哪開始", "%", 0, 98, 1, "行止段的這個位置以前不加深（紅線）", 0],
+    ["gMid", "加深中段在哪", "%", 1, 99, 1, "到這裡暗到「中段暗度」", 0],
+    ["gMidA", "中段暗度", "%", 0, 100, 1, "", 0],
+    ["gMax", "最暗", "%", 0, 100, 1, "行止段的底，以及底下一直維持的暗度", 0],
+    ["at", "霧面線", "%", 10, 95, 1, "霧面從這裡開始（金線；4×2 是從左邊算的直線）", 1],
+    ["fade", "霧面淡出", "dp", 0, 160, 2, "霧面線往場景那一側淡出多長", 1],
+    ["fScene", "霧面裡的場景", "%", 0, 100, 1, "霧面裡那張模糊場景的濃度", 1],
+    ["fInk", "霧面加深", "%", 0, 100, 1, "霧面上蓋的墨黑；越低越看得到背景", 1],
+    ["blur", "霧面模糊", "", 2, 64, 1, "縮小倍數，越大越糊", 1],
+  ];
+  const WG_SETS = [["small", "窄・矮", 165, 150], ["smallTall", "窄・高", 165, 300], ["split", "4×2", 340, 200], ["big", "4×4", 340, 390], ["tall", "4×6", 340, 560]];
+  const WG_FROST = { split: 1, big: 1, tall: 1 };
+  const WG_BAND = { big: 0.46, tall: 0.38 };   // 行止段的底（版面分界，跟著版面走、不在這裡調）
+  STATE.wgBase = STATE.wgBase || null;
+  let cur = clone({ themes: STATE.themes, buttons: STATE.buttons, backdrop: STATE.backdrop || STATE.bdBase, widget: STATE.widget || STATE.wgBase });
+  let wgSet = "tall";
   let bdSet = "text";
   const BD_IMG = "/*BDIMG*/";
   const saved = clone(cur);
@@ -303,7 +360,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
   try { const t = localStorage.getItem("spec-theme"); if (STATE.themes[t]) theme = t; } catch (e) {}
 
   /* 主題清單、色碼說明、按鈕四型與算式：全部來自 dev/design/tokens.json（唯一真相），不在這裡另寫一份。 */
-  // @design:begin spec-design v=a3a299f2 #70a53abc（由後端 dev/design/tokens.json 產生，不要手改）
+  // @design:begin spec-design v=0530bf6f #70a53abc（由後端 dev/design/tokens.json 產生，不要手改）
   const DESIGN = {"version":"v4・2026-10-05（統一 token 檔）","themes":{"order":["xuan","night","bamboo","cinnabar","porcelain"],"meta":{"xuan":{"name":"宣紙","key":"paper","css":":root","dark":false},"night":{"name":"夜觀","key":"night","css":"[data-theme=\"night\"]","dark":true},"bamboo":{"name":"竹簡","key":"bamboo","css":"[data-theme=\"bamboo\"]","dark":false},"cinnabar":{"name":"硃砂","key":"cinnabar","css":"[data-theme=\"cinnabar\"]","dark":true},"porcelain":{"name":"青花","key":"porcelain","css":"[data-theme=\"porcelain\"]","dark":false}},"tokens":[{"g":"紙與墨","k":"paper","n":"紙","u":"頁面底色。全站最大的一塊顏色。"},{"g":"紙與墨","k":"paper-2","n":"次一階紙","u":"卡片、頁籤未選、輸入框、靈石膠囊的底。淺色主題比紙深一階，深色主題比紙亮一階。"},{"g":"紙與墨","k":"paper-edge","n":"紙邊","u":"卡片框、文字按鈕的框與側邊（厚度）。"},{"g":"紙與墨","k":"ink","n":"墨","u":"主要文字、標題、頁籤選中的底。"},{"g":"紙與墨","k":"ink-soft","n":"淡墨","u":"次要文字、說明、頂列膠囊的字。"},{"g":"紙與墨","k":"ink-faint","n":"極淡墨","u":"日期、圖示、頁籤未選的字、提示。"},{"g":"紙與墨","k":"hair","n":"細線","u":"分隔線、頂列膠囊與圖示鈕的框。帶透明度。"},{"g":"紙與墨","k":"shadow","n":"影","u":"按鈕落地的軟影、浮起的卡片。帶透明度。"},{"g":"強調","k":"cinnabar","n":"硃砂","u":"行動色：主按鈕、刪除、數字強調、紅點、滑過。只給「這裡有一件事要你處理」的東西。"},{"g":"強調","k":"cinnabar-soft","n":"硃砂淡底","u":"硃砂的淡底（選中列、提示底）。帶透明度。"},{"g":"強調","k":"gold","n":"金","u":"小標、日期、節氣、稱號；次按鈕的面。"},{"g":"五行","k":"wx-木","n":"木","u":"分類籤；應期「準」。"},{"g":"五行","k":"wx-火","n":"火","u":"分類籤；應期「不準」。"},{"g":"五行","k":"wx-土","n":"土","u":"分類籤；應期「部分準」。"},{"g":"五行","k":"wx-金","n":"金（五行）","u":"分類籤。"},{"g":"五行","k":"wx-水","n":"水","u":"分類籤。"}],"values":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#1C1917","ink-soft":"#37312A","ink-faint":"#746958","hair":"rgba(55,46,37,0.4)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#413935","paper-edge":"#2D2824","ink":"#ECE3D1","ink-soft":"#D5C8AE","ink-faint":"#C1A776","hair":"rgba(236,227,209,0.4)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#B3C5AF","paper-2":"#D9E1C1","paper-edge":"#C8D5C3","ink":"#25551B","ink-soft":"#5D744E","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#3B100C","paper-2":"#7C0E1E","paper-edge":"#5D150E","ink":"#FAE2E0","ink-soft":"#FBD1CB","ink-faint":"#DDA59C","hair":"rgba(250,226,224,0.4)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#072350","ink-soft":"#345DA2","ink-faint":"#6D88B0","hair":"rgba(0,31,82,0.3)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}}},"buttons":{"_說明":"按鈕四型與兩段開關。linked＝照下面算式從主題色碼推；false 時 custom[主題][元件][零件] 單獨設值。face 的 LIGHTFACE＝淺色主題用亮一階的紙、深色主題用 --paper-2。值是物件 {l,d} 時淺色／深色主題各一條。","linked":true,"custom":{},"types":[{"k":"primary","n":"主按鈕","web":".btn.primary","d":"一個畫面最重要的那一個動作（起卦、收下、確定）。硃砂實心、深硃砂側邊。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","text":"#FFF8F0"}},{"k":"second","n":"次按鈕","web":".btn.second","d":"同一畫面裡第二重要、但仍是「做一件事」的動作。金實心、深金側邊。","link":{"face":"var(--gold)","border":"var(--gold)","edge":"color-mix(in srgb, var(--gold) 65%, black)","text":"#FFF8F0"}},{"k":"text","n":"文字按鈕","web":".btn","d":"取消、再想想、返回以外的一般選擇。亮一階的紙面，紙邊框與側邊同色連成一體；滑過時框與字轉硃砂。","link":{"face":"LIGHTFACE","border":"var(--paper-edge)","edge":"var(--paper-edge)","text":"var(--ink)"},"hover":{"border":"var(--cinnabar)","text":"var(--cinnabar)"}},{"k":"danger","n":"危險按鈕","web":".btn.fill","d":"刪除、撕掉、清空。跟主按鈕同一個硃砂，放在確認框裡、字寫動作本身（刪掉，不寫確定）。","link":{"face":"var(--cinnabar)","border":"var(--cinnabar)","edge":"color-mix(in srgb, var(--cinnabar) 60%, black)","text":"#FFF8F0"}},{"k":"seg","n":"兩段開關","stage":"seg","web":"--seg-","d":"時序｜月曆這種二選一的開關。凹下去的軌道＋一塊有厚度的硃砂滑塊，滑動時擠扁再彈回。深色主題的軌道比紙更深、凹槽陰影用黑，不從墨推。","parts":[["track","軌道"],["groove","凹槽陰影"],["knob","滑塊"],["knob-edge","滑塊厚度"],["on","選中的字"],["off","沒選的字"]],"link":{"track":{"l":"color-mix(in srgb, var(--ink) 6%, var(--paper-2))","d":"color-mix(in srgb, black 38%, var(--paper))"},"groove":{"l":"color-mix(in srgb, var(--ink) 20%, transparent)","d":"rgba(0,0,0,.62)"},"knob":"var(--cinnabar)","knob-edge":"color-mix(in srgb, var(--cinnabar) 68%, black)","on":"#FFF8F0","off":"var(--ink-soft)"}}],"parts":[["face","面"],["border","框"],["edge","側邊（厚度）"],["text","字"]]}};
   // @design:end spec-design
   const THEMES = DESIGN.themes.order.map((t) => [t, DESIGN.themes.meta[t].name]);
@@ -371,11 +428,16 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       const x = a.backdrop?.[s]?.[k], y = b.backdrop?.[s]?.[k];
       if (x !== y) out.push({ kind: "bd", set: s, tn: "墊圖・" + sn, key: k, name: n, unit: u, from: x, to: y });
     }));
+    if (b.widget) WG_SETS.forEach(([s, sn]) => WG_KEYS.forEach(([k, n, u, , , , , fr]) => {
+      if (fr && !WG_FROST[s]) return;
+      const x = a.widget?.[s]?.[k], y = b.widget?.[s]?.[k];
+      if (x !== y) out.push({ kind: "bd", wg: 1, set: s, tn: "小工具・" + sn, key: k, name: n, unit: u, from: x, to: y });
+    }));
     return out;
   }
   const norm = (c) => { try { return c ? fmt(parse(c)) : ""; } catch (e) { return c; } };
   const unsaved = () => diffList(saved, cur);
-  const pending = () => diffList({ themes: STATE.baseline, buttons: { linked: true, custom: {} }, backdrop: STATE.bdBase }, cur);
+  const pending = () => diffList({ themes: STATE.baseline, buttons: { linked: true, custom: {} }, backdrop: STATE.bdBase, widget: STATE.wgBase }, cur);
 
   function refreshDirty() {
     const u = unsaved(), p = pending();
@@ -404,7 +466,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     <div class="wrap">
       <nav class="nav" aria-label="章節">
         <a href="#color">色彩</a><a href="#buttons">按鈕</a><a href="#layout">版面與留白</a>
-        <a href="#diff">App 與網頁</a><a href="#motion">動態</a><a href="#backdrop">墊圖</a><a href="#pending">待套用</a>
+        <a href="#diff">App 與網頁</a><a href="#motion">動態</a><a href="#backdrop">墊圖</a><a href="#widget">小工具</a><a href="#pending">待套用</a>
       </nav>
       <main>
         <section class="sec" id="color">
@@ -519,8 +581,21 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
           </div>
         </section>
 
+        ${cur.widget ? `<section class="sec" id="widget">
+          <div><div class="sec-k">七　小工具</div><h2>桌面小工具的背板</h2></div>
+          <p class="lead">五種尺寸各一組：場景多濃、從哪裡開始加深、加深到多暗，4 格寬的另有一片霧面（模糊的同一張場景再蓋一層墨黑）。點一張選它，直接在圖上拖<b>金線</b>（霧面線）、<b>紅線</b>（加深從哪開始），其餘用左邊的滑桿。存檔後照「待套用」改 tokens.json，生成器會寫進 App 的 Scenes.java。</p>
+          <p class="note">1 dp 畫成 1 px（手機上看起來的大小），示範圖是 Sence/10.Table.webp 縮小版，App 上依時辰換觀裡的場景。字只是擺著看壓不壓得住，不是正式版面；4×4、4×6 的行止段與月曆的分界（46%／38%）跟著版面走，不在這裡調。</p>
+          <div class="wg-grid">
+            <div class="panel bd-ctl">
+              <div class="bd-pick wg-pick" role="group" aria-label="調哪一種尺寸">${WG_SETS.map(([s, n]) => `<button data-wgset="${s}" aria-pressed="${s === wgSet}">${n}</button>`).join("")}</div>
+              <div id="wgRows">${wgRows()}</div>
+            </div>
+            <div class="wg-wall" id="wgWall">${wgWall()}</div>
+          </div>
+        </section>` : ""}
+
         <section class="sec" id="pending">
-          <div><div class="sec-k">七　待套用</div><h2>已存檔、還沒上站的修改</h2></div>
+          <div><div class="sec-k">八　待套用</div><h2>已存檔、還沒上站的修改</h2></div>
           ${pendingHtml()}
         </section>
       </main>
@@ -536,6 +611,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     { const bx = document.querySelectorAll(".btn-types")[0]; if (bx) bx.innerHTML = BTN.map(btnCard).join(""); }
     tabsInit();
     motionInit();
+    if (cur.widget) { wgPaint(); wgDragInit(); }
   }
 
   /* ── 墊圖 ── */
@@ -572,6 +648,94 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       st.setProperty("--mid", v.mid); st.setProperty("--midA", v.midA / 100);
       st.setProperty("--blur", v.blur); st.setProperty("--pad", v.pad);
       st.setProperty("--bd-on", DARK[theme] ? T.ink : T.paper);
+    });
+  }
+
+  /* ── 小工具背板 ── */
+  function wgRows() {
+    const v = cur.widget[wgSet], b = STATE.wgBase[wgSet];
+    return WG_KEYS.filter((x) => !x[7] || WG_FROST[wgSet]).map(([k, n, u, mn, mx, st, hint]) => `<label class="bd-row${v[k] !== b[k] ? " changed" : ""}" data-wgrow="${k}">
+      <span>${esc(n)}<small>${esc(hint)}${hint ? "　" : ""}站上 ${esc(b[k])}${esc(u)}</small></span>
+      <input type="range" id="wg-${k}" data-wg="${k}" min="${mn}" max="${mx}" step="${st}" value="${v[k]}">
+      <output for="wg-${k}">${v[k]}${u}</output></label>`).join("");
+  }
+  function wgWall() {
+    return WG_SETS.map(([s, n, w, h]) => `<figure class="wg-fig${s === wgSet ? " on" : ""}" data-wgfig="${s}"><div class="wg" data-wg-card="${s}" style="width:${w}px;height:${h}px">
+      <i class="wg-scene" style="background-image:url('${BD_IMG}')"></i><i class="wg-top"></i><i class="wg-grad"></i>
+      ${WG_FROST[s] ? `<i class="wg-frost"><b style="background-image:url('${BD_IMG}')"></b><u></u></i>` : ""}
+      ${wgText(s, w, h)}
+      ${WG_FROST[s] ? `<div class="wg-line at ${s === "split" ? "v" : "h"}" data-wgdrag="at"><em>霧面線</em></div>` : ""}
+      <div class="wg-line g0 h" data-wgdrag="gStart"><em>加深起點</em></div>
+    </div><figcaption>${esc(n)}${s === "smallTall" ? "（放得下整首籤詩）" : ""}・${w}×${h}dp</figcaption></figure>`).join("");
+  }
+  function wgText(s, w, h) {
+    const band = WG_BAND[s] ? h * WG_BAND[s] : h;
+    const head = `<div class="d">庚午日　霜降</div>`, stance = `<div class="st">可行<small>吉</small></div><div class="x">順風但不算大風：先做手邊那件小的。</div><div class="yj">宜 小成　修補　問人</div>`;
+    let out = `<div class="wg-txt" style="height:${band}px">${head}${s === "smallTall" ? `<div class="x" style="margin-top:8px">潛龍勿用，陽在下也。<br>時未至，守而待之。</div>` : ""}${stance}</div>`;
+    if (s === "split") out = `<div class="wg-txt" style="right:${w * 0.48}px">${head}${stance}</div><div class="wg-rows" style="left:${w * 0.55}px;right:12px;top:16px"><b style="font-size:20px;font-weight:500">23 <small style="font-size:10px">十月 週五</small></b><span>全天　【請假】米奇</span><span>23:40　睡覺了</span><span style="border:0;color:#bbb">還有 1 則</span></div>`;
+    if (WG_BAND[s]) {
+      const nums = Array.from({ length: s === "tall" ? 35 : 28 }, (_, i) => i < 3 ? "" : i - 2);
+      out += `<div class="wg-cal" style="top:${band + 14}px">${"日一二三四五六".split("").map((x) => `<i style="opacity:.6">${x}</i>`).join("")}${nums.map((x) => `<i class="${x === 23 ? "t" : ""}">${x}</i>`).join("")}</div>`;
+      if (s === "tall") out += `<div class="wg-rows" style="left:14px;right:14px;bottom:18px"><span>問卦　《澤火革》上午請假照顧童童比較好嗎？</span><span>全天　【請假】andy - 請假1日</span><span>全天　【請假】Ken-請假1天</span></div>`;
+    }
+    return out;
+  }
+  const inkA = (p) => `rgba(13,11,8,${Math.max(0, Math.min(100, p)) / 100})`;
+  function wgPaint(only) {
+    document.querySelectorAll("[data-wg-card]").forEach((el) => {
+      const s = el.dataset.wgCard; if (only && s !== only) return;
+      const v = cur.widget[s], H = el.offsetHeight || parseFloat(el.style.height), W = el.offsetWidth || parseFloat(el.style.width);
+      const band = WG_BAND[s] ? H * WG_BAND[s] : H, L = Math.min(H * 0.42, band * 0.9);
+      el.querySelector(".wg-scene").style.opacity = v.scene / 100;
+      el.querySelector(".wg-top").style.background = `linear-gradient(to bottom, ${inkA(v.top)} 0, ${inkA(v.top * 0.535)} ${L * 0.45}px, ${inkA(0)} ${L}px)`;
+      const g0 = Math.min(98, v.gStart), g1 = Math.max(g0 + 1, v.gMid);
+      el.querySelector(".wg-grad").style.background = `linear-gradient(to bottom, ${inkA(0)} 0, ${inkA(0)} ${band * g0 / 100}px, ${inkA(v.gMidA)} ${band * g1 / 100}px, ${inkA(v.gMax)} ${band}px, ${inkA(v.gMax)} 100%)`;
+      const line = el.querySelector('[data-wgdrag="gStart"]'); line.style.top = band * g0 / 100 + "px";
+      const fr = el.querySelector(".wg-frost");
+      if (fr) {
+        const vert = s === "split", at = (vert ? W : H) * v.at / 100;
+        const m = `linear-gradient(${vert ? "to right" : "to bottom"}, transparent ${at - v.fade}px, #000 ${at}px)`;
+        fr.style.webkitMaskImage = m; fr.style.maskImage = m;
+        const b = fr.querySelector("b"); b.style.opacity = v.fScene / 100; b.style.filter = `blur(${(v.blur / 6).toFixed(1)}px)`;
+        fr.querySelector("u").style.background = inkA(v.fInk);
+        const al = el.querySelector('[data-wgdrag="at"]'); if (vert) al.style.left = at + "px"; else al.style.top = at + "px";
+      }
+    });
+  }
+  function wgSet1(s, k, val) {
+    cur.widget[s][k] = val;
+    if (s === wgSet) {
+      const inp = document.getElementById("wg-" + k);
+      if (inp) { inp.value = val; inp.nextElementSibling.textContent = val + (WG_KEYS.find((x) => x[0] === k)[2]); inp.closest(".bd-row").classList.toggle("changed", val !== STATE.wgBase[s][k]); }
+    }
+    wgPaint(s); refreshDirty();
+  }
+  function wgPick(s) {
+    wgSet = s;
+    document.querySelectorAll("[data-wgset]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.wgset === s)));
+    document.querySelectorAll("[data-wgfig]").forEach((f) => f.classList.toggle("on", f.dataset.wgfig === s));
+    const r = $("#wgRows"); if (r) r.innerHTML = wgRows();
+  }
+  // 在圖上拖線：金線＝霧面線（at，佔整張的 %）；紅線＝加深起點（gStart，佔行止段的 %）
+  function wgDragInit() {
+    const wall = $("#wgWall"); if (!wall) return;
+    wall.addEventListener("pointerdown", (e) => {
+      const ln = e.target.closest("[data-wgdrag]"), card = e.target.closest("[data-wg-card]");
+      if (!card) return;
+      const s = card.dataset.wgCard; if (s !== wgSet) wgPick(s);
+      if (!ln) return;
+      e.preventDefault(); ln.setPointerCapture(e.pointerId);
+      const k = ln.dataset.wgdrag, vert = ln.classList.contains("v");
+      const move = (ev) => {
+        const r = card.getBoundingClientRect(), H = r.height, W = r.width;
+        const band = WG_BAND[s] ? H * WG_BAND[s] : H;
+        let pct = k === "at" ? (vert ? (ev.clientX - r.left) / W : (ev.clientY - r.top) / H) * 100 : (ev.clientY - r.top) / band * 100;
+        const [, , , mn, mx] = WG_KEYS.find((x) => x[0] === k);
+        wgSet1(s, k, Math.round(Math.max(mn, Math.min(mx, pct))));
+      };
+      move(e);
+      const up = () => { ln.removeEventListener("pointermove", move); ln.removeEventListener("pointerup", up); ln.removeEventListener("pointercancel", up); };
+      ln.addEventListener("pointermove", move); ln.addEventListener("pointerup", up); ln.addEventListener("pointercancel", up);
     });
   }
 
@@ -662,6 +826,12 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       BD_SETS.forEach(([set, sn]) => { if (bd.some((c) => c.set === set)) s += `   ${set}（${sn}）：` + JSON.stringify(cur.backdrop[set]) + `\n`; });
       s += `   前端目前兩組都吃 styles/hall.css 的 .hall-bg（寫死的數字）；第一次套用時要把它改成吃 token（觀堂用 scene、問事／搖卦／批文／信件的 #deskBg 用 text），生成器補一個落點。\n`;
     }
+    const wg = p.filter((c) => c.wg);
+    if (wg.length) {
+      s += `2c. tokens.json 的 widget.bg（小工具背板）改成：\n`;
+      WG_SETS.forEach(([set, sn]) => { if (wg.some((c) => c.set === set)) s += `   ${set}（${sn}）：` + JSON.stringify(cur.widget[set]) + `\n`; });
+      s += `   生成器會寫進前端 android/.../widget/Scenes.java 的 BG（生成區）；要出 APK 小工具才看得到。\n`;
+    }
     s += `3. 跑 node dev/design/tokens/build.mjs --web <前端 repo>：前端主題色碼、按鈕、兩段開關、動態 token、小工具 Palette.java、規範頁、動態原型一起改。\n`;
     s += `   再把 dev/design/style/state.json 的 themes／buttons 設成跟 tokens.json 一樣（沒有待套用），跑 node dev/design/style/build.mjs，重新發佈規範。\n`;
     s += `4. 前端 npm run build（生成區被手改過會直接失敗），淺色與夜觀各截一張，與規範並排比對後再推送。`;
@@ -693,6 +863,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     }));
     root.addEventListener("input", (e) => {
       const t = e.target, id = t.id || "";
+      if (t.dataset.wg) { wgSet1(wgSet, t.dataset.wg, Number(t.value)); return; }   // 小工具的滑桿
       if (t.dataset.bd) {   // 墊圖的滑桿
         const k = t.dataset.bd, v = Number(t.value), u = BD_KEYS.find((x) => x[0] === k)[2];
         cur.backdrop[bdSet][k] = v;
@@ -733,6 +904,8 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
       }
     });
     root.addEventListener("click", (e) => {
+      const ws = e.target.closest("[data-wgset]");
+      if (ws) { wgPick(ws.dataset.wgset); return; }
       const bs = e.target.closest("[data-bdset]");
       if (bs) {
         bdSet = bs.dataset.bdset;
@@ -791,7 +964,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
     let art = null;
     try { art = window.claude && window.claude.use ? await window.claude.use("artifact") : null; } catch (e) { art = null; }
     if (!art) { toast("這個檢視不能存檔（沒有編輯權限，或不在 claude.ai 裡開）"); return; }
-    const next = { ...STATE, themes: cur.themes, buttons: cur.buttons, backdrop: cur.backdrop, savedAt: new Date().toISOString(),
+    const next = { ...STATE, themes: cur.themes, buttons: cur.buttons, backdrop: cur.backdrop, widget: cur.widget, savedAt: new Date().toISOString(),
       history: [...(STATE.history || []), { at: new Date().toISOString(), changes: unsaved().map((c) => ({ ...c })) }] };
     const json = JSON.stringify(next).replace(/</g, "\\u003c");
     const html = SKEL + SRC.title + "\n" + SRC.fonts + "\n" + SRC.style + '\n<div id="root"></div>\n<template id="motionSrc">' + SRC.motion +

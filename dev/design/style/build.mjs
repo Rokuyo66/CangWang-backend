@@ -22,6 +22,10 @@ if (!state.buttons) state.buttons = { linked: tokens.buttons.linked, custom: tok
 // 墊圖（2026-10-20）：基準＝tokens.json 的 backdrop；state.json 沒有待套用的就等於基準
 state.bdBase = tokens.backdrop ? { scene: tokens.backdrop.scene, text: tokens.backdrop.text } : null;
 if (!state.backdrop && state.bdBase) state.backdrop = JSON.parse(JSON.stringify(state.bdBase));
+// 小工具背板（2026-10-23）：基準＝tokens.json 的 widget.bg（五種尺寸）
+const { _說明: _wgNote, ...wgBg } = (tokens.widget && tokens.widget.bg) || {};
+state.wgBase = Object.keys(wgBg).length ? wgBg : null;
+if (!state.widget && state.wgBase) state.widget = JSON.parse(JSON.stringify(state.wgBase));
 // 墊圖示範用的那張桌案圖（Sence/10.Table.webp 縮成 600 寬）：artifact 只能載自己帶的圖，內嵌成 data URI
 const bdImg = "data:image/webp;base64," + readFileSync(join(here, "backdrop-sample.webp")).toString("base64");
 

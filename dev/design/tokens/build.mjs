@@ -148,6 +148,14 @@ const gen = {
     return L.join("\n");
   },
 
+  // 小工具背板：Scenes.java 的 BG（五種尺寸各一列；順序＝Scenes.SMALL、SPLIT、BIG、TALL、SMALL_TALL）
+  javaBg: () => {
+    const B = T.widget.bg, K = ["scene", "top", "gStart", "gMid", "gMidA", "gMax", "at", "fade", "fScene", "fInk", "blur"];
+    const row = (k, n) => `      {${K.map((x) => (B[k][x] ?? 0) + "f").join(", ")}},   // ${n}`;
+    return [`  // 欄：${K.join("、")}（意思見後端 tokens.json 的 widget.bg._說明）`, "  static final float[][] BG = {",
+      row("small", "SMALL 窄・矮"), row("split", "SPLIT 4×2"), row("big", "BIG 4×4"), row("tall", "TALL 4×6"), row("smallTall", "SMALL_TALL 窄・高（籤詩整首）"), "  };"].join("\n");
+  },
+
   // 後端：規範頁（dev/design/style/index.html）用的清單與算式
   specJs: () => `  const DESIGN = ${JSON.stringify({ version: T.version, themes: { order: THEMES, meta: T.themes.meta, tokens: T.themes.tokens, values: T.themes.values }, buttons: T.buttons })};`,
 
@@ -188,6 +196,7 @@ const TARGETS = [
   { side: "web", file: "src/styles/hall.css", c: "/*", regions: { backdrop: gen.webBackdrop } },
   { side: "web", file: "src/app/design-tokens.js", c: "//", regions: { "design-js": gen.webJs } },
   { side: "web", file: "android/app/src/main/java/com/cangwang/jizhiguan/widget/Palette.java", c: "//", regions: { palette: gen.java } },
+  { side: "web", file: "android/app/src/main/java/com/cangwang/jizhiguan/widget/Scenes.java", c: "//", regions: { "widget-bg": gen.javaBg } },
 ];
 
 const open = (c) => (c === "/*" ? ["/* ", " */"] : ["// ", ""]);
