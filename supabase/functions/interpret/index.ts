@@ -12,13 +12,17 @@ import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
-import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
+import { detectCrisis, crisisMessage, logCrisis, CRISIS_LINES } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
+import { missNudgeOf, markMissNudge } from "../_shared/miss-nudge.ts";
+import { achBoard, achClaim, achLitCount, bumpReview } from "../_shared/achievements.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
+import { voiceReminder, CHAR_IDS } from "../_shared/reminder-voice.ts";
+import { jianghuToday, jianghuStart, jianghuFinish, jianghuBoard, jianghuClaim, type JhResult } from "../_shared/jianghu-run.ts";
 import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyRefresh, monthlyIndex, threadQuotaOf, afterCast, hallMention,
@@ -121,10 +125,17 @@ const ahUnlockedCount = (signinTotal: number) =>
 //
 //   ALLOWED_ORIGINS=https://你的網域,https://localhost
 //
-// 沒設就維持 *，並在日誌留一行——安靜地退回萬用字元，就不會有人記得它還開著。
+// 沒設就用下面這份正式名單（2026-10-22 上線檢查 P0：原本沒設就退回萬用字元＝fail-open）。
+// 名單與 dev/web/AUTH-EMAIL.md 那一列同一份；iOS 的 capacitor://localhost 先放著，上 iOS 時不必再改。
+const DEFAULT_ORIGINS = [
+  "https://jizhiguan.com", "https://www.jizhiguan.com",
+  "https://cangwang-web.pages.dev", "*.cangwang-web.pages.dev",
+  "https://localhost",          // Android APK（Capacitor WebView）
+  "capacitor://localhost",      // iOS（Capacitor）
+];
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? Deno.env.get("ALLOWED_ORIGIN") ?? "")
   .split(",").map((o) => o.trim()).filter(Boolean);
-if (!ALLOWED_ORIGINS.length) console.warn("ALLOWED_ORIGINS 未設定：CORS 仍是萬用字元");
+if (!ALLOWED_ORIGINS.length) ALLOWED_ORIGINS.push(...DEFAULT_ORIGINS);
 
 // 各處回應仍舊帶這一份（132 個呼叫點不必動）。真正送出去的 Allow-Origin
 // 由最外層依當次請求覆寫——見檔尾 Deno.serve 的包裝。
@@ -134,7 +145,7 @@ const CORS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/** 這一次請求該回什麼 Allow-Origin。名單沒設就回 *；設了但來源不在名單上，
+/** 這一次請求該回什麼 Allow-Origin。來源不在名單上（名單沒設時用 DEFAULT_ORIGINS），
  *  就完全不給這個標頭——瀏覽器那一側會自己擋下來，而這是對的：
  *  回一個對不上的值，只會讓錯誤訊息更難懂。
  *  沒有 Origin 標頭的（TG bot、排程、curl）不受影響，CORS 本來就只管瀏覽器。 */
@@ -535,6 +546,16 @@ async function handle(req: Request): Promise<Response> {
       const plazaUnreadCount = pnCount ?? 0;
       // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
       const fortuneDone = prof?.last_fortune_date === cday;
+      // 今日日運卦的卦名：觀堂那一條抽過之後改成「卦名，江湖尋訪」（六六 2026-10-21；江湖的本卦＝今日日運卦）
+      const fortuneGua = fortuneDone ? await (async () => {
+        try {
+          const { data } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid).eq("category", "日運")
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
+        } catch (_) { return null; }
+      })() : null;
+      // 江湖尋訪（0095）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
+      const jianghu = fortuneDone ? await jianghuToday(db, uid) : null;
       // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
       // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
       const guideSeen = profErr ? true : await guideSeenOf(db, uid, prof?.guide_seen_at);
@@ -545,7 +566,7 @@ async function handle(req: Request): Promise<Response> {
         .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
       const { count: xjNotes } = await db.from("thread_notes")
         .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, jieqi: jieqiOf(fy, fm, fd),
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jianghu, jieqi: jieqiOf(fy, fm, fd),
         plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
         castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
         followupCost: COST.followup, prices: priceTable(),
@@ -566,6 +587,10 @@ async function handle(req: Request): Promise<Response> {
         })(),
         artV: ART_VERSION,
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
+        // 應期最近一直「沒準」：最常替他起卦的那一位跳出對話彈窗提醒（_shared/miss-nudge.ts）。null＝不用提醒
+        missNudge: await missNudgeOf(db, uid),
+        // 成就榜（問事、道緣）有幾個亮著還沒領：道籍那一格與「成就」頁籤的紅點（0106）
+        achLit: await achLitCount(db, uid),
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
@@ -597,6 +622,12 @@ async function handle(req: Request): Promise<Response> {
         return Response.json({ kind: "err", msg: "guide_seen_not_saved:" + r.msg }, { status: 500, headers: CORS });
       }
       return Response.json({ kind: "ok", guideSeen: true }, { headers: CORS });
+    }
+    // 「沒準」提醒看過了：記下時間，30 天內不再跳（0105）
+    if (body.mode === "miss_nudge_seen") {
+      const r = await markMissNudge(db, uid);
+      if (!r.ok) console.error("miss_nudge_seen failed", uid, r.msg);
+      return Response.json({ kind: r.ok ? "ok" : "err" }, { headers: CORS });
     }
 
     // 解鎖付費配色（買斷）。價格只在後端定義——前端顯示的數字不可信，
@@ -1025,7 +1056,7 @@ async function handle(req: Request): Promise<Response> {
         const ai = await callInterpret("你是幾知觀的司籍，只記錄、不評斷、不安慰。", digest, {
           monthly: { ym: String(body.ym ?? "") },
         });
-        await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated });
+        await logUsage(db, { userId: uid, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
         return { text: ai.reading, model: ai.model, usage: ai.usage, estimated: ai.estimated };
       });
       const ym = /^\d{4}-\d{2}$/.test(String(body.ym ?? "")) ? String(body.ym)
@@ -1226,6 +1257,28 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ kind: "ok", event_id: evId, chosen, firstTime, rewards: firstTime ? done.rewards : {} }, { headers: CORS });
     }
 
+    /* ═══ 江湖尋訪（0095）═══ 規則在 _shared/jianghu.ts，服務層在 _shared/jianghu-run.ts */
+    if (typeof body.mode === "string" && body.mode.startsWith("jh_")) {
+      const isAdmin = !!ADMIN_USER_ID && uid === ADMIN_USER_ID;
+      const out = (r: JhResult) => r.ok
+        ? Response.json({ kind: "ok", ...r.payload }, { headers: CORS })
+        : Response.json({ kind: "err", msg: r.msg }, { headers: CORS });
+      if (body.mode === "jh_start") return out(await jianghuStart(db, uid, isAdmin, body));
+      if (body.mode === "jh_finish") return out(await jianghuFinish(db, uid, body));
+      if (body.mode === "jh_board") return out(await jianghuBoard(db, uid, isAdmin));
+      if (body.mode === "jh_claim") return out(await jianghuClaim(db, uid, body));
+    }
+
+    /* ═══ 成就榜：問事、道緣（0106）═══ 規則在 _shared/achievements.ts；江湖那一格照舊走 jh_board */
+    if (body.mode === "ach_board") {
+      const rows = await achBoard(db, uid);
+      return Response.json(rows ? { kind: "ok", items: rows } : { kind: "err", msg: "成就暫時讀不到" }, { headers: CORS });
+    }
+    if (body.mode === "ach_claim") {
+      const r = await achClaim(db, uid, String(body.ach_id ?? ""));
+      return Response.json(r.ok ? { kind: "ok", amount: r.amount, balance: r.balance } : { kind: "err", msg: r.msg }, { headers: CORS });
+    }
+
     // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）
     if (body.mode === "char_titles") {
       const cid = String(body.character_id ?? "");
@@ -1384,7 +1437,7 @@ async function handle(req: Request): Promise<Response> {
     // 自訂提醒：列表
     if (body.mode === "reminder_list") {
       const { data: rows } = await db.from("reminders")
-        .select("id, date, time, title, character_id, lead_days")
+        .select("*")   // voice 是 0102 才加的欄；用 * 讓沒跑 0102 時也不會整支失敗
         .eq("user_id", uid).order("date", { ascending: true });
       return Response.json({ kind: "ok", reminders: rows ?? [] }, { headers: CORS });
     }
@@ -1395,12 +1448,16 @@ async function handle(req: Request): Promise<Response> {
       const date = String(body.date ?? "");
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date))
         return Response.json({ kind: "err", msg: "提醒需有項目與日期" }, { headers: CORS });
-      const { data: row, error } = await db.from("reminders").insert({
-        user_id: uid, date, title,
-        time: body.time || null,
-        character_id: body.character_id || null,
-        lead_days: Number(body.lead_days) || 0,
-      }).select("id, date, time, title, character_id, lead_days").single();
+      // 「隨機」在這裡就抽定一位：存成空值的話，三個人的閒聊都不會提起它、通知也不知道該用誰的臉（2026-10-22）
+      const cid = (CHAR_IDS as readonly string[]).includes(String(body.character_id)) ? String(body.character_id)
+        : CHAR_IDS[Math.floor(Math.random() * CHAR_IDS.length)];
+      const time = body.time || null, lead = Number(body.lead_days) || 0;
+      // 用他的口吻寫好提醒那一句（通知是手機本機排的，跳出來那一刻不能再等網路）
+      const voice = await voiceReminder(db, { userId: uid, characterId: cid, title, date, time, leadDays: lead });
+      const base = { user_id: uid, date, title, time, character_id: cid, lead_days: lead };
+      let { data: row, error } = await db.from("reminders").insert({ ...base, voice }).select("*").single();
+      if (error) ({ data: row, error } = await db.from("reminders").insert(base).select("*").single());   // 0102 還沒跑：先不存那一句
+      if (row && !("voice" in row)) (row as Record<string, unknown>).voice = voice;
       if (error) return Response.json({ kind: "err", msg: "寫入失敗" }, { headers: CORS });
       return Response.json({ kind: "ok", reminder: row }, { headers: CORS });
     }
@@ -1506,8 +1563,11 @@ async function handle(req: Request): Promise<Response> {
         await db.from("user_character").upsert({ user_id: uid, character_id: c.character_id, cultivation: (uc?.cultivation ?? 0) + 50 }, { onConflict: "user_id,character_id" });
         lingshi = note.length > 0 ? 2 : 1;   // 有留印證評語 +2；只點準不準 +1
         await db.rpc("apply_lingshi", { p_user: uid, p_action: "feedback", p_amount: lingshi, p_ref: body.cast_id });
+        await bumpReview(db, uid);   // 成就「彰往察來」（0106）
       }
-      return Response.json({ kind: "ok", lingshi }, { headers: CORS });
+      // 這一次是「沒準」或「部分準」：看看最近的比例到該提醒了沒，到了就一起回去，前端回評完直接跳對話彈窗
+      const nudge = v >= 2 ? await missNudgeOf(db, uid) : null;
+      return Response.json({ kind: "ok", lingshi, nudge }, { headers: CORS });
     }
 
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
@@ -1523,6 +1583,8 @@ async function handle(req: Request): Promise<Response> {
         xinji: r.xinji,
         msg_id: r.msgId,   // 這一則要朗讀或收藏時指名用（tts / voice_keep 的 chat_id）
         found: r.found ?? null,   // 剛撞見隱藏支線：信已寄出，前端提示「有你的信」
+        // 危機：角色只接住人；求助管道由前端以旁白卡片放在這一則底下（不從角色嘴裡念電話）
+        crisis: !!(r as { crisis?: boolean }).crisis, crisis_lines: (r as { crisis?: boolean }).crisis ? CRISIS_LINES : null,
       }, { headers: CORS });
     }
 
@@ -1894,8 +1956,10 @@ async function handle(req: Request): Promise<Response> {
 
     // 讀過某篇：清掉該篇的未讀（前端開啟貼文內頁時呼叫）
     if (body.mode === "plaza_seen") {
-      if (!body.post_id) return Response.json({ kind: "err", msg: "post_id required" }, { headers: CORS });
-      await db.from("plaza_notices").delete().eq("user_id", uid).eq("post_id", body.post_id);
+      // all:true＝進廣場一次就全部清掉（六六 2026-10-21：紅點只在觀堂的廣場鈕，點進去就算看過）
+      if (!body.post_id && body.all !== true) return Response.json({ kind: "err", msg: "post_id required" }, { headers: CORS });
+      if (body.all === true) await db.from("plaza_notices").delete().eq("user_id", uid);
+      else await db.from("plaza_notices").delete().eq("user_id", uid).eq("post_id", body.post_id);
       const { count } = await db.from("plaza_notices").select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
       return Response.json({ kind: "ok", plazaUnread: count ?? 0 }, { headers: CORS });
     }
@@ -1937,6 +2001,8 @@ async function handle(req: Request): Promise<Response> {
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi, yongViaYing: body.yong_via_ying,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
           questionRaw: body.question_raw, questionSource: body.question_source,
+          castVia: typeof body.cast_via === "string" ? body.cast_via : undefined,
+          castMethod: typeof body.cast_method === "string" ? body.cast_method : undefined,
       clientToken: typeof body.client_token === "string" ? body.client_token : undefined,
       // 心跡：「就這件事再問一卦」帶著線的 id 進來。帶了就不吃一事不二占的攔截
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。

@@ -637,10 +637,415 @@
           "to": "rgba(0,31,82,0.3)"
         }
       ]
+    },
+    {
+      "at": "2026-10-23T15:19:07.408Z",
+      "changes": [
+        {
+          "kind": "bd",
+          "set": "text",
+          "tn": "墊圖・字多的頁",
+          "key": "opL",
+          "name": "淺色主題的濃度",
+          "unit": "%",
+          "from": 30,
+          "to": 35
+        },
+        {
+          "kind": "bd",
+          "set": "text",
+          "tn": "墊圖・字多的頁",
+          "key": "opD",
+          "name": "深色主題的濃度",
+          "unit": "%",
+          "from": 42,
+          "to": 50
+        },
+        {
+          "kind": "bd",
+          "set": "scene",
+          "tn": "墊圖・觀堂（字少）",
+          "key": "midA",
+          "name": "清楚段的濃度",
+          "unit": "%",
+          "from": 80,
+          "to": 75
+        }
+      ]
+    },
+    {
+      "at": "2026-10-23T15:52:29.510Z",
+      "changes": [
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "scene",
+          "name": "場景濃度",
+          "unit": "%",
+          "from": 60,
+          "to": 90
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gStart",
+          "name": "加深從哪開始",
+          "unit": "%",
+          "from": 8,
+          "to": 59
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gMid",
+          "name": "加深中段在哪",
+          "unit": "%",
+          "from": 42,
+          "to": 73
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gMidA",
+          "name": "中段暗度",
+          "unit": "%",
+          "from": 55,
+          "to": 74
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gStart",
+          "name": "加深從哪開始",
+          "unit": "%",
+          "from": 30,
+          "to": 83
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMid",
+          "name": "加深中段在哪",
+          "unit": "%",
+          "from": 58,
+          "to": 54
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMidA",
+          "name": "中段暗度",
+          "unit": "%",
+          "from": 55,
+          "to": 47
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMax",
+          "name": "最暗",
+          "unit": "%",
+          "from": 92,
+          "to": 65
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "at",
+          "name": "霧面線",
+          "unit": "%",
+          "from": 46,
+          "to": 49
+        }
+      ]
+    },
+    {
+      "at": "2026-10-23T15:55:42.074Z",
+      "changes": [
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "small",
+          "tn": "小工具・窄・矮",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 31
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "small",
+          "tn": "小工具・窄・矮",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 47
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "top",
+          "name": "上緣暗度",
+          "unit": "%",
+          "from": 65,
+          "to": 90
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 32
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "bot",
+          "name": "下緣暗度",
+          "unit": "%",
+          "from": 92,
+          "to": 93
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 59,
+          "to": 63
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "split",
+          "tn": "小工具・4×2",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 19
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "split",
+          "tn": "小工具・4×2",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 66
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 41,
+          "to": 14
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 38,
+          "to": 29
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "at",
+          "name": "霧面線",
+          "unit": "%",
+          "from": 49,
+          "to": 46
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "tall",
+          "tn": "小工具・4×6",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 34,
+          "to": 6
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "tall",
+          "tn": "小工具・4×6",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 24
+        }
+      ]
+    },
+    {
+      "at": "2026-10-23T17:00:00Z",
+      "applied": true,
+      "note": "小工具背板上下加深線（15:55 存的五種尺寸）已寫進 tokens.json widget.bg → App Scenes.java，基準更新；出 APK 才看得到"
     }
   ],
-  "savedAt": "2026-10-21T02:21:52.489Z",
+  "savedAt": "2026-10-23T15:55:42.074Z",
   "backdrop": {
+    "scene": {
+      "h": 560,
+      "opL": 30,
+      "opD": 42,
+      "mid": 40,
+      "midA": 75,
+      "blur": 0,
+      "pad": 0
+    },
+    "text": {
+      "h": 560,
+      "opL": 35,
+      "opD": 50,
+      "mid": 50,
+      "midA": 30,
+      "blur": 1,
+      "pad": 0
+    }
+  },
+  "version": "v4・2026-10-05（統一 token 檔）",
+  "baseline": {
+    "xuan": {
+      "paper": "#F2EBDA",
+      "paper-2": "#EBE1CC",
+      "paper-edge": "#E0D4B8",
+      "ink": "#1C1917",
+      "ink-soft": "#37312A",
+      "ink-faint": "#746958",
+      "hair": "rgba(55,46,37,0.4)",
+      "shadow": "rgba(60,48,30,.18)",
+      "cinnabar": "#B5402E",
+      "cinnabar-soft": "rgba(181,64,46,.13)",
+      "gold": "#D59F62",
+      "wx-木": "#4f7a4d",
+      "wx-火": "#b5402e",
+      "wx-土": "#9a7b3f",
+      "wx-金": "#9a8f6b",
+      "wx-水": "#3b6a86"
+    },
+    "night": {
+      "paper": "#15120E",
+      "paper-2": "#413935",
+      "paper-edge": "#2D2824",
+      "ink": "#ECE3D1",
+      "ink-soft": "#D5C8AE",
+      "ink-faint": "#C1A776",
+      "hair": "rgba(236,227,209,0.4)",
+      "shadow": "rgba(0,0,0,.5)",
+      "cinnabar": "#D86A52",
+      "cinnabar-soft": "rgba(216,106,82,.16)",
+      "gold": "#C4A164",
+      "wx-木": "#7fae6e",
+      "wx-火": "#d86a52",
+      "wx-土": "#CE9764",
+      "wx-金": "#FFE380",
+      "wx-水": "#6fa3c4"
+    },
+    "bamboo": {
+      "paper": "#B3C5AF",
+      "paper-2": "#D9E1C1",
+      "paper-edge": "#C8D5C3",
+      "ink": "#25551B",
+      "ink-soft": "#5D744E",
+      "ink-faint": "#3C5D3E",
+      "hair": "rgba(18,33,15,.18)",
+      "shadow": "rgba(35,55,25,.24)",
+      "cinnabar": "#916B36",
+      "cinnabar-soft": "rgba(150,66,31,.15)",
+      "gold": "#5C8A2E",
+      "wx-木": "#33691E",
+      "wx-火": "#a8452a",
+      "wx-土": "#895A34",
+      "wx-金": "#766C2E",
+      "wx-水": "#2B7F91"
+    },
+    "cinnabar": {
+      "paper": "#3B100C",
+      "paper-2": "#7C0E1E",
+      "paper-edge": "#5D150E",
+      "ink": "#FAE2E0",
+      "ink-soft": "#FBD1CB",
+      "ink-faint": "#DDA59C",
+      "hair": "rgba(250,226,224,0.4)",
+      "shadow": "rgba(0,0,0,0.65)",
+      "cinnabar": "#E34234",
+      "cinnabar-soft": "rgba(227,66,52,.18)",
+      "gold": "#E0913F",
+      "wx-木": "#7fae6e",
+      "wx-火": "#E34234",
+      "wx-土": "#E0913F",
+      "wx-金": "#ddc7b4",
+      "wx-水": "#6fa3c4"
+    },
+    "porcelain": {
+      "paper": "#F5F8FC",
+      "paper-2": "#DEE8F5",
+      "paper-edge": "#A6BFDF",
+      "ink": "#072350",
+      "ink-soft": "#345DA2",
+      "ink-faint": "#6D88B0",
+      "hair": "rgba(0,31,82,0.3)",
+      "shadow": "rgba(0,40,110,.24)",
+      "cinnabar": "#144190",
+      "cinnabar-soft": "rgba(0,61,165,.13)",
+      "gold": "#307FD5",
+      "wx-木": "#1f6b5e",
+      "wx-火": "#9c3b2f",
+      "wx-土": "#8a6f3a",
+      "wx-金": "#6f88a8",
+      "wx-水": "#003DA5"
+    }
+  },
+  "bdBase": {
     "scene": {
       "h": 560,
       "opL": 30,
@@ -658,6 +1063,58 @@
       "midA": 30,
       "blur": 1,
       "pad": 0
+    }
+  },
+  "widget": {
+    "small": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 31,
+      "bot": 92,
+      "botStart": 47
+    },
+    "smallTall": {
+      "scene": 90,
+      "top": 90,
+      "topEnd": 32,
+      "bot": 93,
+      "botStart": 63
+    },
+    "split": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 19,
+      "bot": 92,
+      "botStart": 66,
+      "at": 52,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
+    },
+    "big": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 14,
+      "bot": 65,
+      "botStart": 29,
+      "at": 46,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
+    },
+    "tall": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 6,
+      "bot": 92,
+      "botStart": 24,
+      "at": 38,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
     }
   }
 }

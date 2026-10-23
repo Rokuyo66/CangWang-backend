@@ -4,7 +4,7 @@ import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuest
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { logUsage, rateLimited } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
-import { detectCrisis, crisisMessage, logCrisis } from "./crisis.ts";
+import { detectCrisis, logCrisis, CRISIS_OPENING } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
 import { tianshiLine } from "./tianshi.ts";
 import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
@@ -341,7 +341,7 @@ const scrubBilling = (text: string): string => {
    小模型常把標記寫歪：單括號、全形【】、括號間夾空白、全形豎線。一律容錯吃下並剝乾淨，
    絕不可讓標記裸奔給用戶看。剝除必須發生在計費之前——探詢輪不計費，得先知道這則是不是探詢。 */
 const DRAFT_RE = /[\[【]\s*[\[【]?\s*DRAFT\s*[|｜:：]\s*([^\]】]*?)\s*[\]】]\s*[\]】]?/i;
-const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK|SULK)\s*[\]】]?\s*[\]】]/ig;
+const FLAG_RE = /[\[【]\s*[\[【]?\s*(PROBE|ASK|SULK|CRISIS)\s*[\]】]?\s*[\]】]/ig;
 
 /** 標記裡的一格：剝引號、把模型愛寫的空值（null／無／—）當成沒給。
  *  沒給是正常的，也是允許的——第三、四格給不出來時，硬湊一個比空著更糟。 */
@@ -352,7 +352,7 @@ const slot = (raw: string | undefined, cap: number): string | null => {
 };
 
 export function parseMarks(text: string): {
-  clean: string; probe: boolean; ask: boolean; sulk: boolean;
+  clean: string; probe: boolean; ask: boolean; sulk: boolean; crisis: boolean;
   draft: string | null; draftYong: { qin: string; viaShi?: boolean; viaYing?: boolean } | null;
   draftTopic: string | null; draftGist: string | null;
 } {
@@ -382,8 +382,9 @@ export function parseMarks(text: string): {
   const probe = flags.some((f) => /PROBE/i.test(f));
   const ask = flags.some((f) => /ASK/i.test(f));
   const sulk = flags.some((f) => /SULK/i.test(f));
+  const crisis = flags.some((f) => /CRISIS/i.test(f));
   // 同時吐 PROBE 與 DRAFT（模型犯傻）→ 以擬題為準，探詢已無意義
-  return { clean, probe: probe && !draft, ask, sulk, draft, draftYong, draftTopic, draftGist };
+  return { clean, probe: probe && !draft, ask, sulk, crisis, draft, draftYong, draftTopic, draftGist };
 }
 
 // 兜底意圖判斷：僅在「明確求斷」時視為想問卦（泛用詞如要不要/好不好/可以嗎已移除，避免閒聊誤判）
@@ -951,6 +952,9 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
 
 ${SAFETY}
 
+【閒聊裡的危機處理·補充（凌駕上段③④）】在閒聊裡，求助電話與「你是角色、替不了專業」這兩件事不從你嘴裡說出來——那是出戲的話，觀中會另外以旁白交給他。你只做上段的①②⑤⑥：照你的聲線，真的接住這個人；然後在整段回話最後另起一行輸出 [[CRISIS]]（他看不到這個標記，觀中會依它把求助的管道放在你的話底下）。不要念任何電話號碼，不要說「打 1925」「打 119」。
+談的是故事裡、江湖尋訪裡、書裡或往事裡某個人的死（例如問你「那孩子是不是本來不用死」），是在談那個人與那件事，不是他自己的危機訊號，照平常聊；除非他明確把話轉到自己身上。
+
 【觀中常識】靈石是護道人心誠所凝，你視為理所當然；但起卦收不收、收多少不歸你管，你不知情，也從不把它和起卦扯在一起——他問起靈石是什麼，以觀中人口吻簡答即止。好感是緣分深淺，不是數字；修為隨護道人問卦累積。這裡是觀中，沒有「系統、按鈕、介面、頁面、點擊」這些今時的字眼：起卦叫「按下那道卦印」「揭這一卦」，計數、償香火的事歸「觀中定數」。
 【觀主與護道人】觀主是超乎時間與空間的存在，任何時候出現、甚至同時在好幾處都不奇怪；博學、恣意，懂得今時的說法。觀裡沒有人記得觀主的長相。觀裡跟觀主最接近的，是觀喵。
 護道人跟觀主有幾分相似：他常說出觀裡的人聽不懂的東西（股票、冰箱這類），那讓人熟悉——觀主也會說這種話；你們有時會想，說不定他就是觀主。但他不是，你們心裡也知道。
@@ -1179,6 +1183,7 @@ export interface ChatResult {
   xinji: XinjiHint | null;  // 這件事在心跡那邊的狀況（只在擬題那一刻給，其餘為 null）
   msgId: number | null;     // 這則回覆在 chat_messages 的 id：朗讀與收藏指名用
   found?: { questId: string; mailId: string | null; lingshi: number } | null;  // 這一句剛好撞見隱藏支線（寄了信）
+  crisis?: boolean;  // 危機：角色只接住人，求助管道由前端以旁白卡片給（interpret 帶 crisis_lines）
 }
 
 /** 擬完題那一刻，心跡那邊是什麼狀況。零 AI——查詢與字串比對而已。
@@ -1233,7 +1238,8 @@ export async function chat(db: SupabaseClient, p: {
   if (crisis) {
     logCrisis("chat", p.userId, crisis);
     return {
-      reply: crisisMessage(p.characterId), tier: "canned", favorLeft: favor, favorCapped: false,
+      // 角色只說他自己那一句（CRISIS_OPENING）；求助管道由前端以旁白卡片放在底下（crisis:true）
+      reply: CRISIS_OPENING[p.characterId] ?? CRISIS_OPENING.daoshi_m, crisis: true, tier: "canned", favorLeft: favor, favorCapped: false,
       cost: 0, freeLeft: Math.max(0, chatQuota - used), lingshiLeft: lingshi, statePrefix: "", wantCast: false,
       probe: false, draft: null, draftYong: null, xinji: null, msgId: null,
     };
@@ -1462,5 +1468,6 @@ export async function chat(db: SupabaseClient, p: {
   return {
     reply, tier, favorLeft: favorNew, favorCapped: (p.plan ?? "free") === "free" && favorNew >= FREE_CHAT_FAVOR_CAP, cost, freeLeft, lingshiLeft: lingshi, statePrefix, wantCast,
     probe: effMarks.probe, draft, draftYong: draft ? effMarks.draftYong : null, xinji, msgId, found,
+    crisis: !!(marks.crisis || effMarks.crisis),
   };
 }
