@@ -182,6 +182,21 @@ td b{font-weight:700}
 .scrim.out .dialog > *{animation:none}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}}
 .dialog h4{margin:0 0 8px;font-size:18px;letter-spacing:.1em}
+/* ── 對話彈窗：一位角色說話、玩家用罐頭句回（前端 #guideModal ＝ .guide-card） ── */
+.dialog.talk{width:min(420px,100%);text-align:left;padding:20px 22px 16px}
+.talk-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.talk-ava{width:44px;height:44px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:19px;background:var(--paper);border:1px solid var(--paper-edge)}
+.talk-who{display:flex;flex-direction:column;line-height:1.35}
+.talk-who b{font-size:14.5px;letter-spacing:.08em}
+.talk-who span{font-size:11px;color:var(--ink-faint);letter-spacing:.1em}
+.talk-step{margin-left:auto;font-size:11px;color:var(--ink-faint);letter-spacing:.1em}
+.talk-title{font-size:13px;color:var(--cinnabar);letter-spacing:.14em;margin-bottom:8px}
+.talk-say{font-size:14px;line-height:2;letter-spacing:.05em;white-space:pre-line;background:var(--paper);border:1px solid var(--paper-edge);border-radius:12px;padding:14px 16px;min-height:120px}
+.talk-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px}
+.talk-acts .btn{border-radius:999px}
+.talk-skip{display:block;margin:12px auto 0;background:none;border:0;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:.1em;color:var(--ink-faint)}
+.talk-skip:hover{color:var(--cinnabar)}
+.talk-body > *{animation:rise var(--t-enter) var(--e-out) both;animation-delay:calc(var(--stagger) * var(--i,0))}
 .dialog p{margin:0 0 18px;font-size:14px;line-height:1.8;color:var(--ink-soft)}
 .dialog .row{display:flex;gap:10px;justify-content:flex-end}
 .dialog .btn{padding:10px 20px;font-size:14px}
@@ -752,6 +767,29 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ 對話彈窗 ══ -->
+  <section id="talk">
+    <div class="sec-h">
+      <div class="tag">B 容器 · 對話</div>
+      <h2>對話彈窗</h2>
+      <p>一位角色當面跟玩家說一段話：頭像、名字與身分、這一段的標題、一塊台詞框，底下是玩家的罐頭回應。台詞分幾段就按幾次，像在回話，不是按確定。用在初次的問事規則（頁尾「問事規則」可重看），以及應期「沒準」累積提醒（由最常替他起卦的那位說）。</p>
+    </div>
+    <div class="body">
+      <div class="stage">
+        <div class="demo"><button class="m-press btn primary" type="button" id="openTalk">開對話彈窗</button><small>應期沒準提醒（師妹）</small></div>
+        <div class="demo"><button class="m-press btn" type="button" id="openTalkRule">問事規則</button><small>初次問事規則（師兄，可略過）</small></div>
+      </div>
+      <div class="rules">
+        <div class="rule"><b>誰在說</b><p>頭像（吃換裝）＋名字＋身分，右上是段數「1 / 3」。只有一段就不顯示段數。</p></div>
+        <div class="rule"><b>台詞框</b><p>台詞用角色口吻、帶「」；框有最小高度，換段時整張卡不跳動。標題硃砂小字，一段一個重點。</p></div>
+        <div class="rule"><b>回應是玩家的話</b><p>寫成玩家會說的一句（「那我該怎麼做」），不寫「下一步」「確定」。第一顆硃砂實心，其餘淡；最後一段才放第二個選擇（例：「帶我去起卦」）。</p></div>
+        <div class="rule"><b>關不關得掉</b><p>非選不可的對話：沒有 ✕，點外面不關。能略過的（初次規則）用一行小字「略過，我自己摸索」，最後一段收起。</p></div>
+        <div class="rule"><b>動態</b><p>入場與離場同彈框（翻起／後倒）；換段時標題、台詞、回應逐行浮上（--stagger）。</p></div>
+        <div class="rule"><b>前端</b><p>全站一份：<code>#guideModal</code>（<code>.guide-card</code>），內容由 <code>talkOpen({ cid, name, role, steps, skip, onDone })</code> 填（<code>src/main/33-guide.js</code>）。新的對話用它，不另做一張卡。</p></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ══ D ══ -->
   <section>
     <div class="sec-h">
@@ -991,6 +1029,37 @@ ${eas}
     s.addEventListener('animationend',ev=>{if(ev.target===s&&s.classList.contains('out'))icons.classList.remove('off')});
   }
   $('openDlg').addEventListener('click',openDialog);
+
+  /* ── 對話彈窗 ── */
+  const TALKS={
+    miss:{ ava:'妹', who:'師妹', role:'幾知觀管事', skip:'', steps:[
+      {t:'卦不準的時候',s:'「你這陣子回來說了 6 次『沒準』……我都有記著。\n先別灰心。卦不準，常常不是卦的錯，是起卦的時候心裡太滿了。」',a:['那我該怎麼做']},
+      {t:'換一種起法',s:'「下次試試換個起卦的方式吧——平常搖卦的，就改成報三個數；報數的，就換回搖卦。\n起之前，先閉上眼睛，慢慢呼吸三十下，只想著那一件事。」',a:['嗯，我試試']},
+      {t:'給自己一個儀式',s:'「也可以給自己一點小儀式：固定的時間、固定的位置，洗洗手，泡一杯茶。\n心靜下來，卦才聽得見你。」',a:['我記下了','帶我去起卦']}]},
+    rule:{ ava:'兄', who:'師兄', role:'觀中代掌門', skip:'略過，我自己摸索', steps:[
+      {t:'見禮',s:'「你來了。我是這觀裡的代理掌門。你隨觀裡的人，叫我師兄即可。\n你既然來了，我須把問卦的規矩說與你聽——不長，六句話。」',a:['請掌門說']},
+      {t:'一卦一問',s:'「一次只問一件事。一個問句只能有一個問號。\n想問兩件，就起兩次。」',a:['明白']},
+      {t:'引見解卦人',s:'「觀裡替人解卦的有三位：大師兄、師妹、觀貓。\n你若一時不知道要問什麼，先去找他們聊聊。」',a:['這就去','我先自己看看']}]}};
+  function openTalk(k){
+    const T=TALKS[k];let i=0;
+    const s=document.createElement('div');s.className='scrim';
+    s.innerHTML=`<div class="dialog talk" role="dialog" aria-modal="true" aria-labelledby="tkT"><div class="talk-head"><div class="talk-ava">${T.ava}</div><div class="talk-who"><b>${T.who}</b><span>${T.role}</span></div><div class="talk-step" id="tkS"></div></div><div class="talk-body" id="tkB"></div><button class="talk-skip" type="button" data-skip>${T.skip}</button></div>`;
+    document.body.appendChild(s);
+    const close=()=>{if(s.classList.contains('out'))return;s.classList.add('out');s.addEventListener('animationend',ev=>{if(ev.target===s)s.remove()})};
+    const paint=()=>{const g=T.steps[i],last=i===T.steps.length-1;
+      s.querySelector('#tkS').textContent=`${i+1} / ${T.steps.length}`;
+      s.querySelector('#tkB').innerHTML=`<div class="talk-title" id="tkT" style="--i:0">${g.t}</div><div class="talk-say" style="--i:1">${g.s}</div><div class="talk-acts" style="--i:2">${g.a.map((x,j)=>`<button class="m-press btn ${j?'ghost':'primary'}" type="button" data-a>${x}</button>`).join('')}</div>`;
+      s.querySelectorAll('#tkB .m-press').forEach(bindPress);
+      s.querySelector('[data-skip]').hidden=!T.skip||last;
+      s.querySelector('#tkB .btn').focus({preventScroll:true})};
+    s.addEventListener('click',e=>{
+      if(e.target.closest('[data-skip]')){close();return}
+      if(!e.target.closest('[data-a]'))return;   // 點外面不關：非選不可的對話
+      if(i<T.steps.length-1){i++;paint()}else close()});
+    paint();
+  }
+  $('openTalk').addEventListener('click',()=>openTalk('miss'));
+  $('openTalkRule').addEventListener('click',()=>openTalk('rule'));
   let tEl=null;
   function toast(msg){
     if(tEl)tEl.remove();

@@ -14,6 +14,7 @@ import {
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis, CRISIS_LINES } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
+import { missNudgeOf, markMissNudge } from "../_shared/miss-nudge.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
@@ -585,6 +586,8 @@ async function handle(req: Request): Promise<Response> {
         })(),
         artV: ART_VERSION,
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
+        // 應期「沒準」超過 5 次：最常替他起卦的那一位跳出對話彈窗提醒（_shared/miss-nudge.ts）。null＝不用提醒
+        missNudge: await missNudgeOf(db, uid),
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
@@ -616,6 +619,12 @@ async function handle(req: Request): Promise<Response> {
         return Response.json({ kind: "err", msg: "guide_seen_not_saved:" + r.msg }, { status: 500, headers: CORS });
       }
       return Response.json({ kind: "ok", guideSeen: true }, { headers: CORS });
+    }
+    // 「沒準」提醒看過了：記下當時的次數，再多 5 次才再跳（0105）
+    if (body.mode === "miss_nudge_seen") {
+      const r = await markMissNudge(db, uid);
+      if (!r.ok) console.error("miss_nudge_seen failed", uid, r.msg);
+      return Response.json({ kind: r.ok ? "ok" : "err" }, { headers: CORS });
     }
 
     // 解鎖付費配色（買斷）。價格只在後端定義——前端顯示的數字不可信，
@@ -1542,7 +1551,9 @@ async function handle(req: Request): Promise<Response> {
         lingshi = note.length > 0 ? 2 : 1;   // 有留印證評語 +2；只點準不準 +1
         await db.rpc("apply_lingshi", { p_user: uid, p_action: "feedback", p_amount: lingshi, p_ref: body.cast_id });
       }
-      return Response.json({ kind: "ok", lingshi }, { headers: CORS });
+      // 這一次是「沒準」：看看累積到該提醒了沒，到了就一起回去，前端回評完直接跳對話彈窗
+      const nudge = v === 3 ? await missNudgeOf(db, uid) : null;
+      return Response.json({ kind: "ok", lingshi, nudge }, { headers: CORS });
     }
 
     // 閒聊（複用 chat()：Haiku→NVIDIA→罐頭、扣好感、scrubBilling、記憶滾動）
