@@ -144,6 +144,7 @@ textarea{resize:vertical;line-height:1.7}
 .line .sp{display:block;font-family:var(--f-body);font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
 .line.me .sp{color:var(--gold)}
 .line.narr{text-align:center;color:var(--ink-soft);font-size:14px}
+.pgbrk{display:block;margin:6px 0;font-style:normal;font-family:var(--f-body);font-size:11px;letter-spacing:.3em;color:var(--gold);text-align:center;border-top:1px dashed var(--gold);padding-top:2px}
 .opts{display:flex;flex-direction:column;gap:6px}
 .opt{border:1px solid var(--edge);border-radius:5px;padding:6px 10px;font-family:var(--f-display);background:var(--paper)}
 .opt small{color:var(--ink-faint);margin-left:6px;font-family:var(--f-mono);font-size:11px}
@@ -254,7 +255,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .ni:hover{background:var(--paper);color:var(--ink)}
 .ni.on{background:var(--paper);border-left-color:var(--cinnabar);color:var(--ink);font-weight:500}
 .ni .th{width:26px;height:26px;border-radius:4px;background:var(--paper);border:1px solid var(--hair);overflow:hidden}
-.ni .th img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
+.ni .th video,.ni .th img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
 .ni .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #art-add{align-self:flex-start}
 /* 右側 */
@@ -271,8 +272,9 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .aepic{display:flex;flex-direction:column;gap:8px}
 .aeimg{position:relative;width:100%;aspect-ratio:3/4;border-radius:10px;background:var(--paper-2);border:1px dashed var(--edge);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--ink-faint);font-size:13px;text-align:center;cursor:pointer;padding:12px}
 .aeimg.has{border-style:solid;padding:0}
-.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg[data-kind="頭像"]{aspect-ratio:1/1}
-.aeimg img{width:100%;height:100%;object-fit:contain;display:block}
+.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg:is([data-kind="頭像"],[data-kind="動態頭像"],[data-kind="頭像框"]){aspect-ratio:1/1}
+.aeimg .orig{position:absolute;left:8px;top:8px;font-size:11px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+.aeimg video,.aeimg img{width:100%;height:100%;object-fit:contain;display:block}
 .aeimg input{display:none}
 .ae.drag .aeimg{outline:2px dashed var(--gold);outline-offset:3px}
 .aeimg .busy{position:absolute;inset:0;background:rgba(0,0,0,.45);color:#fff;display:flex;align-items:center;justify-content:center}
@@ -294,7 +296,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .arthist{font-size:12.5px;color:var(--ink-soft)}
 .arthist ol{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
 .arthist li{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:8px;align-items:center}
-.arthist li img{width:36px;height:36px;object-fit:cover;object-position:top;border-radius:4px;background:var(--paper-2)}
+.arthist li video,.arthist li img{width:36px;height:36px;object-fit:cover;object-position:top;border-radius:4px;background:var(--paper-2)}
 .arthist li.cur{font-weight:500;color:var(--ink)}
 .artgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .agsub{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin-top:6px;font-family:var(--f-display);font-weight:600;font-size:15px}
@@ -302,7 +304,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc{display:flex;flex-direction:column;gap:6px;text-align:left;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:8px;cursor:pointer;color:var(--ink);min-width:0}
 .agc:hover{border-color:var(--gold)}
 .agc .pic{aspect-ratio:3/4;border-radius:6px;background:var(--paper-2);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink-faint)}
-.agc .pic img{width:100%;height:100%;object-fit:cover;object-position:top}
+.agc .pic video,.agc .pic img{width:100%;height:100%;object-fit:cover;object-position:top}
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
@@ -332,6 +334,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
         <li>一章 6～10 幕，至少一處選項（通常 3 個）。</li>
         <li>以對話為主。旁白一句帶過，置中淡色。</li>
         <li>你選的那句會留在下一句上方，不必再寫「你說：……」。</li>
+        <li>同一幕裡換行＝下一句，字多時 App 自己分頁。要<b>強制清掉框、從頭重寫</b>就打 <code>//</code>（全形 <code>／／</code> 也行），預覽會畫一條「換頁」。</li>
         <li>場景跟上一幕不同＝換場：黑場、打地名、立繪先收起。</li>
         <li>分支各自寫到結尾，每條最後一幕勾「到此結束」。</li>
         <li>兩種 voice_hint 只寫立場、稱謂、在意的事，<b>不寫親密程度</b>。換身分、換稱呼不會讓他變熱絡。</li>
@@ -361,6 +364,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
         <li>玩家與三位<b>不會死</b>。這一篇專屬的人物可以，某些結局寫死也可以——讓玩家想再走一次找救下他的路。</li>
         <li>三位可以客串（例：回觀求助），但<b>不改變他們和你的關係</b>；不求助也要走得完。</li>
         <li>江湖小事為主，也可以標「重口」寫得深一點。</li>
+        <li>一幕裡要強制清掉框、從頭重寫：打 <code>//</code>（全形 <code>／／</code> 也行）。</li>
         <li>數值是全江湖共用的四項（左上「數值與化名設定」），不要每篇自己發明。</li>
         <li>結局由上往下比，最後一個留空條件當保底；每個結局一句領悟。每卦一個成就，綁一個結局。</li>
         <li>大綱寫好、把狀態改成「請生成」，跟 Claude 說一聲，Claude 會從這裡讀走、寫初稿回來。</li>
@@ -386,7 +390,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
     <div class="grid">
       <label class="field"><span id="art-new-l1">名稱</span><input type="text" id="art-new-name" placeholder="例：凌霄 立繪、渡口 夜景"></label>
       <label class="field"><span>英文代號 <em>（小寫英數；App 用它找圖）</em></span><input type="text" id="art-new-code" placeholder="例：summer、dukou"></label>
-      <label class="field" id="art-new-kindf"><span>類型</span><select id="art-new-kind"><option>立繪</option><option>場景</option><option>頭像</option></select></label>
+      <label class="field" id="art-new-kindf"><span>類型</span><select id="art-new-kind"><option>立繪</option><option>場景</option><option>頭像</option><option>動態頭像</option><option>頭像框</option></select></label>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" id="art-new-go">加入</button><button class="btn ghost" id="art-new-x">取消</button><span id="art-new-e" style="color:var(--cinnabar);font-size:13px"></span></div>
   </div>
@@ -411,6 +415,9 @@ let db = null, chapters = {}, cur = null, view = "write";
 const dirty = new Set(), timers = {}, rev = {};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+// 換頁記號（同前端 Scene.PAGE）：台詞裡打「//」或「／／」，App 演到這裡一定清掉對話框、從第一行重寫
+const PAGE = /[ \t]*(?:\/\/|／／)[ \t]*/g;
+const escLine = (t) => String(t ?? "").split(PAGE).map((x) => esc(x.replace(/^\n+|\n+$/g, ""))).join(`<i class="pgbrk">換頁</i>`);
 
 function blank(cid, no) {
   return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
@@ -565,7 +572,7 @@ function paintScenes() {
         <div class="cell who"><select id="s${i}-who" data-f="who" aria-label="誰說">${sel(whoOpts, w)}</select>
           ${w === "other" ? `<input type="text" id="s${i}-sp" data-f="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
         <div class="cell"><select id="s${i}-pt" data-f="portrait" aria-label="立繪">${sel(pOpts, portraitOf(s))}</select></div>
-        <div class="cell text"><textarea id="s${i}-text" data-f="text" rows="3" placeholder="${w === "narr" ? "旁白，一句帶過" : "「台詞」，換行就是下一句"}">${esc(s.text)}</textarea>
+        <div class="cell text"><textarea id="s${i}-text" data-f="text" rows="3" placeholder="${w === "narr" ? "旁白，一句帶過" : "「台詞」，換行就是下一句；打 // 就清掉框、從頭重寫"}">${esc(s.text)}</textarea>
           <div><button class="btn sm" data-addch>＋選項</button></div></div>
         <div class="cell go">${(s.choices || []).length ? `<span style="font-size:12px;color:var(--ink-faint)">看選項</span>` :
           `<select id="s${i}-next" data-f="next" aria-label="演完往哪">${targets(i).replace(`value="${toIdx(s.next)}"`, `value="${toIdx(s.next)}" selected`)}</select>`}
@@ -684,8 +691,8 @@ function paintPreview() {
     const w = whoOf(s);
     const name = w === "me" ? "你" : CHARS[w] || s.speaker || "";
     const titleNote = w === c.character_id && c.char_title.label ? `・${c.char_title.label}` : "";
-    html += w === "narr" ? `<div class="line narr">${esc(s.text)}</div>`
-      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${esc(s.text)}</div>`;
+    html += w === "narr" ? `<div class="line narr">${escLine(s.text)}</div>`
+      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${escLine(s.text)}</div>`;
     if ((s.choices || []).length) html += `<div class="opts">${s.choices.map((ch) =>
       `<div class="opt">${esc(ch.label || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}<small>→ ${esc(ch.to || "下一幕")}</small></div>`).join("")}</div>`;
     if (s.end) html += `<div class="endmark">— 此路到此 —</div>`;
@@ -1120,7 +1127,7 @@ function sceneRow(j, ss, s, k, sl) {
     <select data-sf="who" aria-label="誰說">${sel(whoOptsJ(j), w)}</select>
     <select data-sf="portrait" aria-label="立繪">${sel(pOptsJ(), portraitOf(s))}</select>
     <span class="rowops"><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
-    <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白" : "「台詞」"}">${esc(s.text)}</textarea>
+    <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白" : "「台詞」；打 // 清掉框、從頭重寫"}">${esc(s.text)}</textarea>
       ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
     ${(s.choices || []).length ? `<div class="chs"><div class="chs-h">玩家在這裡選：</div>${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
       <div class="ec-r1">
@@ -1405,7 +1412,7 @@ const nameIn = (t) => String(t || "").replace(/\{名\}/g, sim ? sim.name : "{名
 function simLine(j, s) {
   const w = whoOfJ(s), npc = s.npc && j.npcs.find((n) => n.id === s.npc);
   const name = w === "me" ? sim.name : CHARS[w] || (npc && npc.name) || s.speaker || "";
-  return w === "narr" ? `<div class="line narr">${esc(nameIn(s.text))}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${esc(nameIn(s.text))}</div>`;
+  return w === "narr" ? `<div class="line narr">${escLine(nameIn(s.text))}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${escLine(nameIn(s.text))}</div>`;
 }
 function simPaint() {
   const j = jh[jcur];
@@ -1637,11 +1644,23 @@ function jhInit() {
    再寫回 synced_asset／synced_at、把 ship 設回 false。沒勾的就算有新上傳也不動 App。
    舊資料沒有 ship：狀態是「已交」又有新上傳的當作勾了（artShip）。 */
 const ART_CHARS = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
-const ART_GROUP_ORDER = ["主要角色", "場景", "頁面底圖", "江湖・乾為天"];
+// 左欄分組的順序；列在這裡的組就算還沒有任何一列也照樣出現（頭像框：之後要做，先佔位）
+const ART_GROUP_ORDER = ["主要角色", "玩家頭像", "其他頭像", "頭像框", "場景", "頁面底圖", "江湖・乾為天"];
+const ART_GROUP_NOTE = { 頭像框: "還沒有任何一個頭像框。要做的時候按左邊「＋一列」，類型選「頭像框」。" };
+// App 現在用的線上那張（Supabase 雲端）：列上 origin_url，舊資料從 temp「雲端 資料夾/檔名」推出來
+const ART_CLOUD = "https://ajogafvzlhqwlxwkfcpn.supabase.co/storage/v1/object/public/";
+const artOrigin = (a) => a.origin_url || ((/^雲端 (\S+\.(?:png|jpe?g|webp|mp4|webm))$/i.exec(a.temp || "") || [])[1] ? ART_CLOUD + /^雲端 (\S+)/.exec(a.temp)[1] : "");
+const isVid = (u, type) => /^video\//.test(type || "") || /\.(mp4|webm|mov)(\?|$)/i.test(u || "");
+// 圖或影片（動態頭像）；線上的圖讀不到就藏起來，不留破圖
+const artMedia = (u, type, lazy) => !u ? "" : isVid(u, type)
+  ? `<video src="${esc(u)}" autoplay loop muted playsinline onerror="this.remove()"></video>`
+  : `<img src="${esc(u)}" alt=""${lazy ? ' loading="lazy"' : ""} onerror="this.remove()">`;
 const ART_SPEC = {
   立繪: "900×1200 PNG 去背，主體放在畫面中央 60%（手機左右各裁掉約 19%），頭頂約在 8% 那條線，55% 以下會被對話框壓住。",
   場景: "1280×1920 直式 JPG／WebP，焦點在中央 70%，下方 45% 會被對話框蓋住（畫地板、桌面這類低對比的東西），不畫人物、不放字。",
-  頭像: "正方形 ≥512px，臉在中央；手機通知的圓形大圖也從這張裁。" };
+  頭像: "正方形 ≥512px，臉在中央；畫面上一律裁成圓形。主要角色的頭像也拿來做手機通知的圓形大圖。",
+  動態頭像: "正方形 512×512、2～4 秒無縫循環；交 MP4／MOV／動態 WebP 都可以；進 App 一律轉成動態 WebP（384×384、15fps、600 KB 內，另出一張靜止首格給列表用）。",
+  頭像框: "512×512 透明 PNG／WebP；頭像圓形在正中央、直徑約 80%，框畫在外圈（格式待定）。" };
 let arts = {}, assetsNs = null, artSel = "";
 const artTimers = {};
 try { artSel = localStorage.getItem("script-sheet-art-sel") || ""; } catch (e) {}
@@ -1658,6 +1677,7 @@ const artShip = (a) => a.ship != null ? !!a.ship : !!(a.status === "done" && a.a
 function artState(a) {
   if (a.status === "skip") return ["skip", "不用了"];
   if (a.asset_id && a.asset_id === a.synced_asset) return ["in", "已進 App"];
+  if (a.asset_id && a.asset_id === a.origin_asset) return ["old", "App 用線上舊圖（原圖已抓進來）"];
   if (a.asset_id && artShip(a)) return ["ship", "下次更新放進 App"];
   if (a.asset_id) return ["hold", "傳了，還沒勾"];
   if (a.temp) return ["old", "App 用線上舊圖"];
@@ -1666,12 +1686,12 @@ function artState(a) {
 // 主要角色在左欄已經掛在角色名底下，名字去掉「大師兄・」
 const artShort = (a) => a.cid && artGrp(a) === "主要角色" ? String(a.name).replace(/^[^・]*・/, "") : a.name;
 const artCur = () => artSel.startsWith("i:") ? arts[artSel.slice(2)] || null : null;
-const artGroups = (all) => [...new Set(all.map(artGrp))];
+const artGroups = (all) => [...new Set([...ART_GROUP_ORDER, ...all.map(artGrp)])];
 function artPick(sel) {
   artSel = sel; try { localStorage.setItem("script-sheet-art-sel", sel); } catch (e) {}
   $("art-new").hidden = true; artPaint(true); $("pane").scrollTop = 0;
 }
-const artThumb = (a) => a.asset_url ? `<img src="${esc(a.asset_url)}" alt="" loading="lazy">` : "";
+const artThumb = (a) => a.asset_url ? artMedia(a.asset_url, a.asset_type, true) : artMedia(artOrigin(a), "", true);
 
 /* ── 左欄：分組 → 角色 → 一張 ── */
 function artNavHtml(all) {
@@ -1698,6 +1718,7 @@ function artGroupHtml(g, all) {
       <p><b>還沒傳過的</b>：App 照舊用線上那張（Supabase 雲端，標「線上舊圖」）。</p>
       ${kinds.map((k) => `<p><b>${esc(k)}規格</b>：${ART_SPEC[k]}</p>`).join("")}
     </details><div class="artgrid">`, lastC = null;
+  if (!rows.length) html += `<p class="fxnote" style="grid-column:1/-1">${esc(ART_GROUP_NOTE[g] || "這一組還沒有東西。")}</p>`;
   for (const a of rows) {
     if (g === "主要角色" && a.cid !== lastC) { lastC = a.cid; html += `<div class="agsub">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-outfit="${esc(a.cid || "")}">＋衣裝</button></div>`; }
     const [st, lab] = artState(a);
@@ -1708,9 +1729,11 @@ function artGroupHtml(g, all) {
 
 /* ── 右側：一張的編輯 ── */
 function artItemHtml(a) {
-  const g = artGrp(a), [st] = artState(a), ship = artShip(a), h = artHist(a);
+  const g = artGrp(a), [st] = artState(a), h = artHist(a), orig = artOrigin(a), isOrig = !!a.asset_id && a.asset_id === a.origin_asset;
+  const ship = artShip(a) && !isOrig;
   const appNow = a.synced_asset ? `這裡 ${artTime(a.synced_at) || ""} 放進去的那張` : a.temp ? `線上舊圖：${a.temp}` : "還沒有圖";
   const shipNote = !a.asset_id ? `先放一張圖才能勾。App 現在${a.temp ? "用線上舊圖（" + esc(a.temp) + "）" : "裡還沒有這張"}。`
+    : isOrig ? "現在這張就是 App 線上用的原圖（抓進來當底稿）。換上新的一張才需要勾。"
     : st === "in" ? `這張已經在 App 裡（${artTime(a.synced_at) || "時間沒記到"} 放進去的）。再上傳新的一張，才需要再勾。`
     : ship ? `下次 Claude 更新 App 會抓這張（上傳於 ${artTime(a.uploaded_at) || "時間沒記到"}）。`
     : `不勾＝App 維持現在那張（${esc(appNow)}）。`;
@@ -1719,12 +1742,12 @@ function artItemHtml(a) {
     <div class="ah"><h2>${esc(artShort(a))}</h2><span class="arttag">${esc(a.kind || "")}</span>${a.key ? `<code>${esc(a.key)}</code>` : ""}</div>
     <div class="ae">
       <div class="aepic">
-        <label class="aeimg${a.asset_url ? " has" : ""}" data-kind="${esc(a.kind || "")}" title="點一下選圖，或把圖拖進來">${a.asset_url ? `<img src="${esc(a.asset_url)}" alt="">` : assetsNs ? "點這裡選圖<br>或把圖拖進來、直接貼上" : "這個畫面不能放圖：<br>請從 claude.ai 打開稿紙"}<input type="file" accept="image/*" data-artfile></label>
-        ${assetsNs ? `<div class="aebtns"><button class="btn sm" data-apick>${a.asset_id ? "換一張" : "選圖"}</button>${a.asset_id ? `<button class="btn sm danger" data-aundo="${esc(a.id)}">撤回這次上傳${h.length > 1 ? "（回到上一張）" : ""}</button>` : ""}</div>` : ""}
+        <label class="aeimg${a.asset_url || orig ? " has" : ""}" data-kind="${esc(a.kind || "")}" title="點一下選圖，或把圖拖進來">${a.asset_url ? artMedia(a.asset_url, a.asset_type) : orig ? `${artMedia(orig)}<span class="orig">App 現用・線上</span>` : assetsNs ? "點這裡選圖<br>或把圖拖進來、直接貼上" : "這個畫面不能放圖：<br>請從 claude.ai 打開稿紙"}<input type="file" accept="${artVideoOk(a) ? "image/*,video/*" : "image/*"}" data-artfile></label>
+        ${assetsNs ? `<div class="aebtns"><button class="btn sm" data-apick>${a.asset_id ? "換一張" : "選圖"}</button>${!a.asset_id && orig ? `<button class="btn sm" data-agrab>把線上這張抓進來</button>` : ""}${a.asset_id ? `<button class="btn sm danger" data-aundo="${esc(a.id)}">撤回這次上傳${h.length > 1 ? "（回到上一張）" : ""}</button>` : ""}</div>` : ""}
         <p class="aehint">${esc(ART_SPEC[a.kind] || "")}</p>
       </div>
       <div class="aeside">
-        <label class="shipbox${st === "in" ? " in" : ship && a.asset_id ? " on" : ""}${!a.asset_id || st === "in" ? " off" : ""}"><input type="checkbox" data-ship${(ship && a.asset_id) || st === "in" ? " checked" : ""}${!a.asset_id || st === "in" ? " disabled" : ""}><b>${st === "in" ? "已在 App 裡" : "下次更新放進 App"}</b><small>${shipNote}</small></label>
+        <label class="shipbox${st === "in" ? " in" : ship && a.asset_id ? " on" : ""}${!a.asset_id || st === "in" || isOrig ? " off" : ""}"><input type="checkbox" data-ship${(ship && a.asset_id) || st === "in" ? " checked" : ""}${!a.asset_id || st === "in" || isOrig ? " disabled" : ""}><b>${st === "in" ? "已在 App 裡" : "下次更新放進 App"}</b><small>${shipNote}</small></label>
         ${a.brief ? `<p class="aehint" style="font-size:12.5px;color:var(--ink-soft)">${esc(a.brief)}</p>` : ""}
         <label class="field"><span>六六的備註（要改的地方…）</span><textarea data-artk="note" rows="3">${esc(a.note || "")}</textarea></label>
         <dl class="kv">
@@ -1733,7 +1756,7 @@ function artItemHtml(a) {
           <dt>用在</dt><dd>${esc(g)}${a.scenes ? `・${esc(a.scenes)}` : ""}</dd>
           <dt>App 代號</dt><dd><code>${esc(a.key || "（沒有）")}</code></dd>
         </dl>
-        ${hist.length > 1 ? `<div class="arthist"><b>歷史 ${hist.length} 版</b>（新到舊）<ol>${hist.map((x) => `<li class="${x.asset_id === a.asset_id ? "cur" : ""}">${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(x.url)}" alt="" loading="lazy"></a>` : "<span></span>"}<span>${artTime(x.at) || "時間不明"}　${esc(x.name || "")}</span>${x.asset_id === a.asset_id ? "<span>現在這張</span>" : `<button class="btn sm" data-arestore="${esc(x.asset_id)}">改回這張</button>`}</li>`).join("")}</ol></div>` : ""}
+        ${hist.length > 1 ? `<div class="arthist"><b>歷史 ${hist.length} 版</b>（新到舊）<ol>${hist.map((x) => `<li class="${x.asset_id === a.asset_id ? "cur" : ""}">${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${artMedia(x.url, x.type, true)}</a>` : "<span></span>"}<span>${artTime(x.at) || "時間不明"}　${esc(x.name || "")}</span>${x.asset_id === a.asset_id ? "<span>現在這張</span>" : `<button class="btn sm" data-arestore="${esc(x.asset_id)}">改回這張</button>`}</li>`).join("")}</ol></div>` : ""}
       </div>
     </div>`;
 }
@@ -1764,29 +1787,48 @@ function artBusy(id, text) {
   let b = box.querySelector(".busy"); if (!b) { b = document.createElement("div"); b.className = "busy"; box.appendChild(b); }
   b.textContent = text; return b;
 }
-async function artUpload(id, file) {
+async function artUpload(id, file, opt) {
   if (!file) return;
   if (!assetsNs) { setSave("這個畫面不能放圖：請從 claude.ai 打開稿紙", true); return; }
-  if (!/^image\//.test(file.type)) { setSave("只收圖片", true); return; }
+  const okVid = artVideoOk(arts[id]) && /^video\//.test(file.type);
+  if (!/^image\//.test(file.type) && !okVid) { setSave(artVideoOk(arts[id]) ? "只收圖片或影片" : "只收圖片", true); return; }
   artBusy(id, "上傳中…");
   try {
     const r = await assetsNs.upload(file);
     const at = new Date().toISOString(), a = arts[id];
     const hist = artHist(a).slice();
-    hist.push({ asset_id: r.id, url: r.url, name: file.name, at });
-    Object.assign(a, { asset_id: r.id, asset_url: r.url, asset_name: file.name, uploaded_at: at, history: hist.slice(-30) });
+    const type = r.contentType || file.type || "";
+    hist.push({ asset_id: r.id, url: r.url, name: file.name, at, type, ...(opt && opt.origin ? { origin: true } : {}) });
+    Object.assign(a, { asset_id: r.id, asset_url: r.url, asset_name: file.name, asset_type: type, uploaded_at: at, history: hist.slice(-30),
+      ...(opt && opt.origin ? { origin_asset: r.id } : {}) });
     artSave(id); artPaint(true);
   } catch (e) {
     const b = artBusy(id, "沒傳上去：" + ((e && e.message) || "再試一次"));
     if (b) setTimeout(() => b.remove(), 3000);
   }
 }
+// 動態頭像（與獎勵頭像裡本來就是影片的）可以收影片
+const artVideoOk = (a) => !!a && (a.kind === "動態頭像" || isVid(artOrigin(a)));
+// 把 App 線上用的那張抓進資產庫當底稿（記 origin_asset：狀態仍是「線上舊圖」，不會被當成新上傳）
+async function artGrab(id) {
+  const a = arts[id], u = a && artOrigin(a); if (!u) return;
+  artBusy(id, "抓線上那張…");
+  try {
+    const res = await fetch(u); if (!res.ok) throw new Error("線上回 " + res.status);
+    const b = await res.blob(), name = decodeURIComponent(u.split("/").pop());
+    await artUpload(id, new File([b], name, { type: b.type || (isVid(u) ? "video/mp4" : "image/png") }), { origin: true });
+  } catch (e) {
+    const b = artBusy(id, "抓不到線上那張（" + ((e && e.message) || "被擋了") + "）：請手動上傳");
+    if (b) setTimeout(() => b.remove(), 4000);
+  }
+}
 // 傳錯了：回到上一張（沒有上一張就變回沒有圖）；剛傳的那張沒進過 App、哪裡都沒用到，就從資產庫刪掉
 function artUndo(id) {
   const a = arts[id]; if (!a || !a.asset_id) return;
   const h = artHist(a).slice(), gone = h.pop(), prev = h[h.length - 1];
-  if (prev) Object.assign(a, { asset_id: prev.asset_id, asset_url: prev.url, asset_name: prev.name, uploaded_at: prev.at });
-  else { for (const k of ["asset_id", "asset_url", "asset_name", "uploaded_at"]) delete a[k]; a.ship = false; }
+  if (prev) Object.assign(a, { asset_id: prev.asset_id, asset_url: prev.url, asset_name: prev.name, asset_type: prev.type || "", uploaded_at: prev.at });
+  else { for (const k of ["asset_id", "asset_url", "asset_name", "asset_type", "uploaded_at"]) delete a[k]; a.ship = false; }
+  if (gone && gone.asset_id === a.origin_asset) delete a.origin_asset;
   a.history = h;
   artSave(id); artPaint(true);
   const used = Object.values(arts).some((x) => x.asset_id === gone.asset_id || x.synced_asset === gone.asset_id || artHist(x).some((y) => y.asset_id === gone.asset_id));
@@ -1797,7 +1839,7 @@ function artRestore(id, assetId) {
   const a = arts[id]; if (!a) return;
   const h = artHist(a).slice(), i = h.findIndex((x) => x.asset_id === assetId); if (i < 0) return;
   const [x] = h.splice(i, 1); h.push(x);
-  Object.assign(a, { asset_id: x.asset_id, asset_url: x.url, asset_name: x.name, uploaded_at: x.at, history: h });
+  Object.assign(a, { asset_id: x.asset_id, asset_url: x.url, asset_name: x.name, asset_type: x.type || "", uploaded_at: x.at, history: h });
   artSave(id); artPaint(true);
 }
 function artInit() {
@@ -1811,6 +1853,7 @@ function artInit() {
     const o = e.target.closest("[data-outfit]"); if (o) { artNewOpen(o.dataset.outfit); return; }
     const g = e.target.closest("[data-ag]"); if (g) { artPick("g:" + g.dataset.ag); return; }
     const i = e.target.closest("[data-ai]"); if (i) { artPick("i:" + i.dataset.ai); return; }
+    if (e.target.closest("[data-agrab]")) { if (artCur()) artGrab(artCur().id); return; }
     if (e.target.closest("[data-apick]")) { const f = view.querySelector("[data-artfile]"); if (f) f.click(); return; }
     const r = e.target.closest("[data-arestore]"); if (r && artCur()) { artRestore(artCur().id, r.dataset.arestore); return; }
     // 撤回要按兩次（框架會擋 confirm，所以在按鈕上問）
@@ -1864,9 +1907,9 @@ function artInit() {
     } else {
       const kind = $("art-new-kind").value; id = "art_" + (code || Date.now().toString(36));
       if (arts[id]) { $("art-new-e").textContent = "這個代號已經有了"; return; }
-      const key = code ? (kind === "場景" ? "scene/" : kind === "頭像" ? "av/" : "char/n_") + code : "";
+      const key = code ? (kind === "場景" ? "scene/" : kind === "頭像" || kind === "動態頭像" ? "av/" : kind === "頭像框" ? "frame/" : "char/n_") + code : "";
       const here = artCur() ? artGrp(artCur()) : artSel.startsWith("g:") ? artSel.slice(2) : "其他";
-      arts[id] = { id, name, kind, key, used_in: here, brief: "", status: "todo", ship: false, temp: "", note: "", order: 900 };
+      arts[id] = { id, name, kind, key, used_in: kind === "頭像框" ? "頭像框" : here, brief: "", status: "todo", ship: false, temp: "", note: "", order: 900 };
     }
     artSave(id); artPick("i:" + id);
   });
