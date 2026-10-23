@@ -1,4 +1,4 @@
-<title>道緣劇本稿紙</title>
+<title>幾知觀 企劃工作臺</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -163,8 +163,8 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .status button{border:1px solid var(--edge);background:none;border-radius:12px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--ink-soft)}
 .status button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 /* 兩種稿紙：角色事件（主線章節）｜江湖事件（你是主角、可重玩的短局） */
-.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:3px;margin:0 18px 14px;border-radius:999px;background:var(--paper);border:1px solid var(--edge)}
-.modes button{border:0;background:none;border-radius:999px;padding:5px 0;cursor:pointer;color:var(--ink-soft);font-family:var(--f-display);letter-spacing:.06em;font-size:13.5px}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:3px;margin:0 18px 14px;border-radius:999px;background:var(--paper);border:1px solid var(--edge)}
+.modes button{border:0;background:none;border-radius:999px;padding:5px 0;cursor:pointer;color:var(--ink-soft);font-family:var(--f-display);letter-spacing:.02em;font-size:13px;white-space:nowrap}
 .modes button.on{background:var(--ink);color:var(--paper)}
 /* 江湖：事件卡、結局卡、數值 */
 .evs{display:flex;flex-direction:column;gap:10px}
@@ -309,12 +309,29 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
+/* ── 企劃（六六 2026-10-23）：左邊寫、右邊看排版 ── */
+.plan-ed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.plan-ed{grid-template-columns:minmax(0,1fr)}}
+.plan-ed textarea{min-height:60vh;font-family:var(--f-body);font-size:14px}
+.plan-pv{border:1px solid var(--edge);border-radius:6px;background:var(--paper);padding:14px 18px;line-height:1.8;min-height:60vh;overflow-x:auto}
+.plan-pv h1,.plan-pv h2,.plan-pv h3{font-family:var(--f-display);margin:14px 0 6px}
+.plan-pv h1{font-size:20px}.plan-pv h2{font-size:17px}.plan-pv h3{font-size:15px}
+.plan-pv :first-child{margin-top:0}
+.plan-pv p{margin:0 0 8px}
+.plan-pv ul{margin:0 0 8px;padding-left:20px}
+.plan-pv table{border-collapse:collapse;margin:6px 0 10px;font-size:13px}
+.plan-pv th,.plan-pv td{border:1px solid var(--edge);padding:4px 8px;text-align:left;vertical-align:top}
+.plan-pv th{background:var(--paper-2);font-weight:500}
+.plan-pv code{font-family:var(--f-mono);font-size:12px;background:var(--paper-2);padding:0 4px;border-radius:3px}
+.plan-pv blockquote{margin:0 0 8px;padding-left:10px;border-left:3px solid var(--gold);color:var(--ink-soft)}
+.plan-log{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-soft)}
+.plan-log b{font-family:var(--f-mono);font-weight:400;color:var(--ink-faint);margin-right:8px}
 </style>
 
 <div class="app">
 <aside class="side" id="side">
-  <div class="brand"><h1>道緣劇本稿紙</h1><span class="save" id="save">連線中…</span></div>
-  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button></div>
+  <div class="brand"><h1>幾知觀 企劃工作臺</h1><span class="save" id="save">連線中…</span></div>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button><button role="tab" data-mode="plan">企劃</button></div>
   <div class="sidebody">
   <div class="rail" id="r-char">
     <section class="sec">
@@ -377,6 +394,24 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
     <div class="artlegend"><span><i class="dot ship"></i>下次更新放</span><span><i class="dot hold"></i>傳了沒勾</span><span><i class="dot in"></i>已進 App</span><span><i class="dot old"></i>線上舊圖</span><span><i class="dot none"></i>缺圖</span></div>
     <nav class="artnav" id="art-nav"><p class="fxnote">載入中…</p></nav>
   </div>
+  <div class="rail" id="r-plan" hidden>
+    <section class="sec">
+      <button class="btn primary" id="plan-new" type="button">＋ 新企劃</button>
+      <div class="status" id="plan-filter" style="margin-top:8px">
+        <button data-pf="" class="on">全部</button><button data-pf="idea">構想</button><button data-pf="spec">寫規格</button><button data-pf="todo">待做</button><button data-pf="doing">進行中</button><button data-pf="live">已上線</button><button data-pf="shelf">擱置</button>
+      </div>
+      <div class="chlist" id="plan-list" style="margin-top:8px"></div>
+    </section>
+    <details class="sec rulebox">
+      <summary>寫的時候記得</summary>
+      <ul class="rules">
+        <li>一份企劃一件事：要解決什麼、玩家看到什麼、規則與數字、要動哪些畫面。</li>
+        <li>內文可以用 <code>#</code> 標題、<code>-</code> 條列、<code>**粗體**</code>、<code>| 表格 |</code>；右邊即時看排版。</li>
+        <li>狀態改成「待做」，跟 Claude 說一聲，Claude 會從這裡讀走、照著做，做完回頭改成「已上線」並在「紀錄」補一行。</li>
+        <li>數字（靈石、次數、門檻）寫死在這裡就好，Claude 會照抄進程式，不另外猜。</li>
+      </ul>
+    </details>
+  </div>
   </div>
 </aside>
 <div class="pane" id="pane">
@@ -384,6 +419,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   <div class="banner" id="banner" hidden></div>
   <div id="m-char"><main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main></div>
   <div id="m-jh" hidden><main class="main" id="jh-main"><div class="empty">從左邊選一卦。</div></main></div>
+  <div id="m-plan" hidden><main class="main" id="plan-main"><div class="empty">從左邊選一份企劃，或按「＋ 新企劃」。</div></main></div>
   <div class="artwrap" id="m-art" hidden>
   <div class="tcard" id="art-new" hidden style="margin-bottom:16px">
     <h3 id="art-new-t">新增</h3>
@@ -801,10 +837,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => { jhInit(); artInit(); });
+    whenReady(() => { jhInit(); artInit(); planInit(); });
     return;
   }
-  whenReady(() => { jhInit(); artInit(); });
+  whenReady(() => { jhInit(); artInit(); planInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -987,9 +1023,10 @@ $("modes").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
   const m = b.dataset.mode, jhOn = m === "jh";
   $("modes").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const k of ["char", "jh", "art"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
+  for (const k of ["char", "jh", "art", "plan"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
   $("pane").scrollTop = 0;
-  $("mode-sub").textContent = m === "art" ? "App 所有美術的唯一上傳位置。左邊選一張，右邊換圖、勾「下次更新放進 App」。"
+  $("mode-sub").textContent = m === "plan" ? "一份企劃一件事。寫好改成「待做」，Claude 從這裡讀走、照著做。"
+    : m === "art" ? "App 所有美術的唯一上傳位置。左邊選一張，右邊換圖、勾「下次更新放進 App」。"
     : jhOn ? "一卦一篇：今天的日運卦就是今天的江湖。六爻六節，動爻那一節出變數。"
     : "一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。";
   try { localStorage.setItem("script-sheet-mode", b.dataset.mode); } catch (err) {}
@@ -1625,7 +1662,7 @@ function jApply(list) {
   if (jcur && jcur !== "__cfg" && jh[jcur] && !jdirty.has(jcur) && !document.activeElement?.closest?.("#jh-main") && jview === "write") jMain();
 }
 function jhInit() {
-  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
+  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art" || m === "plan") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
   if (!db) {
     try { jh = JSON.parse(localStorage.getItem(JLS) || "{}"); Object.assign(cfg, JSON.parse(localStorage.getItem(JLS + "-cfg") || "{}")); } catch (e) {}
     jRail(); return;
@@ -1934,3 +1971,117 @@ function artInit() {
 }
 
 </script>
+<script>
+/* ══ 企劃（六六 2026-10-23）══
+   一份企劃一件事：存在雲端 plans/<id>（{id,title,status,body,log:[{at,text}],updated_at}）。
+   狀態「待做」＝請 Claude 動手；Claude 讀 plans 照做，做完改「已上線」並在 log 補一行。 */
+const PLAN_ST = { idea: "構想", spec: "寫規格", todo: "待做", doing: "進行中", live: "已上線", shelf: "擱置" };
+let plans = {}, planCur = null, planFilter = "", planTimers = {};
+const planTpl = () => "# 要解決什麼\n\n\n# 玩家看到什麼\n\n\n# 規則與數字\n\n| 項目 | 數字 |\n| --- | --- |\n|  |  |\n\n# 要動的畫面\n\n- \n";
+function planMd(src) {
+  const inl = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const out = [], L = String(src || "").split("\n");
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i];
+    let m;
+    if ((m = l.match(/^(#{1,3})\s+(.*)$/))) { out.push(`<h${m[1].length}>${inl(m[2])}</h${m[1].length}>`); continue; }
+    if (/^\s*\|/.test(l)) {
+      const rows = []; while (i < L.length && /^\s*\|/.test(L[i])) rows.push(L[i++]); i--;
+      const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const body = rows.filter((r) => !/^\s*\|[\s:|-]+\|?\s*$/.test(r));
+      out.push(`<table>${body.map((r, k) => `<tr>${cells(r).map((c) => k === 0 && rows.length > 1 && /^\s*\|[\s:|-]+\|?\s*$/.test(rows[1]) ? `<th>${inl(c)}</th>` : `<td>${inl(c)}</td>`).join("")}</tr>`).join("")}</table>`);
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(l)) {
+      const it = []; while (i < L.length && /^\s*[-*]\s+/.test(L[i])) it.push(L[i++].replace(/^\s*[-*]\s+/, "")); i--;
+      out.push(`<ul>${it.map((x) => `<li>${inl(x)}</li>`).join("")}</ul>`); continue;
+    }
+    if (/^>\s?/.test(l)) { out.push(`<blockquote>${inl(l.replace(/^>\s?/, ""))}</blockquote>`); continue; }
+    if (l.trim()) out.push(`<p>${inl(l)}</p>`);
+  }
+  return out.join("");
+}
+function planRail() {
+  const list = Object.values(plans).filter((p) => !planFilter || p.status === planFilter)
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  $("plan-list").innerHTML = list.map((p) => `<button class="ch${p.id === planCur ? " on" : ""}" type="button" data-plan="${esc(p.id)}">
+      <b>${esc(p.title || "（未命名）")}</b><span class="fxnote">${esc(PLAN_ST[p.status] || "構想")}</span>
+      <small>${esc(String(p.updated_at || "").slice(0, 10))}</small></button>`).join("") || `<p class="fxnote">還沒有企劃。</p>`;
+}
+function planSave(id) {
+  const p = plans[id]; if (!p) return;
+  p.updated_at = new Date().toISOString();
+  setSave("存檔中…");
+  clearTimeout(planTimers[id]);
+  planTimers[id] = setTimeout(async () => {
+    if (!db) { try { localStorage.setItem("script-sheet-plans", JSON.stringify(plans)); setSave("存在這台瀏覽器"); } catch (e) {} return; }
+    try { await db.collection("plans").doc(id).set(JSON.parse(JSON.stringify(p))); setSave("已存檔"); }
+    catch (e) { setSave("企劃存檔失敗", true); }
+  }, 700);
+  planRail();
+}
+function planPaint() {
+  const p = plans[planCur], main = $("plan-main");
+  if (!p) { main.innerHTML = `<div class="empty">從左邊選一份企劃，或按「＋ 新企劃」。</div>`; return; }
+  main.innerHTML = `<div class="tcard">
+      <div class="grid">
+        <label class="field wide"><span>企劃名</span><input type="text" data-pk="title" value="${esc(p.title)}" placeholder="例：成就榜・問事"></label>
+        <label class="field"><span>狀態</span><select data-pk="status">${Object.entries(PLAN_ST).map(([k, v]) => `<option value="${k}"${p.status === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+        <div class="field" style="justify-content:flex-end"><button class="btn sm danger" type="button" data-pdel>刪掉這份</button></div>
+      </div>
+    </div>
+    <div class="plan-ed">
+      <label class="field"><span>內文</span><textarea data-pk="body" spellcheck="false">${esc(p.body)}</textarea></label>
+      <div class="field"><span>排版</span><div class="plan-pv" id="plan-pv">${planMd(p.body)}</div></div>
+    </div>
+    ${(p.log || []).length ? `<div class="tcard"><h3>紀錄</h3><div class="plan-log">${p.log.map((x) => `<div><b>${esc(String(x.at || "").slice(0, 10))}</b>${esc(x.text)}</div>`).join("")}</div></div>` : ""}`;
+}
+function planInit() {
+  $("plan-new").addEventListener("click", () => {
+    const id = "p" + Date.now().toString(36);
+    plans[id] = { id, title: "", status: "idea", body: planTpl(), log: [], created_at: new Date().toISOString() };
+    planCur = id; planSave(id); planPaint();
+    $("modes").querySelector('[data-mode="plan"]').click();
+    const t = $("plan-main").querySelector('[data-pk="title"]'); if (t) t.focus();
+  });
+  $("plan-filter").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pf]"); if (!b) return;
+    planFilter = b.dataset.pf;
+    $("plan-filter").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    planRail();
+  });
+  $("plan-list").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-plan]"); if (!b) return;
+    planCur = b.dataset.plan; planRail(); planPaint(); $("pane").scrollTop = 0;
+  });
+  const main = $("plan-main");
+  main.addEventListener("input", (e) => {
+    const k = e.target.dataset.pk, p = plans[planCur]; if (!k || !p) return;
+    p[k] = e.target.value;
+    if (k === "body") { const pv = $("plan-pv"); if (pv) pv.innerHTML = planMd(p.body); }
+    planSave(planCur);
+  });
+  main.addEventListener("change", (e) => { if (e.target.dataset.pk === "status") planSave(planCur); });
+  // 刪：按一次變紅、再按一次才刪（claude.ai 的框架擋 confirm）
+  main.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-pdel]"); if (!b) return;
+    if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "再按一次刪掉"; setTimeout(() => { b.classList.remove("armed"); b.textContent = "刪掉這份"; }, 3000); return; }
+    const id = planCur; delete plans[id]; planCur = null; planRail(); planPaint();
+    if (db) { try { await db.collection("plans").doc(id).delete(); setSave("已刪掉"); } catch (err) { setSave("刪除失敗", true); } }
+    else { try { localStorage.setItem("script-sheet-plans", JSON.stringify(plans)); } catch (err) {} }
+  });
+  if (!db) { try { plans = JSON.parse(localStorage.getItem("script-sheet-plans") || "{}"); } catch (e) {} planRail(); return; }
+  db.collection("plans").onSnapshot((snap) => {
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#plan-main");
+    for (const d of snap.docs) {
+      if (!d.exists) continue;
+      const v = JSON.parse(JSON.stringify(d.data()));
+      if (typing && v.id === planCur) continue;   // 正在打字的那份不被雲端蓋掉
+      plans[v.id] = v;
+    }
+    planRail();
+    if (planCur && !typing) planPaint();
+  }, () => setSave("雲端存檔斷線，重新整理頁面", true));
+}
+</script>
+
