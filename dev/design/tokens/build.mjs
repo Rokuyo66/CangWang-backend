@@ -150,7 +150,7 @@ const gen = {
 
   // 小工具背板：Scenes.java 的 BG（五種尺寸各一列；順序＝Scenes.SMALL、SPLIT、BIG、TALL、SMALL_TALL）
   javaBg: () => {
-    const B = T.widget.bg, K = ["scene", "top", "gStart", "gMid", "gMidA", "gMax", "at", "fade", "fScene", "fInk", "blur"];
+    const B = T.widget.bg, K = ["scene", "top", "topEnd", "bot", "botStart", "at", "fade", "fScene", "fInk", "blur"];
     const row = (k, n) => `      {${K.map((x) => (B[k][x] ?? 0) + "f").join(", ")}},   // ${n}`;
     return [`  // 欄：${K.join("、")}（意思見後端 tokens.json 的 widget.bg._說明）`, "  static final float[][] BG = {",
       row("small", "SMALL 窄・矮"), row("split", "SPLIT 4×2"), row("big", "BIG 4×4"), row("tall", "TALL 4×6"), row("smallTall", "SMALL_TALL 窄・高（籤詩整首）"), "  };"].join("\n");

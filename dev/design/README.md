@@ -47,7 +47,7 @@
 | 前端 `src/styles/motion.css` | `seg` | 兩段開關六色（`--seg-*`，淺色一條、深色一條） |
 | 前端 `src/app/design-tokens.js` | `design-js` | JS 用的同一份（`DESIGN.motion.ms.press` 等；`ui/motion.js` 讀它） |
 | 前端 `android/…/widget/Palette.java` | `palette` | 小工具五套配色（欄位對照在 `tokens.json` 的 `widget.map`） |
-| 前端 `android/…/widget/Scenes.java` | `widget-bg` | 小工具背板：五種尺寸的場景濃度、加深漸層、霧面線、霧面模糊與加深（`tokens.json` 的 `widget.bg`；規範頁「七　小工具」可拉） |
+| 前端 `android/…/widget/Scenes.java` | `widget-bg` | 小工具背板：五種尺寸的場景濃度、上下兩段加深（上加深線、下加深線）、霧面線、霧面模糊與加深（`tokens.json` 的 `widget.bg`；規範頁「七　小工具」可拉） |
 | 後端 `style/index.html` | `spec-design` | 規範頁的主題清單、色碼說明、按鈕算式 |
 | 後端 `motion/prototype.html` | `proto-motion`、`proto-motion-js` | 動態原型的 `:root` token 與 token 表、總控預設值、範例碼 |
 | 後端 `dev/widget/entry.ts` | `widget-colors` | 小工具原型的六個 App 色（背板與材質是原型自己的） |

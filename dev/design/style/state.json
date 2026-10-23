@@ -672,9 +672,113 @@
           "to": 75
         }
       ]
+    },
+    {
+      "at": "2026-10-23T15:52:29.510Z",
+      "changes": [
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "scene",
+          "name": "場景濃度",
+          "unit": "%",
+          "from": 60,
+          "to": 90
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gStart",
+          "name": "加深從哪開始",
+          "unit": "%",
+          "from": 8,
+          "to": 59
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gMid",
+          "name": "加深中段在哪",
+          "unit": "%",
+          "from": 42,
+          "to": 73
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "gMidA",
+          "name": "中段暗度",
+          "unit": "%",
+          "from": 55,
+          "to": 74
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gStart",
+          "name": "加深從哪開始",
+          "unit": "%",
+          "from": 30,
+          "to": 83
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMid",
+          "name": "加深中段在哪",
+          "unit": "%",
+          "from": 58,
+          "to": 54
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMidA",
+          "name": "中段暗度",
+          "unit": "%",
+          "from": 55,
+          "to": 47
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "gMax",
+          "name": "最暗",
+          "unit": "%",
+          "from": 92,
+          "to": 65
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "at",
+          "name": "霧面線",
+          "unit": "%",
+          "from": 46,
+          "to": 49
+        }
+      ]
     }
   ],
-  "savedAt": "2026-10-23T15:19:07.408Z",
+  "savedAt": "2026-10-23T15:52:29.510Z",
   "backdrop": {
     "scene": {
       "h": 560,
@@ -806,6 +910,58 @@
       "midA": 30,
       "blur": 1,
       "pad": 0
+    }
+  },
+  "widget": {
+    "small": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 42,
+      "bot": 92,
+      "botStart": 30
+    },
+    "smallTall": {
+      "scene": 90,
+      "top": 65,
+      "topEnd": 42,
+      "bot": 92,
+      "botStart": 59
+    },
+    "split": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 42,
+      "bot": 92,
+      "botStart": 30,
+      "at": 52,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
+    },
+    "big": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 41,
+      "bot": 65,
+      "botStart": 38,
+      "at": 49,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
+    },
+    "tall": {
+      "scene": 60,
+      "top": 65,
+      "topEnd": 34,
+      "bot": 92,
+      "botStart": 30,
+      "at": 38,
+      "fade": 28,
+      "fScene": 60,
+      "fInk": 70,
+      "blur": 24
     }
   }
 }
