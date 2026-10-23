@@ -247,6 +247,57 @@ td b{font-weight:700}
 .co-txt{font-size:13px;line-height:1.75}
 .co-acts{display:flex;justify-content:flex-end;margin-top:8px}
 
+/* ── 事件對話幕（前端 src/ui/scene.js＋styles/scene.css、story.css；角色事件與江湖共用）──
+   這一層自成一個場景：墨底 #0d0b08、暖白字 #ECE3D3、金 #C9A86A，不跟主題換色。數字照 Figma「事件」與前端現行值。 */
+.evx{position:absolute;inset:0;overflow:hidden;background:#0d0b08;color:#ECE3D3;font-family:var(--serif);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.evx-bg{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 30%,#5b4a36 0%,#2b2219 55%,#120e0a 100%);filter:blur(1.5px);transform:scale(1.02)}
+.evx-por{position:absolute;left:18%;right:18%;top:14%;bottom:0;border-radius:46% 46% 0 0/30% 30% 0 0;background:linear-gradient(#3a3026,#1a140f 70%);opacity:0;transform:translateY(8px);transition:opacity .5s ease,transform .5s ease}
+.evx-por::before{content:"";position:absolute;left:34%;right:34%;top:6%;aspect-ratio:1;border-radius:50%;background:#4a3d30}
+.evx-por.on{opacity:.9;transform:none}
+.evx-veil{position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,rgba(13,11,8,.55) 0%,rgba(13,11,8,.06) 22%,rgba(13,11,8,.06) 62%,rgba(13,11,8,.4) 100%)}
+.evx-top{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;z-index:3;isolation:isolate}
+.evx-top::before{content:"";position:absolute;z-index:-1;left:-12px;top:-10px;width:252px;height:96px;pointer-events:none;background:radial-gradient(246px 92px at 32px 21px,rgba(7,6,6,.7) 34%,rgba(102,102,102,.2) 70%,rgba(102,102,102,0) 90%)}
+.evx-cap{display:flex;flex-direction:column;gap:3px;padding:5px 0 0 3px}
+.evx-cap b{font-size:13px;letter-spacing:2px;text-shadow:0 2px 1px rgba(0,0,0,.5)}
+.evx-where{display:inline-flex;align-items:center;gap:4px;font-size:12px;letter-spacing:2px;color:#C9A86A;text-shadow:0 1px 1px rgba(0,0,0,.5)}
+.evx-where svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8}
+.evx-acts{display:flex;gap:6px;align-items:center;height:32px}
+.evx-acts span{height:32px;display:inline-flex;align-items:center;font-size:12px;letter-spacing:.14em;padding:0 12px;border-radius:999px;border:1px solid rgba(236,227,211,.5);background:rgba(0,0,0,.5)}
+.evx-acts i{width:32px;height:32px;display:grid;place-items:center;font-style:normal;font-size:13px;opacity:.8}
+.evx-deck{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;flex-direction:column;gap:10px;padding:36px 20px 18px;min-height:34%;
+  background:linear-gradient(to bottom,rgba(13,11,8,0) 0%,rgba(13,11,8,.6) 12%,rgba(13,11,8,.9) 36%,rgba(13,11,8,.96) 100%);transition:opacity .3s}
+.evx.talk .evx-deck{top:64%;min-height:0;padding-top:52px}
+.evx-echo{position:absolute;top:8px;left:20px;right:20px;font-size:13px;line-height:1.6;opacity:.62;color:rgba(236,227,211,.85)}
+.evx-echo::before{content:"你　";color:#C9A86A}
+.evx-echo:empty{display:none}
+.evx-spk{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:baseline;gap:8px;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+.evx-spk:empty{display:none}
+.evx-spk small{font-weight:400;font-size:11px;letter-spacing:.12em;color:rgba(236,227,211,.58)}
+.evx-line{font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.evx-line.narr{font-size:13.5px;color:rgba(236,227,211,.58);text-align:center;letter-spacing:.16em}
+.evx-caret{display:inline-block;width:.5em;opacity:.75;animation:evx-blink 1s steps(2) infinite}
+@keyframes evx-blink{50%{opacity:0}}
+.evx-next{align-self:flex-end;margin-top:auto;font-size:12px;letter-spacing:.2em;color:rgba(236,227,211,.58);opacity:0;transition:opacity .3s}
+.evx-next.on{opacity:1;animation:evx-bob 1.6s ease-in-out infinite}
+@keyframes evx-bob{50%{transform:translateY(3px)}}
+.evx-center{position:absolute;inset:0;z-index:4;display:none;align-items:center;justify-content:center;padding:0 20px}
+.evx-center.on{display:flex}
+.evx-chs{width:100%;max-width:440px;display:grid;gap:8px}
+.evx-ch{--ln:rgba(201,168,106,.55);display:flex;flex-direction:column;justify-content:center;min-height:49px;padding:5px 14px 4px;text-align:center;color:#ECE3D3;font-family:inherit;cursor:pointer;
+  border:0;border-top:1px solid;border-bottom:1px solid;border-image:linear-gradient(90deg,transparent 0,var(--ln) 10%,var(--ln) 90%,transparent 100%) 1;
+  background:linear-gradient(90deg,rgba(201,168,106,0) 0,rgba(13,11,8,.6) 10%,rgba(0,0,0,.9) 50%,rgba(0,0,0,.7) 90%,rgba(201,168,106,0) 100%)}
+.evx-ch b{font-size:14.5px;font-weight:600;line-height:21px;letter-spacing:.05em}
+.evx-ch span{font-size:12px;line-height:17px;color:#D8B578}
+.evx-ch:hover{--ln:rgba(201,168,106,.95)}
+.evx-ch.off{opacity:.42;cursor:not-allowed}.evx-ch.off span{color:#d9a08f}
+.evx-cut{position:absolute;inset:0;z-index:5;background:#0d0b08;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .38s ease}
+.evx-cut.on{opacity:1}
+.evx.done .evx-deck{opacity:0}
+.evx.done .evx-cut{opacity:1;background:rgba(13,11,8,.5)}
+.evx-place{font-size:16px;letter-spacing:.6em;text-indent:.6em;color:#C9A86A;opacity:0;transform:translateY(6px);transition:opacity .5s ease,transform .5s ease;white-space:nowrap}
+.evx-place.on{opacity:1;transform:none}
+.evx-place::before,.evx-place::after{content:"";display:inline-block;width:28px;height:1px;vertical-align:middle;background:rgba(201,168,106,.45);margin:0 14px}
+
 /* ══════════ D 待機生命 ══════════ */
 .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .ic{background:var(--paper-2);border:1px solid var(--paper-edge);border-radius:14px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -790,6 +841,49 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ 事件對話幕 ══ -->
+  <section id="event">
+    <div class="sec-h">
+      <div class="tag">模板 · 角色事件與江湖共用</div>
+      <h2>事件對話幕</h2>
+      <p>道緣事件與江湖尋訪是同一套畫面：換場黑場打地名、名字釘在同一高度、逐字打出、字多自己分頁、選項浮在畫面中央、演完壓黑幕打「此間待續」。點左邊的手機一下一句，整段演一次；右邊是每一塊的數字。這一層不跟主題換色。</p>
+    </div>
+    <div class="body">
+      <div class="phone-row">
+        <div class="phone" id="evPhone">
+          <div class="evx" id="evx">
+            <div class="evx-bg"></div><div class="evx-por" id="evxPor"></div><div class="evx-veil"></div>
+            <div class="evx-top"><div class="evx-cap"><b>第一章 · 雲中來信</b><span class="evx-where"><svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.1-6.5-11A6.5 6.5 0 0 1 18.5 10c0 4.9-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="evxWhere">藏經閣</span></span></div>
+              <div class="evx-acts"><span>履歷</span><i>✕</i></div></div>
+            <div class="evx-deck"><div class="evx-echo" id="evxEcho"></div><div class="evx-spk" id="evxSpk"></div><div class="evx-line" id="evxLine"></div><div class="evx-next" id="evxNext">輕觸繼續 ▾</div></div>
+            <div class="evx-center" id="evxCenter"></div>
+            <div class="evx-cut" id="evxCut"><div class="evx-place" id="evxPlace"></div></div>
+          </div>
+        </div>
+        <div class="trans-info">
+          <div class="chips"><button class="m-press chip on" type="button" id="evxPlay">從頭演一次</button></div>
+          <div class="tbl-wrap"><table style="min-width:420px">
+            <thead><tr><th>塊</th><th>做法</th><th>數字</th></tr></thead>
+            <tbody>
+              <tr><td>換場</td><td>黑場蓋上 → 換景、收立繪 → 地名浮出（金、字距 .6em、兩側短線）→ 退開。江湖每一節開頭打「初九・雲渡口」</td><td class="v">380 / 1100 / 300ms</td></tr>
+              <tr><td>頂列</td><td>左：章名（13px 粗、字距 2px）＋地圖標地名（12px 金）；右：履歷、✕ 同一條中線。左上墊一塊暗角，白天場景字才看得清</td><td class="v">暗角 252×96</td></tr>
+              <tr><td>名字</td><td>有人說話時框頂釘在 64%，名字不跟著句子長短跳；身分小字接在後面</td><td class="v">14px 粗 · 身分 11px</td></tr>
+              <tr><td>台詞</td><td>逐字打出，標點後多停一拍；點一下＝這一頁整頁出來</td><td class="v">14px / 1.9</td></tr>
+              <tr><td>打字速度</td><td>前 40 字快、之後放慢；逗號、句號後各多停</td><td class="v">26 · 48 · +90 · +220ms</td></tr>
+              <tr><td>分頁</td><td>下一句放不下就等點一下、清掉、從那一句開頭寫；台詞裡打 <code>//</code> 強制換頁</td><td class="v">—</td></tr>
+              <tr><td>旁白</td><td>沒有名字、置中、淡字，框貼底</td><td class="v">13.5px · 字距 .16em</td></tr>
+              <tr><td>回聲</td><td>玩家剛選的那句留在名字上方「你　……」，最多兩行</td><td class="v">13px · 62%</td></tr>
+              <tr><td>選項</td><td>浮在畫面中央；只有上下框線、兩側 10% 淡出；底從中間最濃往兩側淡；主字置中</td><td class="v">高 49 · 主字 14.5/600 · 小字 12 #D8B578</td></tr>
+              <tr><td>選不了</td><td>江湖：錢不夠的選項照列、反灰，小字寫原因</td><td class="v">42% · 小字 #d9a08f</td></tr>
+              <tr><td>演完</td><td>收起對話框、壓 50% 黑幕、浮出「此間待續」（江湖「江湖事了」）；最後一句出現時就先記進度，黑幕後直接跳獲得彈框／結局卡</td><td class="v">—</td></tr>
+            </tbody>
+          </table></div>
+          <p class="note">前端：<code>Scene.mount</code>（<code>src/ui/scene.js</code>）畫場景、立繪、對話框、選項；<code>Story.open</code>（<code>src/story/engine.js</code>）跑劇本、換場、履歷、演完。角色事件與江湖都走這兩支，新的事件類型不另做畫面。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ══ D ══ -->
   <section>
     <div class="sec-h">
@@ -1058,6 +1152,57 @@ ${eas}
       if(i<T.steps.length-1){i++;paint()}else close()});
     paint();
   }
+  /* ── 事件對話幕：照前端 engine 的節奏演一段 ── */
+  (function(){
+    const ev=$('evx'), line=$('evxLine'), spk=$('evxSpk'), nx=$('evxNext'), echo=$('evxEcho'), ctr=$('evxCenter'), cut=$('evxCut'), place=$('evxPlace'), por=$('evxPor');
+    const T={base:26,long:48,longAt:40,comma:90,stop:220};
+    const sleep=(ms)=>new Promise(r=>setTimeout(r,ms*K()));
+    let gen=0, tapR=null, skip=null;
+    ev.addEventListener('click',()=>{ if(skip){skip();return} if(tapR){const r=tapR;tapR=null;nx.classList.remove('on');r()} });
+    const tap=()=>{nx.classList.add('on');return new Promise(r=>{tapR=r})};
+    async function type(text,my){
+      for(const pg of text.split('//')){
+        let done=false; skip=()=>{done=true};
+        for(let i=1;i<=pg.length&&!done;i++){ line.innerHTML=''; line.textContent=pg.slice(0,i); line.insertAdjacentHTML('beforeend','<span class="evx-caret">▍</span>');
+          const c=pg[i-1]; await sleep((i>T.longAt?T.long:T.base)+(/[。！？…]/.test(c)?T.stop:/[，、；：]/.test(c)?T.comma:0)); if(my!==gen)return false; }
+        skip=null; line.textContent=pg;
+        if(pg!==text.split('//').pop()){ await tap(); if(my!==gen)return false; }
+      }
+      return true;
+    }
+    async function doCut(name,my){ cut.classList.add('on'); await sleep(380); if(my!==gen)return; por.classList.remove('on'); $('evxWhere').textContent=name; place.textContent=name; place.classList.add('on'); await sleep(1100); if(my!==gen)return; cut.classList.remove('on'); place.classList.remove('on'); await sleep(300); }
+    const S=[
+      {cut:'藏經閣'},
+      {narr:'燈芯爆了一下。他把書闔上，沒有抬頭。'},
+      {who:'大師兄',role:'代理掌門',por:1,text:'「這麼晚。」'},
+      {who:'大師兄',role:'代理掌門',text:'「觀裡的卦書少了一冊。我找了三天，翻遍了經閣的每一層，連後院的柴房都看過。//……你若知道什麼，現在說。」'},
+      {choose:[{b:'為什麼不蓋？',s:'他沒說的那件事'},{b:'那就接下吧，師兄。'},{b:'（替他把卦書買回來）',s:'盤纏不夠：要 30，身上只有 12',off:1}]},
+      {who:'大師兄',role:'代理掌門',text:'「……你倒是直接。」'},
+      {curtain:'此間待續'}];
+    async function play(){
+      const my=++gen; tapR=null; skip=null; ev.classList.remove('done','talk'); ctr.classList.remove('on'); ctr.innerHTML=''; echo.textContent=''; spk.innerHTML=''; line.textContent=''; nx.classList.remove('on');
+      let picked='';
+      for(const s of S){
+        if(my!==gen)return;
+        if(s.cut){ await doCut(s.cut,my); continue; }
+        if(s.curtain){ ev.classList.add('done'); place.textContent=s.curtain; await sleep(60); place.classList.add('on'); return; }
+        if(s.choose){ nx.classList.remove('on');
+          ctr.innerHTML=`<div class="evx-chs">${s.choose.map((c,i)=>`<button type="button" class="evx-ch${c.off?' off':''}" data-i="${i}"${c.off?' disabled':''}><b>${c.b}</b>${c.s?`<span>${c.s}</span>`:''}</button>`).join('')}</div>`;
+          ctr.classList.add('on');
+          picked=await new Promise(r=>ctr.querySelectorAll('.evx-ch:not(.off)').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();r(s.choose[+b.dataset.i].b)})));
+          ctr.classList.remove('on'); ctr.innerHTML=''; continue; }
+        if(s.por) por.classList.add('on');
+        ev.classList.toggle('talk',!!s.who);
+        spk.innerHTML=s.who?`${s.who}<small>${s.role||''}</small>`:'';
+        line.classList.toggle('narr',!s.who);
+        echo.textContent=picked; picked='';
+        if(!await type(s.who?s.text:s.narr,my))return;
+        await tap();
+      }
+    }
+    $('evxPlay').addEventListener('click',play);
+    new IntersectionObserver((es,o)=>{ if(es[0].isIntersecting){ o.disconnect(); play(); } }).observe(ev);
+  })();
   $('openTalk').addEventListener('click',()=>openTalk('miss'));
   $('openTalkRule').addEventListener('click',()=>openTalk('rule'));
   let tEl=null;

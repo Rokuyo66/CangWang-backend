@@ -162,8 +162,12 @@ td.num{font-family:var(--f-mono);font-size:12px;white-space:nowrap;font-variant-
 .scene-sample .spk{font-weight:700;color:#fff}
 .scene-sample .spk small{font-weight:400;font-size:11px;color:rgba(236,227,211,.58);margin-left:6px}
 .scene-sample .pill{align-self:flex-start;font-size:12.5px;letter-spacing:.14em;border:1px solid rgba(236,227,211,.8);border-radius:20px;padding:7px 12px;background:rgba(0,0,0,.35)}
-.scene-sample .ch{border:1px solid rgba(236,227,211,.22);background:rgba(20,16,11,.85);border-radius:4px;padding:9px 12px;font-size:14px}
-.scene-sample .ch.go{border-color:rgba(201,168,106,.6);color:#C9A86A}
+/* 選項：同動態規範「事件對話幕」（前端 .sc-center .sc-choice）——只有上下框線、兩側淡出、字置中 */
+.scene-sample .ch{display:flex;flex-direction:column;justify-content:center;min-height:49px;padding:5px 14px 4px;text-align:center;font-size:14.5px;font-weight:600;
+  border:0;border-top:1px solid;border-bottom:1px solid;border-image:linear-gradient(90deg,transparent 0,rgba(201,168,106,.55) 10%,rgba(201,168,106,.55) 90%,transparent 100%) 1;
+  background:linear-gradient(90deg,rgba(201,168,106,0) 0,rgba(13,11,8,.6) 10%,rgba(0,0,0,.9) 50%,rgba(0,0,0,.7) 90%,rgba(201,168,106,0) 100%)}
+.scene-sample .ch small{font-size:12px;font-weight:400;color:#D8B578}
+.scene-sample .line{font-size:14px;line-height:1.9}
 
 /* ── 版面：手機框示意 ── */
 .phones{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}
@@ -515,6 +519,57 @@ td b{font-weight:700}
 .co-head .sk{margin-left:auto;color:var(--ink-faint);font-size:11.5px;letter-spacing:.12em}
 .co-txt{font-size:13px;line-height:1.75}
 .co-acts{display:flex;justify-content:flex-end;margin-top:8px}
+
+/* ── 事件對話幕（前端 src/ui/scene.js＋styles/scene.css、story.css；角色事件與江湖共用）──
+   這一層自成一個場景：墨底 #0d0b08、暖白字 #ECE3D3、金 #C9A86A，不跟主題換色。數字照 Figma「事件」與前端現行值。 */
+.evx{position:absolute;inset:0;overflow:hidden;background:#0d0b08;color:#ECE3D3;font-family:var(--serif);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.evx-bg{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 30%,#5b4a36 0%,#2b2219 55%,#120e0a 100%);filter:blur(1.5px);transform:scale(1.02)}
+.evx-por{position:absolute;left:18%;right:18%;top:14%;bottom:0;border-radius:46% 46% 0 0/30% 30% 0 0;background:linear-gradient(#3a3026,#1a140f 70%);opacity:0;transform:translateY(8px);transition:opacity .5s ease,transform .5s ease}
+.evx-por::before{content:"";position:absolute;left:34%;right:34%;top:6%;aspect-ratio:1;border-radius:50%;background:#4a3d30}
+.evx-por.on{opacity:.9;transform:none}
+.evx-veil{position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,rgba(13,11,8,.55) 0%,rgba(13,11,8,.06) 22%,rgba(13,11,8,.06) 62%,rgba(13,11,8,.4) 100%)}
+.evx-top{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;z-index:3;isolation:isolate}
+.evx-top::before{content:"";position:absolute;z-index:-1;left:-12px;top:-10px;width:252px;height:96px;pointer-events:none;background:radial-gradient(246px 92px at 32px 21px,rgba(7,6,6,.7) 34%,rgba(102,102,102,.2) 70%,rgba(102,102,102,0) 90%)}
+.evx-cap{display:flex;flex-direction:column;gap:3px;padding:5px 0 0 3px}
+.evx-cap b{font-size:13px;letter-spacing:2px;text-shadow:0 2px 1px rgba(0,0,0,.5)}
+.evx-where{display:inline-flex;align-items:center;gap:4px;font-size:12px;letter-spacing:2px;color:#C9A86A;text-shadow:0 1px 1px rgba(0,0,0,.5)}
+.evx-where svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8}
+.evx-acts{display:flex;gap:6px;align-items:center;height:32px}
+.evx-acts span{height:32px;display:inline-flex;align-items:center;font-size:12px;letter-spacing:.14em;padding:0 12px;border-radius:999px;border:1px solid rgba(236,227,211,.5);background:rgba(0,0,0,.5)}
+.evx-acts i{width:32px;height:32px;display:grid;place-items:center;font-style:normal;font-size:13px;opacity:.8}
+.evx-deck{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;flex-direction:column;gap:10px;padding:36px 20px 18px;min-height:34%;
+  background:linear-gradient(to bottom,rgba(13,11,8,0) 0%,rgba(13,11,8,.6) 12%,rgba(13,11,8,.9) 36%,rgba(13,11,8,.96) 100%);transition:opacity .3s}
+.evx.talk .evx-deck{top:64%;min-height:0;padding-top:52px}
+.evx-echo{position:absolute;top:8px;left:20px;right:20px;font-size:13px;line-height:1.6;opacity:.62;color:rgba(236,227,211,.85)}
+.evx-echo::before{content:"你　";color:#C9A86A}
+.evx-echo:empty{display:none}
+.evx-spk{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:baseline;gap:8px;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+.evx-spk:empty{display:none}
+.evx-spk small{font-weight:400;font-size:11px;letter-spacing:.12em;color:rgba(236,227,211,.58)}
+.evx-line{font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.evx-line.narr{font-size:13.5px;color:rgba(236,227,211,.58);text-align:center;letter-spacing:.16em}
+.evx-caret{display:inline-block;width:.5em;opacity:.75;animation:evx-blink 1s steps(2) infinite}
+@keyframes evx-blink{50%{opacity:0}}
+.evx-next{align-self:flex-end;margin-top:auto;font-size:12px;letter-spacing:.2em;color:rgba(236,227,211,.58);opacity:0;transition:opacity .3s}
+.evx-next.on{opacity:1;animation:evx-bob 1.6s ease-in-out infinite}
+@keyframes evx-bob{50%{transform:translateY(3px)}}
+.evx-center{position:absolute;inset:0;z-index:4;display:none;align-items:center;justify-content:center;padding:0 20px}
+.evx-center.on{display:flex}
+.evx-chs{width:100%;max-width:440px;display:grid;gap:8px}
+.evx-ch{--ln:rgba(201,168,106,.55);display:flex;flex-direction:column;justify-content:center;min-height:49px;padding:5px 14px 4px;text-align:center;color:#ECE3D3;font-family:inherit;cursor:pointer;
+  border:0;border-top:1px solid;border-bottom:1px solid;border-image:linear-gradient(90deg,transparent 0,var(--ln) 10%,var(--ln) 90%,transparent 100%) 1;
+  background:linear-gradient(90deg,rgba(201,168,106,0) 0,rgba(13,11,8,.6) 10%,rgba(0,0,0,.9) 50%,rgba(0,0,0,.7) 90%,rgba(201,168,106,0) 100%)}
+.evx-ch b{font-size:14.5px;font-weight:600;line-height:21px;letter-spacing:.05em}
+.evx-ch span{font-size:12px;line-height:17px;color:#D8B578}
+.evx-ch:hover{--ln:rgba(201,168,106,.95)}
+.evx-ch.off{opacity:.42;cursor:not-allowed}.evx-ch.off span{color:#d9a08f}
+.evx-cut{position:absolute;inset:0;z-index:5;background:#0d0b08;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .38s ease}
+.evx-cut.on{opacity:1}
+.evx.done .evx-deck{opacity:0}
+.evx.done .evx-cut{opacity:1;background:rgba(13,11,8,.5)}
+.evx-place{font-size:16px;letter-spacing:.6em;text-indent:.6em;color:#C9A86A;opacity:0;transform:translateY(6px);transition:opacity .5s ease,transform .5s ease;white-space:nowrap}
+.evx-place.on{opacity:1;transform:none}
+.evx-place::before,.evx-place::after{content:"";display:inline-block;width:28px;height:1px;vertical-align:middle;background:rgba(201,168,106,.45);margin:0 14px}
 
 /* ══════════ D 待機生命 ══════════ */
 .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
@@ -1059,6 +1114,49 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
     </div>
   </section>
 
+  <!-- ══ 事件對話幕 ══ -->
+  <section id="event">
+    <div class="sec-h">
+      <div class="tag">模板 · 角色事件與江湖共用</div>
+      <h2>事件對話幕</h2>
+      <p>道緣事件與江湖尋訪是同一套畫面：換場黑場打地名、名字釘在同一高度、逐字打出、字多自己分頁、選項浮在畫面中央、演完壓黑幕打「此間待續」。點左邊的手機一下一句，整段演一次；右邊是每一塊的數字。這一層不跟主題換色。</p>
+    </div>
+    <div class="body">
+      <div class="phone-row">
+        <div class="phone" id="evPhone">
+          <div class="evx" id="evx">
+            <div class="evx-bg"></div><div class="evx-por" id="evxPor"></div><div class="evx-veil"></div>
+            <div class="evx-top"><div class="evx-cap"><b>第一章 · 雲中來信</b><span class="evx-where"><svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.1-6.5-11A6.5 6.5 0 0 1 18.5 10c0 4.9-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="evxWhere">藏經閣</span></span></div>
+              <div class="evx-acts"><span>履歷</span><i>✕</i></div></div>
+            <div class="evx-deck"><div class="evx-echo" id="evxEcho"></div><div class="evx-spk" id="evxSpk"></div><div class="evx-line" id="evxLine"></div><div class="evx-next" id="evxNext">輕觸繼續 ▾</div></div>
+            <div class="evx-center" id="evxCenter"></div>
+            <div class="evx-cut" id="evxCut"><div class="evx-place" id="evxPlace"></div></div>
+          </div>
+        </div>
+        <div class="trans-info">
+          <div class="chips"><button class="m-press chip on" type="button" id="evxPlay">從頭演一次</button></div>
+          <div class="tbl-wrap"><table style="min-width:420px">
+            <thead><tr><th>塊</th><th>做法</th><th>數字</th></tr></thead>
+            <tbody>
+              <tr><td>換場</td><td>黑場蓋上 → 換景、收立繪 → 地名浮出（金、字距 .6em、兩側短線）→ 退開。江湖每一節開頭打「初九・雲渡口」</td><td class="v">380 / 1100 / 300ms</td></tr>
+              <tr><td>頂列</td><td>左：章名（13px 粗、字距 2px）＋地圖標地名（12px 金）；右：履歷、✕ 同一條中線。左上墊一塊暗角，白天場景字才看得清</td><td class="v">暗角 252×96</td></tr>
+              <tr><td>名字</td><td>有人說話時框頂釘在 64%，名字不跟著句子長短跳；身分小字接在後面</td><td class="v">14px 粗 · 身分 11px</td></tr>
+              <tr><td>台詞</td><td>逐字打出，標點後多停一拍；點一下＝這一頁整頁出來</td><td class="v">14px / 1.9</td></tr>
+              <tr><td>打字速度</td><td>前 40 字快、之後放慢；逗號、句號後各多停</td><td class="v">26 · 48 · +90 · +220ms</td></tr>
+              <tr><td>分頁</td><td>下一句放不下就等點一下、清掉、從那一句開頭寫；台詞裡打 <code>//</code> 強制換頁</td><td class="v">—</td></tr>
+              <tr><td>旁白</td><td>沒有名字、置中、淡字，框貼底</td><td class="v">13.5px · 字距 .16em</td></tr>
+              <tr><td>回聲</td><td>玩家剛選的那句留在名字上方「你　……」，最多兩行</td><td class="v">13px · 62%</td></tr>
+              <tr><td>選項</td><td>浮在畫面中央；只有上下框線、兩側 10% 淡出；底從中間最濃往兩側淡；主字置中</td><td class="v">高 49 · 主字 14.5/600 · 小字 12 #D8B578</td></tr>
+              <tr><td>選不了</td><td>江湖：錢不夠的選項照列、反灰，小字寫原因</td><td class="v">42% · 小字 #d9a08f</td></tr>
+              <tr><td>演完</td><td>收起對話框、壓 50% 黑幕、浮出「此間待續」（江湖「江湖事了」）；最後一句出現時就先記進度，黑幕後直接跳獲得彈框／結局卡</td><td class="v">—</td></tr>
+            </tbody>
+          </table></div>
+          <p class="note">前端：<code>Scene.mount</code>（<code>src/ui/scene.js</code>）畫場景、立繪、對話框、選項；<code>Story.open</code>（<code>src/story/engine.js</code>）跑劇本、換場、履歷、演完。角色事件與江湖都走這兩支，新的事件類型不另做畫面。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ══ D ══ -->
   <section>
     <div class="sec-h">
@@ -1327,6 +1425,57 @@ ${eas}
       if(i<T.steps.length-1){i++;paint()}else close()});
     paint();
   }
+  /* ── 事件對話幕：照前端 engine 的節奏演一段 ── */
+  (function(){
+    const ev=$('evx'), line=$('evxLine'), spk=$('evxSpk'), nx=$('evxNext'), echo=$('evxEcho'), ctr=$('evxCenter'), cut=$('evxCut'), place=$('evxPlace'), por=$('evxPor');
+    const T={base:26,long:48,longAt:40,comma:90,stop:220};
+    const sleep=(ms)=>new Promise(r=>setTimeout(r,ms*K()));
+    let gen=0, tapR=null, skip=null;
+    ev.addEventListener('click',()=>{ if(skip){skip();return} if(tapR){const r=tapR;tapR=null;nx.classList.remove('on');r()} });
+    const tap=()=>{nx.classList.add('on');return new Promise(r=>{tapR=r})};
+    async function type(text,my){
+      for(const pg of text.split('//')){
+        let done=false; skip=()=>{done=true};
+        for(let i=1;i<=pg.length&&!done;i++){ line.innerHTML=''; line.textContent=pg.slice(0,i); line.insertAdjacentHTML('beforeend','<span class="evx-caret">▍</span>');
+          const c=pg[i-1]; await sleep((i>T.longAt?T.long:T.base)+(/[。！？…]/.test(c)?T.stop:/[，、；：]/.test(c)?T.comma:0)); if(my!==gen)return false; }
+        skip=null; line.textContent=pg;
+        if(pg!==text.split('//').pop()){ await tap(); if(my!==gen)return false; }
+      }
+      return true;
+    }
+    async function doCut(name,my){ cut.classList.add('on'); await sleep(380); if(my!==gen)return; por.classList.remove('on'); $('evxWhere').textContent=name; place.textContent=name; place.classList.add('on'); await sleep(1100); if(my!==gen)return; cut.classList.remove('on'); place.classList.remove('on'); await sleep(300); }
+    const S=[
+      {cut:'藏經閣'},
+      {narr:'燈芯爆了一下。他把書闔上，沒有抬頭。'},
+      {who:'大師兄',role:'代理掌門',por:1,text:'「這麼晚。」'},
+      {who:'大師兄',role:'代理掌門',text:'「觀裡的卦書少了一冊。我找了三天，翻遍了經閣的每一層，連後院的柴房都看過。//……你若知道什麼，現在說。」'},
+      {choose:[{b:'為什麼不蓋？',s:'他沒說的那件事'},{b:'那就接下吧，師兄。'},{b:'（替他把卦書買回來）',s:'盤纏不夠：要 30，身上只有 12',off:1}]},
+      {who:'大師兄',role:'代理掌門',text:'「……你倒是直接。」'},
+      {curtain:'此間待續'}];
+    async function play(){
+      const my=++gen; tapR=null; skip=null; ev.classList.remove('done','talk'); ctr.classList.remove('on'); ctr.innerHTML=''; echo.textContent=''; spk.innerHTML=''; line.textContent=''; nx.classList.remove('on');
+      let picked='';
+      for(const s of S){
+        if(my!==gen)return;
+        if(s.cut){ await doCut(s.cut,my); continue; }
+        if(s.curtain){ ev.classList.add('done'); place.textContent=s.curtain; await sleep(60); place.classList.add('on'); return; }
+        if(s.choose){ nx.classList.remove('on');
+          ctr.innerHTML=`<div class="evx-chs">${s.choose.map((c,i)=>`<button type="button" class="evx-ch${c.off?' off':''}" data-i="${i}"${c.off?' disabled':''}><b>${c.b}</b>${c.s?`<span>${c.s}</span>`:''}</button>`).join('')}</div>`;
+          ctr.classList.add('on');
+          picked=await new Promise(r=>ctr.querySelectorAll('.evx-ch:not(.off)').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();r(s.choose[+b.dataset.i].b)})));
+          ctr.classList.remove('on'); ctr.innerHTML=''; continue; }
+        if(s.por) por.classList.add('on');
+        ev.classList.toggle('talk',!!s.who);
+        spk.innerHTML=s.who?`${s.who}<small>${s.role||''}</small>`:'';
+        line.classList.toggle('narr',!s.who);
+        echo.textContent=picked; picked='';
+        if(!await type(s.who?s.text:s.narr,my))return;
+        await tap();
+      }
+    }
+    $('evxPlay').addEventListener('click',play);
+    new IntersectionObserver((es,o)=>{ if(es[0].isIntersecting){ o.disconnect(); play(); } }).observe(ev);
+  })();
   $('openTalk').addEventListener('click',()=>openTalk('miss'));
   $('openTalkRule').addEventListener('click',()=>openTalk('rule'));
   let tEl=null;
@@ -1461,7 +1610,7 @@ ${eas}
 })();
 </script>
 </template>
-<script id="spec-state" type="application/json">{"_說明":"規範頁上「改了、還沒套用到 tokens.json」的值與修改歷史。基準（站上現值）在 ../tokens.json。套用＝把這裡的 themes／buttons 寫進 tokens.json、跑 tokens/build.mjs，再把這裡的 themes 設成跟 tokens.json 一樣。","themes":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#1C1917","ink-soft":"#37312A","ink-faint":"#746958","hair":"rgba(55,46,37,0.4)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#413935","paper-edge":"#2D2824","ink":"#ECE3D1","ink-soft":"#D5C8AE","ink-faint":"#C1A776","hair":"rgba(236,227,209,0.4)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#B3C5AF","paper-2":"#D9E1C1","paper-edge":"#C8D5C3","ink":"#25551B","ink-soft":"#5D744E","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#3B100C","paper-2":"#7C0E1E","paper-edge":"#5D150E","ink":"#FAE2E0","ink-soft":"#FBD1CB","ink-faint":"#DDA59C","hair":"rgba(250,226,224,0.4)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#072350","ink-soft":"#345DA2","ink-faint":"#6D88B0","hair":"rgba(0,31,82,0.3)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"buttons":{"linked":true,"custom":{}},"history":[{"at":"2026-09-30T06:22:59.070Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"gold","name":"金","from":"#9A7B3F","to":"#D59F62"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper","name":"紙","from":"#E4E7D3","to":"#E7E9D8"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-2","name":"次一階紙","from":"#D3D9BC","to":"#C6D8BA"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#AEBB92","to":"#A2B9A3"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-soft","name":"淡墨","from":"#33691E","to":"#21321A"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-faint","name":"極淡墨","from":"#6E8455","to":"#3C5D3E"}]},{"at":"2026-09-30T07:21:31.482Z","changes":[{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-2","name":"次一階紙","from":"#38100D","to":"#69120C"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"hair","name":"細線","from":"rgba(250,226,224,.14)","to":"rgba(250,226,224,0.3)"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"shadow","name":"影","from":"rgba(0,0,0,.55)","to":"rgba(0,0,0,0.65)"}]},{"at":"2026-09-30T07:23:24.604Z","changes":[{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-soft","name":"淡墨","from":"#003DA5","to":"#2A477A"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-faint","name":"極淡墨","from":"#5878A8","to":"#1456B8"},{"kind":"token","theme":"porcelain","tn":"青花","key":"cinnabar","name":"硃砂","from":"#003DA5","to":"#144190"},{"kind":"token","theme":"porcelain","tn":"青花","key":"gold","name":"金","from":"#2A6BB8","to":"#307FD5"}]},{"at":"2026-09-30T07:40:48.756Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink","name":"墨","from":"#221E1A","to":"#272320"}]},{"at":"2026-09-30T08:00:00Z","applied":true,"note":"14 項色碼與按鈕規範已套用到前端 main，基準更新"},{"at":"2026-10-03T06:54:10.929Z","changes":[{"kind":"token","theme":"night","tn":"夜觀","key":"paper-2","name":"次一階紙","from":"#1D1914","to":"#2F2923"},{"kind":"token","theme":"night","tn":"夜觀","key":"paper-edge","name":"紙邊","from":"#2A2218","to":"#0D0A08"},{"kind":"token","theme":"night","tn":"夜觀","key":"hair","name":"細線","from":"rgba(236,227,209,.13)","to":"rgba(236,227,209,0.25)"},{"kind":"token","theme":"night","tn":"夜觀","key":"gold","name":"金","from":"#C9A45C","to":"#C4A164"},{"kind":"token","theme":"night","tn":"夜觀","key":"wx-土","name":"土","from":"#c9a45c","to":"#CE9764"},{"kind":"token","theme":"night","tn":"夜觀","key":"wx-金","name":"金（五行）","from":"#cabfa0","to":"#FFE380"}]},{"at":"2026-10-03T06:56:31.359Z","changes":[{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-2","name":"次一階紙","from":"#C6D8BA","to":"#D9E1C1"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#A2B9A3","to":"#A9B096"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"cinnabar","name":"硃砂","from":"#96421F","to":"#916B36"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-土","name":"土","from":"#8a7434","to":"#895A34"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-金","name":"金（五行）","from":"#7f8c62","to":"#766C2E"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-水","name":"水","from":"#2f6470","to":"#2B7F91"}]},{"at":"2026-10-03T08:00:00Z","applied":true,"note":"12 項色碼（夜觀 6、竹簡 6）已套用到前端 main（web #87），基準更新"},{"at":"2026-10-20T15:16:02.421Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink","name":"墨","from":"#272320","to":"#1C1917"},{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink-soft","name":"淡墨","from":"#5A5045","to":"#37312A"},{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink-faint","name":"極淡墨","from":"#8A7E6C","to":"#746958"},{"kind":"token","theme":"night","tn":"夜觀","key":"ink-soft","name":"淡墨","from":"#B3A78F","to":"#D5C8AE"},{"kind":"token","theme":"night","tn":"夜觀","key":"ink-faint","name":"極淡墨","from":"#857B68","to":"#C1A776"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"ink-soft","name":"淡墨","from":"#D3A69F","to":"#FBD1CB"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"ink-faint","name":"極淡墨","from":"#A2756E","to":"#DDA59C"},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"mid","name":"清楚段到哪裡","unit":"%","from":40,"to":50},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"midA","name":"清楚段的濃度","unit":"%","from":80,"to":30},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"blur","name":"模糊","unit":"px","from":0,"to":1}]},{"at":"2026-10-20T16:00:00Z","applied":true,"note":"7 項色碼（宣紙墨三階、夜觀與硃砂淡墨兩階）與字多頁墊圖（清楚段 50%、濃度 30%、模糊 1px）已套用到前端，基準更新"},{"at":"2026-10-21T02:15:55.947Z","changes":[{"kind":"token","theme":"night","tn":"夜觀","key":"paper-2","name":"次一階紙","from":"#2F2923","to":"#413935"},{"kind":"token","theme":"night","tn":"夜觀","key":"paper-edge","name":"紙邊","from":"#0D0A08","to":"#2D2824"}]},{"at":"2026-10-21T02:18:13.308Z","changes":[{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper","name":"紙","from":"#E7E9D8","to":"#B3C5AF"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#A9B096","to":"#C8D5C3"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink","name":"墨","from":"#12210F","to":"#25551B"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-soft","name":"淡墨","from":"#21321A","to":"#5D744E"}]},{"at":"2026-10-21T02:19:56.266Z","changes":[{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper","name":"紙","from":"#220907","to":"#3B100C"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-2","name":"次一階紙","from":"#69120C","to":"#7C0E1E"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-edge","name":"紙邊","from":"#4E1A15","to":"#5D150E"}]},{"at":"2026-10-21T02:21:52.489Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"hair","name":"細線","from":"rgba(34,30,26,.13)","to":"rgba(55,46,37,0.4)"},{"kind":"token","theme":"night","tn":"夜觀","key":"hair","name":"細線","from":"rgba(236,227,209,.25)","to":"rgba(236,227,209,0.4)"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"hair","name":"細線","from":"rgba(250,226,224,0.3)","to":"rgba(250,226,224,0.4)"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink","name":"墨","from":"#001F52","to":"#072350"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-soft","name":"淡墨","from":"#2A477A","to":"#345DA2"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-faint","name":"極淡墨","from":"#1456B8","to":"#6D88B0"},{"kind":"token","theme":"porcelain","tn":"青花","key":"hair","name":"細線","from":"rgba(0,31,82,.16)","to":"rgba(0,31,82,0.3)"}]}],"savedAt":"2026-10-21T02:21:52.489Z","backdrop":{"scene":{"h":560,"opL":30,"opD":42,"mid":40,"midA":80,"blur":0,"pad":0},"text":{"h":560,"opL":30,"opD":42,"mid":50,"midA":30,"blur":1,"pad":0}},"version":"v4・2026-10-05（統一 token 檔）","baseline":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#1C1917","ink-soft":"#37312A","ink-faint":"#746958","hair":"rgba(55,46,37,0.4)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#413935","paper-edge":"#2D2824","ink":"#ECE3D1","ink-soft":"#D5C8AE","ink-faint":"#C1A776","hair":"rgba(236,227,209,0.4)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#B3C5AF","paper-2":"#D9E1C1","paper-edge":"#C8D5C3","ink":"#25551B","ink-soft":"#5D744E","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#3B100C","paper-2":"#7C0E1E","paper-edge":"#5D150E","ink":"#FAE2E0","ink-soft":"#FBD1CB","ink-faint":"#DDA59C","hair":"rgba(250,226,224,0.4)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#072350","ink-soft":"#345DA2","ink-faint":"#6D88B0","hair":"rgba(0,31,82,0.3)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"bdBase":{"scene":{"h":560,"opL":30,"opD":42,"mid":40,"midA":80,"blur":0,"pad":0},"text":{"h":560,"opL":30,"opD":42,"mid":50,"midA":30,"blur":1,"pad":0}}}</script>
+<script id="spec-state" type="application/json">{"_說明":"規範頁上「改了、還沒套用到 tokens.json」的值與修改歷史。基準（站上現值）在 ../tokens.json。套用＝把這裡的 themes／buttons 寫進 tokens.json、跑 tokens/build.mjs，再把這裡的 themes 設成跟 tokens.json 一樣。","themes":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#1C1917","ink-soft":"#37312A","ink-faint":"#746958","hair":"rgba(55,46,37,0.4)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#413935","paper-edge":"#2D2824","ink":"#ECE3D1","ink-soft":"#D5C8AE","ink-faint":"#C1A776","hair":"rgba(236,227,209,0.4)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#B3C5AF","paper-2":"#D9E1C1","paper-edge":"#C8D5C3","ink":"#25551B","ink-soft":"#5D744E","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#3B100C","paper-2":"#7C0E1E","paper-edge":"#5D150E","ink":"#FAE2E0","ink-soft":"#FBD1CB","ink-faint":"#DDA59C","hair":"rgba(250,226,224,0.4)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#072350","ink-soft":"#345DA2","ink-faint":"#6D88B0","hair":"rgba(0,31,82,0.3)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"buttons":{"linked":true,"custom":{}},"history":[{"at":"2026-09-30T06:22:59.070Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"gold","name":"金","from":"#9A7B3F","to":"#D59F62"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper","name":"紙","from":"#E4E7D3","to":"#E7E9D8"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-2","name":"次一階紙","from":"#D3D9BC","to":"#C6D8BA"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#AEBB92","to":"#A2B9A3"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-soft","name":"淡墨","from":"#33691E","to":"#21321A"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-faint","name":"極淡墨","from":"#6E8455","to":"#3C5D3E"}]},{"at":"2026-09-30T07:21:31.482Z","changes":[{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-2","name":"次一階紙","from":"#38100D","to":"#69120C"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"hair","name":"細線","from":"rgba(250,226,224,.14)","to":"rgba(250,226,224,0.3)"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"shadow","name":"影","from":"rgba(0,0,0,.55)","to":"rgba(0,0,0,0.65)"}]},{"at":"2026-09-30T07:23:24.604Z","changes":[{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-soft","name":"淡墨","from":"#003DA5","to":"#2A477A"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-faint","name":"極淡墨","from":"#5878A8","to":"#1456B8"},{"kind":"token","theme":"porcelain","tn":"青花","key":"cinnabar","name":"硃砂","from":"#003DA5","to":"#144190"},{"kind":"token","theme":"porcelain","tn":"青花","key":"gold","name":"金","from":"#2A6BB8","to":"#307FD5"}]},{"at":"2026-09-30T07:40:48.756Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink","name":"墨","from":"#221E1A","to":"#272320"}]},{"at":"2026-09-30T08:00:00Z","applied":true,"note":"14 項色碼與按鈕規範已套用到前端 main，基準更新"},{"at":"2026-10-03T06:54:10.929Z","changes":[{"kind":"token","theme":"night","tn":"夜觀","key":"paper-2","name":"次一階紙","from":"#1D1914","to":"#2F2923"},{"kind":"token","theme":"night","tn":"夜觀","key":"paper-edge","name":"紙邊","from":"#2A2218","to":"#0D0A08"},{"kind":"token","theme":"night","tn":"夜觀","key":"hair","name":"細線","from":"rgba(236,227,209,.13)","to":"rgba(236,227,209,0.25)"},{"kind":"token","theme":"night","tn":"夜觀","key":"gold","name":"金","from":"#C9A45C","to":"#C4A164"},{"kind":"token","theme":"night","tn":"夜觀","key":"wx-土","name":"土","from":"#c9a45c","to":"#CE9764"},{"kind":"token","theme":"night","tn":"夜觀","key":"wx-金","name":"金（五行）","from":"#cabfa0","to":"#FFE380"}]},{"at":"2026-10-03T06:56:31.359Z","changes":[{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-2","name":"次一階紙","from":"#C6D8BA","to":"#D9E1C1"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#A2B9A3","to":"#A9B096"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"cinnabar","name":"硃砂","from":"#96421F","to":"#916B36"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-土","name":"土","from":"#8a7434","to":"#895A34"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-金","name":"金（五行）","from":"#7f8c62","to":"#766C2E"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"wx-水","name":"水","from":"#2f6470","to":"#2B7F91"}]},{"at":"2026-10-03T08:00:00Z","applied":true,"note":"12 項色碼（夜觀 6、竹簡 6）已套用到前端 main（web #87），基準更新"},{"at":"2026-10-20T15:16:02.421Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink","name":"墨","from":"#272320","to":"#1C1917"},{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink-soft","name":"淡墨","from":"#5A5045","to":"#37312A"},{"kind":"token","theme":"xuan","tn":"宣紙","key":"ink-faint","name":"極淡墨","from":"#8A7E6C","to":"#746958"},{"kind":"token","theme":"night","tn":"夜觀","key":"ink-soft","name":"淡墨","from":"#B3A78F","to":"#D5C8AE"},{"kind":"token","theme":"night","tn":"夜觀","key":"ink-faint","name":"極淡墨","from":"#857B68","to":"#C1A776"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"ink-soft","name":"淡墨","from":"#D3A69F","to":"#FBD1CB"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"ink-faint","name":"極淡墨","from":"#A2756E","to":"#DDA59C"},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"mid","name":"清楚段到哪裡","unit":"%","from":40,"to":50},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"midA","name":"清楚段的濃度","unit":"%","from":80,"to":30},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"blur","name":"模糊","unit":"px","from":0,"to":1}]},{"at":"2026-10-20T16:00:00Z","applied":true,"note":"7 項色碼（宣紙墨三階、夜觀與硃砂淡墨兩階）與字多頁墊圖（清楚段 50%、濃度 30%、模糊 1px）已套用到前端，基準更新"},{"at":"2026-10-21T02:15:55.947Z","changes":[{"kind":"token","theme":"night","tn":"夜觀","key":"paper-2","name":"次一階紙","from":"#2F2923","to":"#413935"},{"kind":"token","theme":"night","tn":"夜觀","key":"paper-edge","name":"紙邊","from":"#0D0A08","to":"#2D2824"}]},{"at":"2026-10-21T02:18:13.308Z","changes":[{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper","name":"紙","from":"#E7E9D8","to":"#B3C5AF"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"paper-edge","name":"紙邊","from":"#A9B096","to":"#C8D5C3"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink","name":"墨","from":"#12210F","to":"#25551B"},{"kind":"token","theme":"bamboo","tn":"竹簡","key":"ink-soft","name":"淡墨","from":"#21321A","to":"#5D744E"}]},{"at":"2026-10-21T02:19:56.266Z","changes":[{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper","name":"紙","from":"#220907","to":"#3B100C"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-2","name":"次一階紙","from":"#69120C","to":"#7C0E1E"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"paper-edge","name":"紙邊","from":"#4E1A15","to":"#5D150E"}]},{"at":"2026-10-21T02:21:52.489Z","changes":[{"kind":"token","theme":"xuan","tn":"宣紙","key":"hair","name":"細線","from":"rgba(34,30,26,.13)","to":"rgba(55,46,37,0.4)"},{"kind":"token","theme":"night","tn":"夜觀","key":"hair","name":"細線","from":"rgba(236,227,209,.25)","to":"rgba(236,227,209,0.4)"},{"kind":"token","theme":"cinnabar","tn":"硃砂","key":"hair","name":"細線","from":"rgba(250,226,224,0.3)","to":"rgba(250,226,224,0.4)"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink","name":"墨","from":"#001F52","to":"#072350"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-soft","name":"淡墨","from":"#2A477A","to":"#345DA2"},{"kind":"token","theme":"porcelain","tn":"青花","key":"ink-faint","name":"極淡墨","from":"#1456B8","to":"#6D88B0"},{"kind":"token","theme":"porcelain","tn":"青花","key":"hair","name":"細線","from":"rgba(0,31,82,.16)","to":"rgba(0,31,82,0.3)"}]},{"at":"2026-10-23T15:19:07.408Z","changes":[{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"opL","name":"淺色主題的濃度","unit":"%","from":30,"to":35},{"kind":"bd","set":"text","tn":"墊圖・字多的頁","key":"opD","name":"深色主題的濃度","unit":"%","from":42,"to":50},{"kind":"bd","set":"scene","tn":"墊圖・觀堂（字少）","key":"midA","name":"清楚段的濃度","unit":"%","from":80,"to":75}]}],"savedAt":"2026-10-23T15:19:07.408Z","backdrop":{"scene":{"h":560,"opL":30,"opD":42,"mid":40,"midA":75,"blur":0,"pad":0},"text":{"h":560,"opL":35,"opD":50,"mid":50,"midA":30,"blur":1,"pad":0}},"version":"v4・2026-10-05（統一 token 檔）","baseline":{"xuan":{"paper":"#F2EBDA","paper-2":"#EBE1CC","paper-edge":"#E0D4B8","ink":"#1C1917","ink-soft":"#37312A","ink-faint":"#746958","hair":"rgba(55,46,37,0.4)","shadow":"rgba(60,48,30,.18)","cinnabar":"#B5402E","cinnabar-soft":"rgba(181,64,46,.13)","gold":"#D59F62","wx-木":"#4f7a4d","wx-火":"#b5402e","wx-土":"#9a7b3f","wx-金":"#9a8f6b","wx-水":"#3b6a86"},"night":{"paper":"#15120E","paper-2":"#413935","paper-edge":"#2D2824","ink":"#ECE3D1","ink-soft":"#D5C8AE","ink-faint":"#C1A776","hair":"rgba(236,227,209,0.4)","shadow":"rgba(0,0,0,.5)","cinnabar":"#D86A52","cinnabar-soft":"rgba(216,106,82,.16)","gold":"#C4A164","wx-木":"#7fae6e","wx-火":"#d86a52","wx-土":"#CE9764","wx-金":"#FFE380","wx-水":"#6fa3c4"},"bamboo":{"paper":"#B3C5AF","paper-2":"#D9E1C1","paper-edge":"#C8D5C3","ink":"#25551B","ink-soft":"#5D744E","ink-faint":"#3C5D3E","hair":"rgba(18,33,15,.18)","shadow":"rgba(35,55,25,.24)","cinnabar":"#916B36","cinnabar-soft":"rgba(150,66,31,.15)","gold":"#5C8A2E","wx-木":"#33691E","wx-火":"#a8452a","wx-土":"#895A34","wx-金":"#766C2E","wx-水":"#2B7F91"},"cinnabar":{"paper":"#3B100C","paper-2":"#7C0E1E","paper-edge":"#5D150E","ink":"#FAE2E0","ink-soft":"#FBD1CB","ink-faint":"#DDA59C","hair":"rgba(250,226,224,0.4)","shadow":"rgba(0,0,0,0.65)","cinnabar":"#E34234","cinnabar-soft":"rgba(227,66,52,.18)","gold":"#E0913F","wx-木":"#7fae6e","wx-火":"#E34234","wx-土":"#E0913F","wx-金":"#ddc7b4","wx-水":"#6fa3c4"},"porcelain":{"paper":"#F5F8FC","paper-2":"#DEE8F5","paper-edge":"#A6BFDF","ink":"#072350","ink-soft":"#345DA2","ink-faint":"#6D88B0","hair":"rgba(0,31,82,0.3)","shadow":"rgba(0,40,110,.24)","cinnabar":"#144190","cinnabar-soft":"rgba(0,61,165,.13)","gold":"#307FD5","wx-木":"#1f6b5e","wx-火":"#9c3b2f","wx-土":"#8a6f3a","wx-金":"#6f88a8","wx-水":"#003DA5"}},"bdBase":{"scene":{"h":560,"opL":30,"opD":42,"mid":40,"midA":80,"blur":0,"pad":0},"text":{"h":560,"opL":30,"opD":42,"mid":50,"midA":30,"blur":1,"pad":0}}}</script>
 <script id="spec-app">
 (function(){
   "use strict";
@@ -1636,8 +1785,8 @@ ${eas}
               <h3>靈石膠囊</h3><p>次一階紙底、紙邊框，數字硃砂。💎 上每個長週期掃一道光（只掃寶石），滑過立刻再掃一次。</p></div>
             <div class="panel bt-card"><div class="bt-stage" style="background:var(--paper)"><div class="tag-tabs" data-demo style="width:100%"><button class="tag-tab on">全部</button><button class="tag-tab">問卦</button><button class="tag-tab">心得</button></div></div>
               <h3>通用 TAG 頁籤</h3><p>未選＝次一階紙底＋極淡墨字；選中＝墨底滑過去。篩選也是頁籤。詳見動態規範。</p></div>
-            <div class="panel bt-card"><div class="scene-sample"><button class="pill">履 歷</button><div class="spk">大師兄<small>代理掌門</small></div><div>「這麼晚。」</div><div class="ch">為什麼不蓋？</div><div class="ch go">那就接下吧，師兄。</div></div>
-              <h3>場景層（不隨主題）</h3><p>事件、談心字幕、入場：墨底 <code>#0D0B08</code>、暖白字 <code>#ECE3D3</code>、金 <code>#C9A86A</code>。畫的是一個場景，不是站內的紙，所以五套主題都一樣；場景裡的線框鈕不畫厚度。</p></div>
+            <div class="panel bt-card"><div class="scene-sample"><button class="pill">履 歷</button><div class="ch">為什麼不蓋？<small>他沒說的那件事</small></div><div class="ch">那就接下吧，師兄。</div><div class="spk">大師兄<small>代理掌門</small></div><div class="line">「這麼晚。」</div></div>
+              <h3>場景層（不隨主題）</h3><p>事件、談心字幕、入場：墨底 <code>#0D0B08</code>、暖白字 <code>#ECE3D3</code>、金 <code>#C9A86A</code>。畫的是一個場景，不是站內的紙，所以五套主題都一樣；場景裡的線框鈕不畫厚度。角色事件與江湖共用一個模板（換場、名字高度、逐字打出、分頁、選項、演完），可點的版本與全部數字在下方動態規範的「事件對話幕」。</p></div>
           </div>
         </section>
 

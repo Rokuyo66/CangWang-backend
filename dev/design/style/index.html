@@ -162,8 +162,12 @@ td.num{font-family:var(--f-mono);font-size:12px;white-space:nowrap;font-variant-
 .scene-sample .spk{font-weight:700;color:#fff}
 .scene-sample .spk small{font-weight:400;font-size:11px;color:rgba(236,227,211,.58);margin-left:6px}
 .scene-sample .pill{align-self:flex-start;font-size:12.5px;letter-spacing:.14em;border:1px solid rgba(236,227,211,.8);border-radius:20px;padding:7px 12px;background:rgba(0,0,0,.35)}
-.scene-sample .ch{border:1px solid rgba(236,227,211,.22);background:rgba(20,16,11,.85);border-radius:4px;padding:9px 12px;font-size:14px}
-.scene-sample .ch.go{border-color:rgba(201,168,106,.6);color:#C9A86A}
+/* 選項：同動態規範「事件對話幕」（前端 .sc-center .sc-choice）——只有上下框線、兩側淡出、字置中 */
+.scene-sample .ch{display:flex;flex-direction:column;justify-content:center;min-height:49px;padding:5px 14px 4px;text-align:center;font-size:14.5px;font-weight:600;
+  border:0;border-top:1px solid;border-bottom:1px solid;border-image:linear-gradient(90deg,transparent 0,rgba(201,168,106,.55) 10%,rgba(201,168,106,.55) 90%,transparent 100%) 1;
+  background:linear-gradient(90deg,rgba(201,168,106,0) 0,rgba(13,11,8,.6) 10%,rgba(0,0,0,.9) 50%,rgba(0,0,0,.7) 90%,rgba(201,168,106,0) 100%)}
+.scene-sample .ch small{font-size:12px;font-weight:400;color:#D8B578}
+.scene-sample .line{font-size:14px;line-height:1.9}
 
 /* ── 版面：手機框示意 ── */
 .phones{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}
@@ -443,8 +447,8 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
               <h3>靈石膠囊</h3><p>次一階紙底、紙邊框，數字硃砂。💎 上每個長週期掃一道光（只掃寶石），滑過立刻再掃一次。</p></div>
             <div class="panel bt-card"><div class="bt-stage" style="background:var(--paper)"><div class="tag-tabs" data-demo style="width:100%"><button class="tag-tab on">全部</button><button class="tag-tab">問卦</button><button class="tag-tab">心得</button></div></div>
               <h3>通用 TAG 頁籤</h3><p>未選＝次一階紙底＋極淡墨字；選中＝墨底滑過去。篩選也是頁籤。詳見動態規範。</p></div>
-            <div class="panel bt-card"><div class="scene-sample"><button class="pill">履 歷</button><div class="spk">大師兄<small>代理掌門</small></div><div>「這麼晚。」</div><div class="ch">為什麼不蓋？</div><div class="ch go">那就接下吧，師兄。</div></div>
-              <h3>場景層（不隨主題）</h3><p>事件、談心字幕、入場：墨底 <code>#0D0B08</code>、暖白字 <code>#ECE3D3</code>、金 <code>#C9A86A</code>。畫的是一個場景，不是站內的紙，所以五套主題都一樣；場景裡的線框鈕不畫厚度。</p></div>
+            <div class="panel bt-card"><div class="scene-sample"><button class="pill">履 歷</button><div class="ch">為什麼不蓋？<small>他沒說的那件事</small></div><div class="ch">那就接下吧，師兄。</div><div class="spk">大師兄<small>代理掌門</small></div><div class="line">「這麼晚。」</div></div>
+              <h3>場景層（不隨主題）</h3><p>事件、談心字幕、入場：墨底 <code>#0D0B08</code>、暖白字 <code>#ECE3D3</code>、金 <code>#C9A86A</code>。畫的是一個場景，不是站內的紙，所以五套主題都一樣；場景裡的線框鈕不畫厚度。角色事件與江湖共用一個模板（換場、名字高度、逐字打出、分頁、選項、演完），可點的版本與全部數字在下方動態規範的「事件對話幕」。</p></div>
           </div>
         </section>
 
