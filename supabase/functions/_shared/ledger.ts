@@ -24,6 +24,7 @@ export const LEDGER_LABELS: Record<string, string> = {
   admin_grant: "後台發放",
   event_reward: "道緣事件",   // 了結一章的靈石（0065 event_complete）
   jianghu_replay: "江湖再訪", jianghu_ending: "江湖結局", jianghu_ach: "江湖成就",   // 0095
+  ach: "成就",              // 問事、道緣成就（0106 ach_claim）
   mail_gift: "信中附贈",     // 站內信夾的靈石（0063 mail_claim）   // dev/lingshi.ps1 手動調的那些，別讓它顯示成原始代號
 };
 

@@ -18,7 +18,7 @@
   color-scheme:light;
 
   /* ══ 動態 token：整份規範唯一的數字來源 ══ */
-  /* @design:begin proto-motion v=f8a6a287 #a9935a22（由後端 dev/design/tokens.json 產生，不要手改） */
+  /* @design:begin proto-motion v=c6720453 #a9935a22（由後端 dev/design/tokens.json 產生，不要手改） */
   --k:1;          /* 速度倍率：所有時長 × k */
   --a:1;          /* 待機幅度倍率 */
   --d:3.6px;      /* 按壓深度（元件厚度）；元件用 --dk 取比例，不直接覆寫 --d */
@@ -1012,7 +1012,7 @@ pre{margin:0;overflow-x:auto;background:#1c1814;color:#ECE3D3;border-radius:12px
   const K=()=>parseFloat(getComputedStyle(root).getPropertyValue('--k'))||1;
 
   /* ── 動態 token：來自 dev/design/tokens.json（唯一真相）；總控預設值、token 表、範例碼都讀這一份 ── */
-  // @design:begin proto-motion-js v=f8a6a287 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
+  // @design:begin proto-motion-js v=c6720453 #1582e847（由後端 dev/design/tokens.json 產生，不要手改）
   const MOTION = {"_說明":"時長的 ms 都會乘上速度倍率 k。spec＝規範與原型用的變數名；web＝前端 styles/motion.css 用的變數名（前端加 m- 前綴；press 的時長叫 --m-press-t，因為 --m-press 是按壓進度）。","base":{"k":1,"a":1,"d":3.6,"ov":1.56,"tilt":6},"durations":[{"k":"press","ms":90,"spec":"--t-press","web":"--m-press-t","u":"按下"},{"k":"release","ms":280,"spec":"--t-release","web":"--m-release","u":"放開、切換滑塊"},{"k":"quick","ms":160,"spec":"--t-quick","web":"--m-quick","u":"小狀態變化"},{"k":"exit","ms":220,"spec":"--t-exit","web":"--m-exit","u":"彈框、提示離場；內容溶解（切頁籤）"},{"k":"enter","ms":360,"spec":"--t-enter","web":"--m-enter","u":"彈框、提示入場；進一層／退一層"},{"k":"page","ms":460,"spec":"--t-page","web":"--m-page","u":"頁面切換"},{"k":"hold","ms":700,"spec":"--t-hold","web":"--m-hold","u":"長按蓄力"},{"k":"stagger","ms":45,"spec":"--stagger","web":"--m-stagger","u":"內容逐項間隔"},{"k":"idleS","ms":2400,"spec":"--idle-s","web":"--m-idle-s","u":"待機短週期"},{"k":"idleM","ms":3700,"spec":"--idle-m","web":"--m-idle-m","u":"待機中週期"},{"k":"idleL","ms":6100,"spec":"--idle-l","web":"--m-idle-l","u":"待機長週期（靈石掠光的間隔）"}],"easings":[{"k":"out","v":"cubic-bezier(.22,1,.36,1)","spec":"--e-out","web":"--m-e-out","u":"入場、按下"},{"k":"in","v":"cubic-bezier(.5,0,.75,0)","spec":"--e-in","web":"--m-e-in","u":"離場"},{"k":"spring","v":"cubic-bezier(.34,OV,.64,1)","spec":"--e-spring","web":"--m-e-spring","u":"放開、彈出（唯一允許過衝）"},{"k":"breath","v":"cubic-bezier(.45,0,.55,1)","spec":"--e-breath","web":"--m-e-breath","u":"待機循環"}],"amp":{"_說明":"待機幅度上限，會乘上幅度倍率 a。scale 0.05＝放大 5%（六六 2026-09-29：3% 存在感太低）","move":3,"scale":0.05,"rot":4}};
   // @design:end proto-motion-js
   /* ── 引導聚光示範：三步，框滑過去、卡片換字 ── */

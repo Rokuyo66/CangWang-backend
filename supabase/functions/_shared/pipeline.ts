@@ -6,6 +6,7 @@ import type { Chart } from "./core.ts";
 import { normalizeQuestion, dueFromQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { collectedGua, recordGua } from "./collection.ts";
+import { bumpCast } from "./achievements.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
 import { threadPrior } from "./xinji.ts";
@@ -89,6 +90,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   castDate?: { y: number; m: number; d: number; hour: number | null }; // 手動排盤自填占時；無則用當下台北時
   questionRaw?: string;                // 擬題／改寫前護道人的原話（無擬題則為空）
   questionSource?: string;             // chat_draft（閒聊擬題）/ refined（問事頁改寫）/ manual（自己寫的）
+  castVia?: string;                    // 起卦入口：chat（談心）/ agenda（行程）；問事頁自己寫的不送（0106）
+  castMethod?: string;                 // 起法：coin / num（報三數）/ manual（手動排盤）（0106）
   clientToken?: string;                // 起卦冪等憑據：同一次起卦動作只准成立一卦
   threadId?: string;                   // 心跡：這一卦屬於哪件在記的心事（見下方「二占」）
 }) {
@@ -211,12 +214,14 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     question_raw_norm: p.questionRaw ? normalizeQuestion(p.questionRaw) : null,
     question_source: p.questionSource ?? "manual",
     thread_id: threadId,
+    cast_via: p.castVia === "chat" || p.castVia === "agenda" ? p.castVia : null,
+    cast_method: ["coin", "num", "manual"].includes(p.castMethod ?? "") ? p.castMethod : null,
   };
   let { data: cast, error: insErr } = await db.from("casts").insert(row).select("id").single();
   if (insErr) {
     // 舊 schema（0028 未跑）兜底：去掉新欄位重試。卦錢已扣，這一步絕不可失敗。
     console.error("cast insert with question_raw failed, retry without", insErr.message);
-    const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, ...legacy } = row;
+    const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, cast_via: _e, cast_method: _f, ...legacy } = row;
     ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
   }
   if (p.clientToken) {
@@ -240,6 +245,9 @@ export async function castAndInterpret(db: SupabaseClient, p: {
         .eq("id", threadId).is("category", null);
     }
   }
+
+  // 成就進度（0106）：問過幾卦、從哪裡起、用什麼起法。只增不減，卦被清掉也不倒退
+  if (ai.category !== FORTUNE_CATEGORY) await bumpCast(db, p.userId, p.castVia, p.castMethod);
 
   // 6. 修為與突破
   const breakthrough = await addCultivation(db, p.userId, p.characterId, 10, 3);

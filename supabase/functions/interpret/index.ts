@@ -15,6 +15,7 @@ import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis, CRISIS_LINES } from "../_shared/crisis.ts";
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 import { missNudgeOf, markMissNudge } from "../_shared/miss-nudge.ts";
+import { achBoard, achClaim, achLitCount, bumpReview } from "../_shared/achievements.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
@@ -588,6 +589,8 @@ async function handle(req: Request): Promise<Response> {
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
         // 應期最近一直「沒準」：最常替他起卦的那一位跳出對話彈窗提醒（_shared/miss-nudge.ts）。null＝不用提醒
         missNudge: await missNudgeOf(db, uid),
+        // 成就榜（問事、道緣）有幾個亮著還沒領：道籍那一格與「成就」頁籤的紅點（0106）
+        achLit: await achLitCount(db, uid),
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
         xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
         // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
@@ -1266,6 +1269,16 @@ async function handle(req: Request): Promise<Response> {
       if (body.mode === "jh_claim") return out(await jianghuClaim(db, uid, body));
     }
 
+    /* ═══ 成就榜：問事、道緣（0106）═══ 規則在 _shared/achievements.ts；江湖那一格照舊走 jh_board */
+    if (body.mode === "ach_board") {
+      const rows = await achBoard(db, uid);
+      return Response.json(rows ? { kind: "ok", items: rows } : { kind: "err", msg: "成就暫時讀不到" }, { headers: CORS });
+    }
+    if (body.mode === "ach_claim") {
+      const r = await achClaim(db, uid, String(body.ach_id ?? ""));
+      return Response.json(r.ok ? { kind: "ok", amount: r.amount, balance: r.balance } : { kind: "err", msg: r.msg }, { headers: CORS });
+    }
+
     // 可選身分清單＋解鎖狀態（解鎖判定在伺服器，前端只負責顯示）
     if (body.mode === "char_titles") {
       const cid = String(body.character_id ?? "");
@@ -1550,6 +1563,7 @@ async function handle(req: Request): Promise<Response> {
         await db.from("user_character").upsert({ user_id: uid, character_id: c.character_id, cultivation: (uc?.cultivation ?? 0) + 50 }, { onConflict: "user_id,character_id" });
         lingshi = note.length > 0 ? 2 : 1;   // 有留印證評語 +2；只點準不準 +1
         await db.rpc("apply_lingshi", { p_user: uid, p_action: "feedback", p_amount: lingshi, p_ref: body.cast_id });
+        await bumpReview(db, uid);   // 成就「彰往察來」（0106）
       }
       // 這一次是「沒準」或「部分準」：看看最近的比例到該提醒了沒，到了就一起回去，前端回評完直接跳對話彈窗
       const nudge = v >= 2 ? await missNudgeOf(db, uid) : null;
@@ -1987,6 +2001,8 @@ async function handle(req: Request): Promise<Response> {
           yongQin: body.yong_qin, yongViaShi: body.yong_via_shi, yongViaYing: body.yong_via_ying,
           castDate: parseCastDate(body.cast_date), // 手動排盤自填占時（無/不合法則後端用當下台北時）
           questionRaw: body.question_raw, questionSource: body.question_source,
+          castVia: typeof body.cast_via === "string" ? body.cast_via : undefined,
+          castMethod: typeof body.cast_method === "string" ? body.cast_method : undefined,
       clientToken: typeof body.client_token === "string" ? body.client_token : undefined,
       // 心跡：「就這件事再問一卦」帶著線的 id 進來。帶了就不吃一事不二占的攔截
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。

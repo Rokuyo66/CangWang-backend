@@ -924,6 +924,11 @@
           "to": 24
         }
       ]
+    },
+    {
+      "at": "2026-10-23T17:00:00Z",
+      "applied": true,
+      "note": "小工具背板上下加深線（15:55 存的五種尺寸）已寫進 tokens.json widget.bg → App Scenes.java，基準更新；出 APK 才看得到"
     }
   ],
   "savedAt": "2026-10-23T15:55:42.074Z",
