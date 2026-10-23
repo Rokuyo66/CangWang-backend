@@ -776,9 +776,157 @@
           "to": 49
         }
       ]
+    },
+    {
+      "at": "2026-10-23T15:55:42.074Z",
+      "changes": [
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "small",
+          "tn": "小工具・窄・矮",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 31
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "small",
+          "tn": "小工具・窄・矮",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 47
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "top",
+          "name": "上緣暗度",
+          "unit": "%",
+          "from": 65,
+          "to": 90
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 32
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "bot",
+          "name": "下緣暗度",
+          "unit": "%",
+          "from": 92,
+          "to": 93
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "smallTall",
+          "tn": "小工具・窄・高",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 59,
+          "to": 63
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "split",
+          "tn": "小工具・4×2",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 42,
+          "to": 19
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "split",
+          "tn": "小工具・4×2",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 66
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 41,
+          "to": 14
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 38,
+          "to": 29
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "big",
+          "tn": "小工具・4×4",
+          "key": "at",
+          "name": "霧面線",
+          "unit": "%",
+          "from": 49,
+          "to": 46
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "tall",
+          "tn": "小工具・4×6",
+          "key": "topEnd",
+          "name": "上加深線",
+          "unit": "%",
+          "from": 34,
+          "to": 6
+        },
+        {
+          "kind": "bd",
+          "wg": 1,
+          "set": "tall",
+          "tn": "小工具・4×6",
+          "key": "botStart",
+          "name": "下加深線",
+          "unit": "%",
+          "from": 30,
+          "to": 24
+        }
+      ]
     }
   ],
-  "savedAt": "2026-10-23T15:52:29.510Z",
+  "savedAt": "2026-10-23T15:55:42.074Z",
   "backdrop": {
     "scene": {
       "h": 560,
@@ -916,23 +1064,23 @@
     "small": {
       "scene": 60,
       "top": 65,
-      "topEnd": 42,
+      "topEnd": 31,
       "bot": 92,
-      "botStart": 30
+      "botStart": 47
     },
     "smallTall": {
       "scene": 90,
-      "top": 65,
-      "topEnd": 42,
-      "bot": 92,
-      "botStart": 59
+      "top": 90,
+      "topEnd": 32,
+      "bot": 93,
+      "botStart": 63
     },
     "split": {
       "scene": 60,
       "top": 65,
-      "topEnd": 42,
+      "topEnd": 19,
       "bot": 92,
-      "botStart": 30,
+      "botStart": 66,
       "at": 52,
       "fade": 28,
       "fScene": 60,
@@ -942,10 +1090,10 @@
     "big": {
       "scene": 60,
       "top": 65,
-      "topEnd": 41,
+      "topEnd": 14,
       "bot": 65,
-      "botStart": 38,
-      "at": 49,
+      "botStart": 29,
+      "at": 46,
       "fade": 28,
       "fScene": 60,
       "fInk": 70,
@@ -954,9 +1102,9 @@
     "tall": {
       "scene": 60,
       "top": 65,
-      "topEnd": 34,
+      "topEnd": 6,
       "bot": 92,
-      "botStart": 30,
+      "botStart": 24,
       "at": 38,
       "fade": 28,
       "fScene": 60,

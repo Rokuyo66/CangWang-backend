@@ -286,8 +286,9 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
 .wg-frost u{position:absolute;inset:0}
 .wg-txt{position:absolute;inset:0;padding:12px 14px;pointer-events:none;display:flex;flex-direction:column;gap:4px;font-size:11px;line-height:1.5}
 .wg-txt .d{color:rgba(236,227,211,.75);letter-spacing:.06em}
-.wg-txt .st{font-size:30px;font-weight:700;letter-spacing:.12em;line-height:1.2;margin-top:auto}
-.wg-txt .st small{font-size:11px;color:#E0BF7E;margin-left:4px}
+/* 行止大字與等第（可行、吉）：黑 70%、下移 1、模糊 1（六六 2026-10-23；App 是 w_inc_stance.xml 的 shadow*，字陰影沒有擴散） */
+.wg-txt .st{font-size:30px;font-weight:700;letter-spacing:.12em;line-height:1.2;margin-top:auto;text-shadow:0 1px 1px rgba(0,0,0,.7)}
+.wg-txt .st small{font-size:11px;color:#E0BF7E;margin-left:4px;text-shadow:0 1px 1px rgba(0,0,0,.7)}
 .wg-txt .x{color:#F1E8D8}
 .wg-txt .yj{color:#E0BF7E;letter-spacing:.12em}
 .wg-cal{position:absolute;left:14px;right:14px;display:grid;grid-template-columns:repeat(7,1fr);gap:6px 0;font-size:11px;text-align:center;color:#F1E8D8;pointer-events:none}
@@ -585,7 +586,7 @@ pre.brief{margin:0;white-space:pre-wrap;word-break:break-word;background:#1d1a16
         ${cur.widget ? `<section class="sec" id="widget">
           <div><div class="sec-k">七　小工具</div><h2>桌面小工具的背板</h2></div>
           <p class="lead">五種尺寸各一組：場景多濃，上下各一段加深（上段從頂端往下淡、下段從下加深線往底部越來越暗），4 格寬的另有一片霧面（模糊的同一張場景再蓋一層墨黑）。點一張選它，直接在圖上拖<b>藍線</b>（上加深線）、<b>紅線</b>（下加深線）、<b>金線</b>（霧面線），其餘用左邊的滑桿。畫的順序：墨底 → 場景 → 霧面 → 上下加深。存檔後照「待套用」改 tokens.json，生成器會寫進 App 的 Scenes.java。</p>
-          <p class="note">1 dp 畫成 1 px（手機上看起來的大小），示範圖是 Sence/10.Table.webp 縮小版，App 上依時辰換觀裡的場景。字只是擺著看壓不壓得住，不是正式版面；4×4、4×6 的行止段與月曆的分界（46%／38%）跟著版面走，不在這裡調。</p>
+          <p class="note">1 dp 畫成 1 px（手機上看起來的大小），示範圖是 Sence/10.Table.webp 縮小版，App 上依時辰換觀裡的場景。字只是擺著看壓不壓得住，不是正式版面（行止大字與等第帶字陰影：黑 70%、下移 1、模糊 1）；4×4、4×6 的行止段與月曆的分界（46%／38%）跟著版面走，不在這裡調。</p>
           <div class="wg-grid">
             <div class="panel bd-ctl">
               <div class="bd-pick wg-pick" role="group" aria-label="調哪一種尺寸">${WG_SETS.map(([s, n]) => `<button data-wgset="${s}" aria-pressed="${s === wgSet}">${n}</button>`).join("")}</div>
