@@ -257,7 +257,8 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .ni .th{width:26px;height:26px;border-radius:4px;background:var(--paper);border:1px solid var(--hair);overflow:hidden}
 .ni .th video,.ni .th img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
 .ni .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#art-add{align-self:flex-start}
+.ng-row{display:flex;align-items:center;gap:6px}.ng-row .ng-h{flex:1;min-width:0}
+.ng-row .btn,.nc .btn{opacity:.55}.ng-row:hover .btn,.nc:hover .btn,.ng-row .btn:focus-visible,.nc .btn:focus-visible{opacity:1}
 /* 右側 */
 .crumb{font-size:12px;color:var(--ink-faint);letter-spacing:.05em;margin-bottom:4px}
 .crumb button{background:none;border:0;padding:0;color:inherit;cursor:pointer;font:inherit} .crumb button:hover{color:var(--cinnabar)}
@@ -375,7 +376,6 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
     <div class="artstat" id="art-stat"></div>
     <div class="artlegend"><span><i class="dot ship"></i>下次更新放</span><span><i class="dot hold"></i>傳了沒勾</span><span><i class="dot in"></i>已進 App</span><span><i class="dot old"></i>線上舊圖</span><span><i class="dot none"></i>缺圖</span></div>
     <nav class="artnav" id="art-nav"><p class="fxnote">載入中…</p></nav>
-    <button class="btn" id="art-add">＋一列</button>
   </div>
   </div>
 </aside>
@@ -385,15 +385,19 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   <div id="m-char"><main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main></div>
   <div id="m-jh" hidden><main class="main" id="jh-main"><div class="empty">從左邊選一卦。</div></main></div>
   <div class="artwrap" id="m-art" hidden>
-  <div id="art-view"><p class="fxnote">載入中…</p></div>
-  <div class="tcard" id="art-new" hidden style="margin-top:8px">
+  <div class="tcard" id="art-new" hidden style="margin-bottom:16px">
+    <h3 id="art-new-t">新增</h3>
     <div class="grid">
-      <label class="field"><span id="art-new-l1">名稱</span><input type="text" id="art-new-name" placeholder="例：凌霄 立繪、渡口 夜景"></label>
-      <label class="field"><span>英文代號 <em>（小寫英數；App 用它找圖）</em></span><input type="text" id="art-new-code" placeholder="例：summer、dukou"></label>
-      <label class="field" id="art-new-kindf"><span>類型</span><select id="art-new-kind"><option>立繪</option><option>場景</option><option>頭像</option><option>動態頭像</option><option>頭像框</option></select></label>
+      <label class="field"><span>名稱</span><input type="text" id="art-new-name" placeholder="例：夏裝、春節頭像、渡口 夜景"></label>
+      <label class="field"><span>英文代號 <em>（小寫英數；App 用它找圖）</em></span><input type="text" id="art-new-code" placeholder="例：summer、cny2027"></label>
+      <label class="field"><span>類型</span><select id="art-new-kind"></select></label>
+      <label class="field wide"><span>六六的備註 <em>（怎麼獲得、用在哪；Claude 照這裡接進 App）</em></span><textarea id="art-new-note" rows="2" placeholder="例：師妹第三章的獎勵；道籍 › 頭像 可換上"></textarea></label>
+      <label class="field wide"><span>圖 <em>（可以現在選，也可以加完再放）</em></span><input type="file" id="art-new-file" accept="image/*,video/*"></label>
     </div>
+    <p class="fxnote" id="art-new-key" style="margin:6px 0 0"></p>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" id="art-new-go">加入</button><button class="btn ghost" id="art-new-x">取消</button><span id="art-new-e" style="color:var(--cinnabar);font-size:13px"></span></div>
   </div>
+  <div id="art-view"><p class="fxnote">載入中…</p></div>
   </div>
 </div>
 </div>
@@ -1697,9 +1701,9 @@ const artThumb = (a) => a.asset_url ? artMedia(a.asset_url, a.asset_type, true) 
 function artNavHtml(all) {
   return artGroups(all).map((g) => {
     const rows = all.filter((a) => artGrp(a) === g), n = rows.filter((a) => artState(a)[0] === "ship").length;
-    let h = `<div class="ng"><button class="ng-h${artSel === "g:" + g ? " on" : ""}" data-ag="${esc(g)}">${esc(g)}<small>${rows.length}${n ? `・<b>${n} 待放</b>` : ""}</small></button>`, lastC = null;
+    let h = `<div class="ng"><div class="ng-row"><button class="ng-h${artSel === "g:" + g ? " on" : ""}" data-ag="${esc(g)}">${esc(g)}<small>${rows.length}${n ? `・<b>${n} 待放</b>` : ""}</small></button>${g === "主要角色" ? "" : `<button class="btn sm" data-anew="${esc(g)}" title="在「${esc(g)}」新增一張">＋新增</button>`}</div>`, lastC = null;
     for (const a of rows) {
-      if (g === "主要角色" && a.cid !== lastC) { lastC = a.cid; h += `<div class="nc">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-outfit="${esc(a.cid || "")}">＋衣裝</button></div>`; }
+      if (g === "主要角色" && a.cid !== lastC) { lastC = a.cid; h += `<div class="nc">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-anew="主要角色" data-cid="${esc(a.cid || "")}" title="給${esc(ART_CHARS[a.cid] || "")}新增衣裝、頭像">＋新增</button></div>`; }
       const [st, lab] = artState(a);
       h += `<button class="ni${artSel === "i:" + a.id ? " on" : ""}" data-ai="${esc(a.id)}" title="${esc(lab)}"><span class="th">${artThumb(a)}</span><span class="nm">${esc(artShort(a))}</span><i class="dot ${st}"></i></button>`;
     }
@@ -1710,17 +1714,18 @@ function artNavHtml(all) {
 /* ── 右側：一組的總覽 ── */
 function artGroupHtml(g, all) {
   const rows = all.filter((a) => artGrp(a) === g), kinds = [...new Set(rows.map((a) => a.kind))].filter((k) => ART_SPEC[k]);
-  let html = `<div class="crumb">美術資產</div><div class="ah"><h2>${esc(g)}</h2><span class="arttag">${rows.length} 張</span></div>
+  let html = `<div class="crumb">美術資產</div><div class="ah"><h2>${esc(g)}</h2><span class="arttag">${rows.length} 張</span>${g === "主要角色" ? "" : `<button class="btn sm" data-anew="${esc(g)}">＋新增</button>`}</div>
     <details class="artintro" open><summary>怎麼用</summary>
       <p><b>換圖</b>：點一張進去，點圖框選檔、把圖拖進來，或直接貼上（Ctrl／⌘＋V）。同一張再上傳就是覆蓋，舊的留在「歷史」，隨時「改回這張」。</p>
       <p><b>傳錯了</b>：按圖下面的「撤回這次上傳」，回到上一張。</p>
+      <p><b>新增</b>：左邊組名（主要角色是角色名字）旁的「＋新增」，圖可以一起選。怎麼獲得、用在哪寫在備註，Claude 照著接進 App。</p>
       <p><b>要不要進 App 由你勾</b>：勾「下次更新放進 App」，Claude 下次更新 App 才抓那一張；沒勾的就算傳了也不動 App。</p>
       <p><b>還沒傳過的</b>：App 照舊用線上那張（Supabase 雲端，標「線上舊圖」）。</p>
       ${kinds.map((k) => `<p><b>${esc(k)}規格</b>：${ART_SPEC[k]}</p>`).join("")}
     </details><div class="artgrid">`, lastC = null;
   if (!rows.length) html += `<p class="fxnote" style="grid-column:1/-1">${esc(ART_GROUP_NOTE[g] || "這一組還沒有東西。")}</p>`;
   for (const a of rows) {
-    if (g === "主要角色" && a.cid !== lastC) { lastC = a.cid; html += `<div class="agsub">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-outfit="${esc(a.cid || "")}">＋衣裝</button></div>`; }
+    if (g === "主要角色" && a.cid !== lastC) { lastC = a.cid; html += `<div class="agsub">${esc(ART_CHARS[a.cid] || a.cid || "")}<button class="btn sm" data-anew="主要角色" data-cid="${esc(a.cid || "")}">＋新增</button></div>`; }
     const [st, lab] = artState(a);
     html += `<button class="agc" data-ai="${esc(a.id)}"><div class="pic">${artThumb(a) || (a.temp ? "線上舊圖" : "缺圖")}</div><b>${esc(artShort(a))}</b><span><i class="dot ${st}"></i>${esc(lab)}</span></button>`;
   }
@@ -1846,12 +1851,12 @@ function artRestore(id, assetId) {
 function artInit() {
   const view = $("art-view");
   $("art-nav").addEventListener("click", (e) => {
-    const o = e.target.closest("[data-outfit]"); if (o) { artNewOpen(o.dataset.outfit); return; }
+    const o = e.target.closest("[data-anew]"); if (o) { artNewOpen(o.dataset.anew, o.dataset.cid || ""); return; }
     const g = e.target.closest("[data-ag]"); if (g) { artPick("g:" + g.dataset.ag); return; }
     const i = e.target.closest("[data-ai]"); if (i) artPick("i:" + i.dataset.ai);
   });
   view.addEventListener("click", (e) => {
-    const o = e.target.closest("[data-outfit]"); if (o) { artNewOpen(o.dataset.outfit); return; }
+    const o = e.target.closest("[data-anew]"); if (o) { artNewOpen(o.dataset.anew, o.dataset.cid || ""); return; }
     const g = e.target.closest("[data-ag]"); if (g) { artPick("g:" + g.dataset.ag); return; }
     const i = e.target.closest("[data-ai]"); if (i) { artPick("i:" + i.dataset.ai); return; }
     if (e.target.closest("[data-agrab]")) { if (artCur()) artGrab(artCur().id); return; }
@@ -1882,37 +1887,43 @@ function artInit() {
     const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => /^image\//.test(x.type)); if (!f) return;
     e.preventDefault(); artUpload(a.id, f);
   });
-  // 加一列（一般／某位主角的衣裝）：在頁面上填，不用 prompt（claude.ai 的框架會擋）
-  let artNewCid = null;
-  var artNewOpen = (cid) => {
-    artNewCid = cid; $("art-new").hidden = false; $("art-new-e").textContent = "";
-    $("art-new-l1").textContent = cid ? `${ART_CHARS[cid] || cid}的哪一套衣裝？` : "名稱";
-    $("art-new-name").placeholder = cid ? "例：夏裝、道袍、節慶" : "例：凌霄 立繪、渡口 夜景";
-    $("art-new-kindf").hidden = !!cid; $("art-new-name").value = ""; $("art-new-code").value = "";
-    $("art-new").scrollIntoView({ block: "center" }); $("art-new-name").focus();
+  // 新增一張（六六 2026-10-23）：在哪一組（哪位角色）按的，就加在那裡；類型決定 App 代號。
+  // 怎麼獲得、用在哪寫在備註，Claude 抓圖時照備註接進 App。表單在頁面上（claude.ai 的框架會擋 prompt）
+  let artNewAt = null;
+  const ART_NEW_KINDS = { 主要角色: ["立繪", "頭像", "動態頭像"], 玩家頭像: ["頭像", "動態頭像"], 其他頭像: ["頭像", "動態頭像"], 頭像框: ["頭像框"], 場景: ["場景"], 頁面底圖: ["場景"] };
+  const artNewKey = (at, kind, code) => !code ? "" : at.cid ? (kind === "立繪" ? `char/${at.cid}/` : `av/${at.cid}/`) + code
+    : at.g === "玩家頭像" ? "av/player/" + code : kind === "頭像框" ? "frame/" + code : kind === "場景" ? "scene/" + code
+    : kind === "頭像" || kind === "動態頭像" ? "av/" + code : "char/n_" + code;
+  const artNewHint = () => {
+    const code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ""), k = artNewKey(artNewAt, $("art-new-kind").value, code);
+    $("art-new-key").textContent = k ? `App 代號：${k}` : "填英文代號後這裡會顯示 App 代號";
   };
-  $("art-add").addEventListener("click", () => artNewOpen(null));
+  var artNewOpen = (g, cid) => {
+    artNewAt = { g, cid };
+    $("art-new-t").textContent = cid ? `給${ART_CHARS[cid] || cid}新增（衣裝立繪、頭像）` : `在「${g}」新增`;
+    $("art-new-kind").innerHTML = (ART_NEW_KINDS[g] || ["立繪", "場景", "頭像", "動態頭像"]).map((k) => `<option>${k}</option>`).join("");
+    for (const k of ["art-new-name", "art-new-code", "art-new-note", "art-new-file"]) $(k).value = "";
+    $("art-new-e").textContent = ""; $("art-new").hidden = false; artNewHint();
+    $("pane").scrollTop = 0; $("art-new-name").focus();
+  };
+  $("art-new-code").addEventListener("input", artNewHint);
+  $("art-new-kind").addEventListener("change", artNewHint);
   $("art-new-x").addEventListener("click", () => { $("art-new").hidden = true; });
   $("art-new-go").addEventListener("click", () => {
-    const name = $("art-new-name").value.trim(), code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const at = artNewAt, name = $("art-new-name").value.trim(), code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const kind = $("art-new-kind").value, key = artNewKey(at, kind, code);
     if (!name) { $("art-new-e").textContent = "名稱要填"; return; }
-    const cid = artNewCid;
-    let id;
-    if (cid) {
-      if (!code) { $("art-new-e").textContent = "衣裝要一個英文代號"; return; }
-      id = `art_${cid}_${code}`;
-      if (arts[id]) { $("art-new-e").textContent = "這個代號已經有了"; return; }
-      arts[id] = { id, name: `${ART_CHARS[cid] || cid}・${name}`, kind: "立繪", key: `char/${cid}/${code}`, cid, outfit: code, used_in: "主要角色",
-        brief: "衣裝立繪：規格同預設立繪（900×1200 去背、頭頂與腳底跟預設那張同一條線）。要配一張同裝束的頭像，再加一列。", status: "todo", ship: false, temp: "", note: "",
-        order: (Object.values(arts).filter((x) => x.cid === cid).reduce((m, x) => Math.max(m, x.order || 0), 0) || 100) + 1 };
-    } else {
-      const kind = $("art-new-kind").value; id = "art_" + (code || Date.now().toString(36));
-      if (arts[id]) { $("art-new-e").textContent = "這個代號已經有了"; return; }
-      const key = code ? (kind === "場景" ? "scene/" : kind === "頭像" || kind === "動態頭像" ? "av/" : kind === "頭像框" ? "frame/" : "char/n_") + code : "";
-      const here = artCur() ? artGrp(artCur()) : artSel.startsWith("g:") ? artSel.slice(2) : "其他";
-      arts[id] = { id, name, kind, key, used_in: kind === "頭像框" ? "頭像框" : here, brief: "", status: "todo", ship: false, temp: "", note: "", order: 900 };
-    }
+    if (!code) { $("art-new-e").textContent = "要一個英文代號（App 用它找圖）"; return; }
+    if (Object.values(arts).some((x) => x.key === key)) { $("art-new-e").textContent = `「${key}」已經有了，換一個代號`; return; }
+    const id = "a_" + key.replace(/[^a-z0-9]+/g, "_");
+    const same = Object.values(arts).filter((x) => at.cid ? x.cid === at.cid : artGrp(x) === at.g);
+    arts[id] = { id, name: at.cid ? `${ART_CHARS[at.cid] || at.cid}・${name}` : name, kind, key, used_in: at.g, ...(at.cid ? { cid: at.cid } : {}),
+      brief: at.cid && kind === "立繪" ? "衣裝立繪：規格同預設立繪（900×1200 去背、頭頂與腳底跟預設那張同一條線）。" : "",
+      status: "todo", ship: false, temp: "", note: $("art-new-note").value.trim(), created_at: new Date().toISOString(),
+      order: same.reduce((m, x) => Math.max(m, x.order || 0), 0) + 1 };
+    const f = $("art-new-file").files[0];
     artSave(id); artPick("i:" + id);
+    if (f) artUpload(id, f);
   });
   (async () => { try { assetsNs = window.claude && claude.use ? await claude.use("assets") : null; } catch (e) { assetsNs = null; } artPaint(); })();
   if (!db) { try { arts = JSON.parse(localStorage.getItem("script-sheet-art") || "{}"); } catch (e) {} artPaint(); return; }
