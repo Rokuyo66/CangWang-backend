@@ -309,6 +309,22 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
+/* ── 見聞設定與橫幅框（六六 2026-10-24）── */
+.wtab{width:100%;border-collapse:collapse;font-size:13px}
+.wtab th{text-align:left;font-weight:400;color:var(--ink-faint);font-size:12px;padding:4px 6px}
+.wtab td{vertical-align:top;padding:6px;border-top:1px solid var(--hair)}
+.wtab .th{width:84px;height:56px;border-radius:6px;background:center/cover no-repeat var(--paper-2);border:1px solid var(--edge)}
+.wtab textarea{min-height:44px}
+.bancrop{display:flex;flex-direction:column;gap:6px;border:1px solid var(--edge);border-radius:8px;padding:8px;background:var(--paper)}
+.bancrop h4{margin:0;font-size:13px;font-family:var(--f-display)}
+.bc-stage{position:relative;line-height:0;user-select:none;touch-action:none}
+.bc-stage img{width:100%;display:block;border-radius:4px}
+.bc-stage::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45);border-radius:4px;pointer-events:none}
+.bc-rect{position:absolute;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5);cursor:move;background-size:cover;border-radius:3px}
+.bc-prev{width:100%;aspect-ratio:340/104;border-radius:10px;background-color:var(--paper-2);background-repeat:no-repeat;position:relative;overflow:hidden}
+.bc-prev::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(0,0,0,.42))}
+.bc-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-faint)}
+.bc-row input[type=range]{flex:1}
 /* ── 江湖編輯：摺疊、底色分區、跳轉列（六六 2026-10-24）──
    主線＝紙色；變數＝金；結局＝硃；成就＝青（--ok）。摺起來的標題列帶一行摘要。 */
 .fold-t{width:22px;height:22px;flex:none;border:1px solid var(--edge);border-radius:50%;background:var(--field);cursor:pointer;position:relative;padding:0}
@@ -416,6 +432,7 @@ h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
         <button data-jf="" class="on">全部</button><button data-jf="draft">草稿</button><button data-jf="gen">請生成</button><button data-jf="review">待看</button><button data-jf="final">定稿</button>
       </div>
       <button class="btn" id="jh-cfg" style="margin-top:6px">數值與化名設定</button>
+      <button class="btn" id="jh-world" style="margin-top:6px">見聞設定（地點・場景・人物）</button>
       <div class="chlist" id="jh-list"></div>
     </section>
     <details class="sec rulebox">
@@ -882,10 +899,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => { jhInit(); artInit(); planInit(); });
+    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); });
     return;
   }
-  whenReady(() => { jhInit(); artInit(); planInit(); });
+  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -2069,6 +2086,7 @@ function artItemHtml(a) {
         <label class="aeimg${a.asset_url || orig ? " has" : ""}" data-kind="${esc(a.kind || "")}" title="點一下選圖，或把圖拖進來">${a.asset_url ? artMedia(a.asset_url, a.asset_type) : orig ? `${artMedia(orig)}<span class="orig">App 現用・線上</span>` : assetsNs ? "點這裡選圖<br>或把圖拖進來、直接貼上" : "這個畫面不能放圖：<br>請從 claude.ai 打開稿紙"}<input type="file" accept="${artVideoOk(a) ? "image/*,video/*" : "image/*"}" data-artfile></label>
         ${assetsNs ? `<div class="aebtns"><button class="btn sm" data-apick>${a.asset_id ? "換一張" : "選圖"}</button>${!a.asset_id && orig ? `<button class="btn sm" data-agrab>把線上這張抓進來</button>` : ""}${a.asset_id ? `<button class="btn sm danger" data-aundo="${esc(a.id)}">撤回這次上傳${h.length > 1 ? "（回到上一張）" : ""}</button>` : ""}</div>` : ""}
         <p class="aehint">${esc(ART_SPEC[a.kind] || "")}</p>
+        ${typeof banPanel === "function" ? banPanel(a, a.asset_url || orig) : ""}
       </div>
       <div class="aeside">
         <label class="shipbox${st === "in" ? " in" : ship && a.asset_id ? " on" : ""}${!a.asset_id || st === "in" || isOrig ? " off" : ""}"><input type="checkbox" data-ship${(ship && a.asset_id) || st === "in" ? " checked" : ""}${!a.asset_id || st === "in" || isOrig ? " disabled" : ""}><b>${st === "in" ? "已在 App 裡" : "下次更新放進 App"}</b><small>${shipNote}</small></label>
@@ -2366,4 +2384,142 @@ function planInit() {
   }, () => setSave("雲端存檔斷線，重新整理頁面", true));
 }
 </script>
+<script>
+/* ══ 見聞設定（六六 2026-10-24）══
+   道籍 › 見聞的地點、場景、人物說明，存在雲端 jianghu_cfg/world。App 端讀的是後端 jianghu_config.world：
+   這裡存好跟 Claude 說一聲，Claude 存成 dev/design/journal/jianwen.json → node dev/jianwen-seed.mjs 出 migration。
+   橫幅框（見聞首頁地點卡的那一條）在「美術資產」的場景那一列拉，存在同一份 world.scenes[key].banner。 */
+const WORLD_DEF = {"places": [{"id": "yundu", "name": "雲渡鎮", "desc": "河上的小鎮，靠渡口吃飯。一年一度的擂龍台，魁首的名字刻在鎮口的龍柱上。"}], "scenes": {"dukou": {"name": "雲渡口", "place": "yundu", "desc": "擠在一起的渡船、跳板、木樁上的告示。渡錢從這裡收，也從這裡吵起來。"}, "kezhan": {"name": "客棧", "place": "yundu", "desc": "渡口邊的小客棧，窗子正對河對岸萬金號的後門。"}, "wanjin": {"name": "萬金號", "place": "yundu", "desc": "褚掌櫃的鋪子。前頭擺酒，後頭有一間帳房，燈總是最晚熄。"}, "leitai": {"name": "擂龍台", "place": "yundu", "desc": "四根木樁打進河裡搭起的台子，底下是深潭。站上去的人，兩岸都看得見。"}, "longzhu": {"name": "龍柱", "place": "yundu", "desc": "九丈高的柱子，刻滿往年魁首的名字。最底下那一圈，一直空著。"}}, "people": {"n_aqin": {"role": "雲渡口的擺船人"}, "n_lingxiao": {"role": "擂龍台三年魁首"}, "n_chu": {"role": "萬金號掌櫃"}, "n_zhou": {"role": "外地來的拳師"}, "n_shen": {"role": "縣裡巡河的捕頭"}}};
+let world = JSON.parse(JSON.stringify(WORLD_DEF)), worldDirty = false, worldTimer = 0;
+function worldTouch() {
+  worldDirty = true; setSave("有未存的修改…"); clearTimeout(worldTimer);
+  worldTimer = setTimeout(async () => {
+    if (!db) { try { localStorage.setItem("script-sheet-world", JSON.stringify(world)); } catch (e) {} worldDirty = false; setSave("已存在這台瀏覽器"); return; }
+    try { await db.collection("jianghu_cfg").doc("world").set(JSON.parse(JSON.stringify(world))); worldDirty = false; setSave("已存檔"); }
+    catch (e) { setSave("見聞設定存檔失敗", true); }
+  }, 800);
+}
+function jwScenes() {   // 劇本裡用到的場景＋已經設定過的
+  const ks = new Set(Object.keys(world.scenes || {}));
+  for (const d of Object.values(jh)) if (d && d.nodes) { if (d.opening && d.opening.bg) ks.add(d.opening.bg); for (const n of d.nodes) for (const x of [...n.scenes, ...n.change.scenes]) if (x.bg) ks.add(x.bg); }
+  return [...ks];
+}
+function jwPeople() {
+  const m = new Map();
+  for (const d of Object.values(jh)) if (d && d.npcs) for (const n of d.npcs) if (n.id && (n.name || "").trim() && !m.has(n.id)) m.set(n.id, { ...n, gua: d.gua });
+  return [...m.values()];
+}
+const artOfKey = (key) => { const a = Object.values(typeof arts !== "undefined" ? arts : {}).find((x) => x && x.key === key); return a ? (a.asset_url || (typeof artOrigin === "function" ? artOrigin(a) : "")) : ""; };
+function worldMain() {
+  const places = world.places || [], plOpts = (cur) => `<option value="">（不收進見聞）</option>` + places.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? " selected" : ""}>${esc(p.name || p.id)}</option>`).join("");
+  const sc = jwScenes().sort((a, b) => ((world.scenes[b] || {}).place ? 1 : 0) - ((world.scenes[a] || {}).place ? 1 : 0));
+  $("jh-main").innerHTML = `
+  <section class="sec"><h2>見聞設定 <small>道籍 › 見聞：地點名公開，場景去過才亮、人物見過才亮；三位主角不收</small></h2>
+    <p class="note" style="margin:0;font-size:12.5px;color:var(--ink-faint)">存好跟 Claude 說「見聞上線」：Claude 照這裡出 migration。場景的橫幅框到「美術資產」那一張場景下面拉。</p></section>
+  <section class="sec"><h2>地點</h2>
+    <table class="wtab"><tr><th>名字</th><th>說明（去過之後才顯示）</th><th></th></tr>${places.map((p, i) => `<tr data-wpi="${i}">
+      <td style="width:150px"><input type="text" data-wp="name" value="${esc(p.name)}" placeholder="例：雲渡鎮"><div class="fxnote">${esc(p.id)}</div></td>
+      <td><textarea data-wp="desc" rows="2">${esc(p.desc || "")}</textarea></td>
+      <td><button class="btn sm ghost" data-wact="pDel">✕</button></td></tr>`).join("")}</table>
+    <div><button class="btn sm" data-wact="pAdd">＋一個地點</button></div></section>
+  <section class="sec"><h2>場景 <small>劇本裡用到的場景都列在這；選地點＝收進那個地點</small></h2>
+    <table class="wtab"><tr><th></th><th>場景</th><th>屬於</th><th>說明</th></tr>${sc.map((k) => { const v = world.scenes[k] || {}, u = artOfKey("scene/" + k);
+      return `<tr data-wsk="${esc(k)}"><td><div class="th" style="${u ? `background-image:url('${esc(u)}')` : ""}"></div></td>
+      <td style="width:150px"><input type="text" data-ws="name" value="${esc(v.name || "")}" placeholder="${esc(BGS[k] || k)}"><div class="fxnote">scene/${esc(k)}${v.banner ? "・橫幅已調" : ""}</div></td>
+      <td style="width:130px"><select data-ws="place">${plOpts(v.place || "")}</select></td>
+      <td><textarea data-ws="desc" rows="2" placeholder="去過之後看到的一段說明">${esc(v.desc || "")}</textarea></td></tr>`; }).join("")}</table></section>
+  <section class="sec"><h2>人物 <small>江湖劇本裡的人（同 id＝同一個人）；說明沒寫就用劇本那一句設定</small></h2>
+    <table class="wtab"><tr><th></th><th>人物</th><th>身分（名字旁小字）</th><th>見聞說明</th></tr>${jwPeople().map((n) => { const v = (world.people || {})[n.id] || {}, u = artOfKey("char/" + n.id);
+      return `<tr data-wnk="${esc(n.id)}"><td><div class="th" style="width:48px;height:64px;background-position:top;${u ? `background-image:url('${esc(u)}')` : ""}"></div></td>
+      <td style="width:110px"><b>${esc(n.name)}</b><div class="fxnote">${esc(n.id)}・${esc(n.gua)}</div></td>
+      <td style="width:150px"><input type="text" data-wn="role" value="${esc(v.role || "")}" placeholder="例：縣裡巡河的捕頭"></td>
+      <td><textarea data-wn="desc" rows="2" placeholder="${esc(n.desc || "")}">${esc(v.desc || "")}</textarea></td></tr>`; }).join("")}</table></section>`;
+}
+function jwInit() {
+  $("jh-world").addEventListener("click", () => { jcur = "__world"; jRail(); worldMain(); });
+  const main = $("jh-main");
+  main.addEventListener("input", (e) => {
+    if (jcur !== "__world") return; const t = e.target;
+    world.scenes = world.scenes || {}; world.people = world.people || {};
+    if (t.dataset.wp) { world.places[+t.closest("[data-wpi]").dataset.wpi][t.dataset.wp] = t.value; }
+    else if (t.dataset.ws) { const k = t.closest("[data-wsk]").dataset.wsk, v = (world.scenes[k] = world.scenes[k] || {}); v[t.dataset.ws] = t.value; if (!v[t.dataset.ws]) delete v[t.dataset.ws]; }
+    else if (t.dataset.wn) { const k = t.closest("[data-wnk]").dataset.wnk, v = (world.people[k] = world.people[k] || {}); v[t.dataset.wn] = t.value; if (!v[t.dataset.wn]) delete v[t.dataset.wn]; }
+    else return;
+    worldTouch();
+  });
+  main.addEventListener("click", (e) => {
+    if (jcur !== "__world") return; const b = e.target.closest("[data-wact]"); if (!b) return;
+    if (b.dataset.wact === "pAdd") world.places.push({ id: "p" + Date.now().toString(36), name: "", desc: "" });
+    else if (b.dataset.wact === "pDel") {
+      if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "再按一次"; return; }
+      const [pl] = world.places.splice(+b.closest("[data-wpi]").dataset.wpi, 1);
+      for (const v of Object.values(world.scenes || {})) if (v.place === pl.id) delete v.place;
+    }
+    worldTouch(); worldMain();
+  });
+  if (!db) { try { const v = JSON.parse(localStorage.getItem("script-sheet-world") || "null"); if (v) world = v; } catch (e) {} return; }
+  db.collection("jianghu_cfg").onSnapshot((snap) => {
+    const d = snap.docs.find((x) => x.exists && x.id === "world");
+    if (d && !worldDirty) { world = JSON.parse(JSON.stringify(d.data())); world.places = world.places || []; world.scenes = world.scenes || {}; world.people = world.people || {};
+      if (jcur === "__world" && !document.activeElement?.closest?.("#jh-main")) worldMain(); }
+  }, () => {});
+}
+
+/* ── 橫幅框：美術資產的場景那一列，在原圖上拖一個框＝見聞地點卡那一條露出的範圍 ──
+   框的比例固定（340:104，手機上地點卡的橫幅）；拖框移位置，滑桿改大小。存成 banner {x,y,w}（佔原圖的比例）
+   ＋算好的 CSS {bs,bx,by}（background-size 與 position 的 %），App 照 CSS 畫，跟這裡的預覽一樣。 */
+const BAN_A = 340 / 104;
+function banPanel(a, url) {
+  const m = /^scene\/(.+)$/.exec(a.key || ""); if (!m || !url) return "";
+  const k = m[1].replace(/-night$/, ""); if (k !== m[1]) return "";   // 夜景不用調：見聞用日景
+  return `<div class="bancrop" data-bk="${esc(k)}"><h4>見聞橫幅 <small class="fxnote">拖白框選露出的範圍</small></h4>
+    <div class="bc-stage"><img src="${esc(url)}" alt="" draggable="false"><div class="bc-rect"></div></div>
+    <div class="bc-row">大小 <input type="range" min="0.25" max="1" step="0.01" data-bw> <button class="btn sm ghost" data-breset>置中</button></div>
+    <div class="bc-prev"></div><p class="fxnote" style="margin:0">↑ 見聞首頁「${esc(((world.scenes || {})[k] || {}).name || BGS[k] || k)}」所在地點卡的樣子</p></div>`;
+}
+function banGeom(el) {
+  const img = el.querySelector("img"), nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+  const maxW = Math.min(1, BAN_A * nh / nw);
+  return { img, nw, nh, maxW };
+}
+function banApply(el, b, save) {
+  const g = banGeom(el), w = Math.min(Math.max(b.w, 0.25), g.maxW), hf = (w * g.nw / BAN_A) / g.nh;
+  const x = Math.min(Math.max(b.x, 0), 1 - w), y = Math.min(Math.max(b.y, 0), 1 - hf);
+  const css = { bs: +(100 / w).toFixed(2), bx: w < 1 ? +(100 * x / (1 - w)).toFixed(2) : 50, by: hf < 1 ? +(100 * y / (1 - hf)).toFixed(2) : 50 };
+  const r = el.querySelector(".bc-rect"), W = g.img.clientWidth, H = g.img.clientHeight;
+  Object.assign(r.style, { left: x * W + "px", top: y * H + "px", width: w * W + "px", height: hf * H + "px", backgroundImage: `url('${g.img.src}')`, backgroundSize: `${W}px ${H}px`, backgroundPosition: `${-x * W - 2}px ${-y * H - 2}px` });
+  const pv = el.querySelector(".bc-prev"); Object.assign(pv.style, { backgroundImage: `url('${g.img.src}')`, backgroundSize: css.bs + "% auto", backgroundPosition: `${css.bx}% ${css.by}%` });
+  el.querySelector("[data-bw]").max = g.maxW.toFixed(2); el.querySelector("[data-bw]").value = w;
+  el._b = { x, y, w };
+  if (save) { const k = el.dataset.bk; world.scenes = world.scenes || {}; const v = (world.scenes[k] = world.scenes[k] || {}); v.banner = { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), ...css }; worldTouch(); }
+}
+function banInit() {
+  document.querySelectorAll(".bancrop").forEach((el) => {
+    const img = el.querySelector("img");
+    const go = () => { const v = ((world.scenes || {})[el.dataset.bk] || {}).banner, g = banGeom(el);
+      const w = v ? v.w : g.maxW, hf = (w * g.nw / BAN_A) / g.nh; banApply(el, v || { x: (1 - w) / 2, y: (1 - hf) / 2, w }, false); };
+    if (img.complete && img.naturalWidth) go(); else img.addEventListener("load", go, { once: true });
+  });
+}
+document.addEventListener("pointerdown", (e) => {
+  const r = e.target.closest(".bc-rect"); if (!r) return;
+  const el = r.closest(".bancrop"), img = el.querySelector("img"), W = img.clientWidth, H = img.clientHeight;
+  const sx = e.clientX, sy = e.clientY, b0 = { ...el._b }; r.setPointerCapture(e.pointerId); e.preventDefault();
+  const mv = (ev) => banApply(el, { ...b0, x: b0.x + (ev.clientX - sx) / W, y: b0.y + (ev.clientY - sy) / H }, false);
+  const up = () => { r.removeEventListener("pointermove", mv); r.removeEventListener("pointerup", up); banApply(el, el._b, true); };
+  r.addEventListener("pointermove", mv); r.addEventListener("pointerup", up);
+});
+document.addEventListener("input", (e) => {
+  const t = e.target; if (!t.matches(".bancrop [data-bw]")) return;
+  const el = t.closest(".bancrop"), b = el._b, w = +t.value, g = banGeom(el), hf0 = (b.w * g.nw / BAN_A) / g.nh, hf = (w * g.nw / BAN_A) / g.nh;
+  banApply(el, { x: b.x + (b.w - w) / 2, y: b.y + (hf0 - hf) / 2, w }, false);
+});
+document.addEventListener("change", (e) => { if (e.target.matches(".bancrop [data-bw]")) { const el = e.target.closest(".bancrop"); banApply(el, el._b, true); } });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".bancrop [data-breset]"); if (!b) return;
+  const el = b.closest(".bancrop"), g = banGeom(el), w = g.maxW, hf = (w * g.nw / BAN_A) / g.nh; banApply(el, { x: (1 - w) / 2, y: (1 - hf) / 2, w }, true);
+});
+if (typeof artPaint === "function") { const _ap = artPaint; artPaint = function (f) { _ap(f); banInit(); }; }
+</script>
+
 

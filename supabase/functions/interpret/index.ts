@@ -16,6 +16,7 @@ import { detectCrisis, crisisMessage, logCrisis, CRISIS_LINES } from "../_shared
 import { notifyAdmin, modCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
 import { missNudgeOf, markMissNudge } from "../_shared/miss-nudge.ts";
 import { achBoard, achClaim, achLitCount, bumpReview } from "../_shared/achievements.ts";
+import { jwBoard } from "../_shared/jianwen.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
 import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
@@ -1267,6 +1268,11 @@ async function handle(req: Request): Promise<Response> {
       if (body.mode === "jh_finish") return out(await jianghuFinish(db, uid, body));
       if (body.mode === "jh_board") return out(await jianghuBoard(db, uid, isAdmin));
       if (body.mode === "jh_claim") return out(await jianghuClaim(db, uid, body));
+    }
+    // 道籍 › 見聞（0109）：江湖走過的地方、遇過的人（_shared/jianwen.ts）
+    if (body.mode === "jw_board") {
+      try { return Response.json({ kind: "ok", ...(await jwBoard(db, uid)) }, { headers: CORS }); }
+      catch (e) { console.error("jw_board", e); return Response.json({ kind: "err", msg: "見聞暫時讀不到" }, { headers: CORS }); }
     }
 
     /* ═══ 成就榜：問事、道緣（0106）═══ 規則在 _shared/achievements.ts；江湖那一格照舊走 jh_board */

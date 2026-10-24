@@ -60,7 +60,7 @@ export const changePlays = (doc: Doc, i: number, moving: number[]) =>
 
 /** 照劇本重演一趟。picks＝每個選擇點選的 key，依序。多送、少送、送了當下選不到的 key 都算錯。
  *  picks 也可以是一支函式（給測試：看當下能選的選項，回一個 key）。 */
-export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string)): Walk {
+export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string), trace?: (s: Scene) => void): Walk {
   const chooser = typeof picks === "function" ? picks : null, keys: string[] = chooser ? [] : picks as string[];
   const st: Record<string, number> = {}, items: string[] = [], flags: string[] = [], changes: number[] = [], picked: string[] = [];
   for (const [k, v] of Object.entries(doc.start ?? {})) st[k] = Number(v) || 0;
@@ -71,6 +71,7 @@ export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[
       if (++guard > 500) return "劇本繞圈";
       const s = list[si];
       if (!sceneOn(s, picked)) { si++; continue; }   // 前路不合：這一幕不演，連它的「到此結束」也不算
+      if (trace) trace(s);   // 見聞：這一幕演到了（場景、誰說話）
       // 看得到＝有字、道具帶著；選得了＝看得到而且錢夠。一個都選不了就當這一幕沒有選項（不會卡死；稿紙檢查會提醒）
       const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req))
         && (!c.cost || (st[MONEY] ?? 0) >= c.cost));
