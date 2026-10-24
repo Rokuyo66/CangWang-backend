@@ -1163,7 +1163,9 @@ function jMain() {
     <div class="evs">${j.npcs.map((n, i) => `<div class="evhead" data-npc="${i}" style="grid-template-columns:140px minmax(0,1fr) auto">
       <input type="text" data-nf2="name" value="${esc(n.name)}" placeholder="名字（例：姚幫主）"><input type="text" data-nf2="desc" value="${esc(n.desc)}" placeholder="一句設定：身分、性格、他要什麼">
       <span class="rowops"><button data-ja="npcDel" title="刪掉">✕</button></span></div>`).join("")}</div>
-    <div><button class="btn sm" data-ja="npcAdd">＋一個人物</button></div>`, early)}
+    <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn sm" data-ja="npcAdd">＋新人物</button>
+      ${castPick(j)}</div>
+    <p class="fxnote" style="margin:0">沿用＝同一個人（同 id、同一張立繪 <code>char/&lt;id&gt;</code>）：之後圖鑑會把他在各卦的出場算成同一個人的完整度。能沿用就別新開。</p>`, early)}
   ${fs("open", "開場", "入場的第一段",
     `<div class="grid">
       <label class="field"><span>場景</span><select data-op="bg">${sel({ "": "（無）", ...BGS }, j.opening.bg || "")}</select></label>
@@ -1313,6 +1315,20 @@ function itemsCard(j) {
     ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有選項設它</span>"}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
   </div>`;
 }
+/* 共用人物：別卦已經有的江湖人物（同 id＝同一個人，跨卦出場。六六 2026-10-24） */
+function castOf(j) {
+  const m = new Map();
+  for (const d of Object.values(jh)) if (d && d.id !== j.id && Array.isArray(d.npcs)) for (const n of d.npcs) {
+    if (!n.id || !(n.name || "").trim()) continue;
+    const o = m.get(n.id) || { id: n.id, name: n.name, desc: n.desc || "", gua: [] };
+    o.gua.push(`${d.gua}「${d.title || ""}」`); if (!o.desc && n.desc) o.desc = n.desc; m.set(n.id, o);
+  }
+  return [...m.values()];
+}
+function castPick(j) {
+  const mine = new Set(j.npcs.map((n) => n.id)), list = castOf(j).filter((n) => !mine.has(n.id));
+  return list.length ? `<select data-npcpick aria-label="從別卦沿用人物"><option value="">＋從別卦沿用人物…</option>${list.map((n) => `<option value="${esc(n.id)}">${esc(n.name)}（${esc(n.gua.join("、"))}）</option>`).join("")}</select>` : "";
+}
 function flagChecks(j, en, f) {
   const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
   const list = flagsOfJ(j);
@@ -1432,11 +1448,15 @@ function gptDoc(j) {   // 貼回來 jFromPaste 認得的格式；只放寫故事
     nodes: j.nodes.map((n) => ({ title: n.title, scenes: jScenes(n.scenes), change: { scenes: jScenes(n.change.scenes) } })),
     endings: en, achievements: achList(j) };
 }
+function castNote(j) {   // 給 GPT：別卦已經有的人物，能沿用就沿用（id 照抄）
+  const list = castOf(j); if (!list.length) return "";
+  return `能沿用的共用人物（別卦已經出場、立繪已經有了；要用就把 npcs 那一列照抄、id 不改，性格與底細要一致，不能寫死）：\n${list.map((n) => `- ${n.id} ${n.name}：${n.desc}（出場：${n.gua.join("、")}）`).join("\n")}\n`;
+}
 function gptJson(j) {
   return `你是「幾知觀・江湖事件」的編劇。下面是第 ${j.gua_no} 卦《${j.gua}》「${j.title || "未命名"}」目前的整篇稿（JSON）。
 規則照編劇交接包（JIANGHU-WRITER-BRIEF.md）；範本是乾為天 gua_01.json。請照交接包第一節交出三樣東西：
 ①整篇 JSON（一個 code block，可以直接貼回稿紙；欄位名、選項 key、幕 id、結局 id 沒要改的就照舊）②美術需求表 ③自檢報告。
-這一版多兩個欄位：幕的 "after"（前面選過這些選項 key 其中一個才演這一幕，空＝人人都演）、結局的 "moves"（要演過哪幾爻的變數，0＝初爻）。
+${castNote(j)}這一版多兩個欄位：幕的 "after"（前面選過這些選項 key 其中一個才演這一幕，空＝人人都演）、結局的 "moves"（要演過哪幾爻的變數，0＝初爻）。
 
 \`\`\`json
 ${JSON.stringify(gptDoc(j), null, 1)}
@@ -1474,7 +1494,7 @@ ${j.identity.mode === "disguise" ? `偽裝成${j.identity.label}（${j.identity.
 # 本篇人物
 ${j.npcs.map((n) => `- ${n.name}：${n.desc}`).join("\n") || "（沒有）"}
 
-# 開場
+${castNote(j) ? "# 可以沿用的共用人物（別卦已經出場、已經有立繪）\n" + castNote(j).replace(/^.*\n/, "") + "\n" : ""}# 開場
 ${(j.opening.text || "").trim() || "（沒寫）"}
 
 ${j.nodes.map((n, i) => `# ${YAO[i]}・${n.title || "（沒名字）"}
@@ -1585,6 +1605,11 @@ function onEdit(e, structural) {
 }
 $("jh-main").addEventListener("input", (e) => onEdit(e, false));
 $("jh-main").addEventListener("change", (e) => {
+  if (e.target.matches("[data-npcpick]")) {
+    const j = jh[jcur], n = castOf(j).find((x) => x.id === e.target.value);
+    if (n && !j.npcs.some((x) => x.id === n.id)) { j.npcs.push({ id: n.id, name: n.name, desc: n.desc }); jtouch(jcur); jMain(); }
+    return;
+  }
   onEdit(e, true);
   // 改了人物名字：說話者跟著換、結局選單跟著換
   const t = e.target; if (jcur === "__cfg" || !jh[jcur]) return;
