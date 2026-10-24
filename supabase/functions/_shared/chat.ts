@@ -542,6 +542,78 @@ export function gapText(ms: number): string {
   return "一個多月";
 }
 
+/* ══ 新的一場只帶上一場的尾巴（六六 2026-10-24：刪了回憶，師妹還是卡在質疑、師兄還是問肚子痛）══
+   刪回憶只刪 character_memories；最近的對話原文還整段回灌，模型把自己的舊稿當範本，
+   隔幾天再聊還是同一個調子。timeGapHint 叫它「別繞回去」，但原文擺在眼前，一句話壓不過。
+   現在：這一場之前的對話只留最後 PREV_SESSION_CARRY 則（上一場怎麼收尾），其餘不餵；
+   要延續的事交給長期記憶。這一場自己的對話照舊全帶。 */
+const PREV_SESSION_CARRY = 4;
+export function trimPastSessions<T extends { role: string; created_at?: string }>(hist: T[], now = Date.now()): T[] {
+  if (!hist.length) return hist;
+  const at = (i: number) => Date.parse(hist[i]?.created_at ?? "");
+  // 這一場從哪一則開始；最後一則已經隔了一場的時間，就是整段都算上一場之前
+  let start = hist.length;
+  if (!(now - at(hist.length - 1) >= GAP_MARK_MS)) {
+    start = hist.length - 1;
+    while (start > 0 && !(at(start) - at(start - 1) >= GAP_MARK_MS)) start--;
+  }
+  if (start === 0) return hist;
+  let carry = hist.slice(Math.max(0, start - PREV_SESSION_CARRY), start);
+  while (carry.length && carry[0].role !== "user") carry = carry.slice(1);   // 從他說的那句接起
+  return [...carry, ...hist.slice(start)];
+}
+
+/* ══ 繞圈（同上）══ 角色連著幾則都在講同一件事、他卻沒再提——師兄一直問肚子痛、師妹一直質疑他的位置。
+   取最近三則角色回覆都出現、而他最近幾句話（含這一句）都沒說過的詞，點名叫這一則別再主動提。
+   用二字詞比對、再在最近那則裡把相連的接成一段，不靠斷詞。常用字與稱呼先排掉。 */
+const LOOP_STOP = new Set(("什麼 怎麼 這樣 那樣 這個 那個 一個 一下 一點 有點 不是 沒有 就是 還是 可以 知道 覺得 自己 "
+  + "我們 你們 他們 真的 其實 只是 已經 如果 因為 所以 但是 不過 然後 時候 這麼 那麼 這裡 那裡 東西 事情 起來 出來 "
+  + "過來 下來 回來 不會 不用 不要 現在 剛才 今天 一起 一樣 看著 看了 說話 開口 低聲 輕聲 抬眼 抬頭 指尖 手指 目光 "
+  + "嘴角 微微 輕輕 慢慢 師兄 師妹 觀喵 觀貓 本喵 護道 道人 大師 師父 觀主 你的 我的 他的 她的 了一 一聲 聲音 "
+  + "停頓 頓了 沉默 半晌 良久 靜了 片刻 好好 怎樣 這些 那些 還有 一直 有沒 沒事 先去 一會").split(" "));
+const bigramsOf = (s: string): Set<string> => {
+  const out = new Set<string>();
+  for (const run of s.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let i = 0; i + 1 < run.length; i++) out.add(run.slice(i, i + 2));
+  return out;
+};
+/** 角色這幾則在繞的詞（至多四段）；不夠三則、或沒有就回空。exclude：道號、稱號這類本來就會一再出現的字。 */
+export function loopWords(turns: { role: string; body: string }[], message: string, exclude = ""): string[] {
+  const replies = turns.filter((t) => t.role === "assistant").slice(-3).map((t) => t.body);
+  if (replies.length < 3) return [];
+  const said = bigramsOf([...turns.filter((t) => t.role === "user").slice(-2).map((t) => t.body), message, exclude].join("|"));
+  const sets = replies.map(bigramsOf);
+  const shared = new Set([...sets[2]].filter((b) => !LOOP_STOP.has(b) && !said.has(b) && sets[0].has(b) && sets[1].has(b)));
+  if (!shared.size) return [];
+  const last = replies[2], out: string[] = [];
+  for (let i = 0; i + 1 < last.length; i++) {
+    if (!shared.has(last.slice(i, i + 2))) continue;
+    let j = i + 1;
+    while (j + 1 < last.length && shared.has(last.slice(j, j + 2))) j++;
+    const w = last.slice(i, j + 1);
+    if (!out.includes(w)) out.push(w);
+    i = j;
+  }
+  return out.slice(0, 4);
+}
+export function loopHint(turns: { role: string; body: string }[], message: string, exclude = ""): string {
+  const w = loopWords(turns, message, exclude);
+  return w.length
+    ? `\n【別繞回】你最近幾則都提到${w.map((x) => `「${x}」`).join("")}，他這幾句沒再說起。這則別再主動提，接他現在說的；他自己提起再接。`
+    : "";
+}
+
+/* ══ 時辰的覺察（六六 2026-10-24：凌晨五點還在聊，角色毫無知覺）══
+   不只深夜——任何時辰都能拿來起話頭（飯點、午後犯睏、天剛亮）。時辰本身由 tianshiLine 給。 */
+const TIME_SENSE_BASE = `【時辰的覺察】時辰是你們同在的日子，不是報時：他什麼時辰來找你，你心裡有數——夜深了還醒著、天剛亮就來、正是飯點、午後犯睏。想到就照你的性子帶一句，或拿來起個話頭（聊到沒話時尤其好用）；不必每則都提，這一場已經提過就不再提。他正說著要緊的事，先接要緊的事。`;
+const TIME_SENSE: Record<string, string> = {
+  daoshi_m: `你作息規律，看不慣人熬夜：夜深了就叫他先去睡、有事明早再說；到了飯點會問他吃了沒。`,
+  daoshi_f: `你細心：他這個時辰還醒著、或一早就來，你會留意他是不是沒睡好、累不累；到了飯點會惦記他有沒有好好吃。`,
+  lingshou: `你是貓，照貓的作息：夜裡精神正好，午後要找太陽睡覺；他半夜不睡你會嫌他，也會趕他去睡。`,
+};
+export function timeSense(characterId?: string): string {
+  return `\n${TIME_SENSE_BASE}${TIME_SENSE[characterId ?? ""] ?? ""}`;
+}
+
 async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
@@ -582,7 +654,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   const { data: history } = await db.from("chat_messages")
     .select("role, body, created_at").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
-  const hist = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
+  const hist = trimPastSessions((history ?? []).reverse() as { role: string; body: string; created_at?: string }[]);
   // 最後一次說話的時間：隔太久的話，提示詞裡會說「那已經是昨天的事」（見 timeGapHint）
   const lastAt = hist.length ? hist[hist.length - 1].created_at ?? null : null;
   // 舊稿回灌前先照新規則收拾一遍：模型會把自己的舊回覆當範本——舊稿滿是「停頓，」，新稿就跟著寫。
@@ -1296,7 +1368,7 @@ export async function chat(db: SupabaseClient, p: {
   } catch (e) { console.error("rhythm read failed, treat as 0", e); }
   const serious = askMode || isSerious(p.message);
   const rMode = modeOf(balance, target);
-  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + "\n" + tianshiLine() + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
+  const system = systemPrompt(ch!.persona_prompt, ctx.castLines, ctx.daoName, ctx.memorySummary, ctx.reminderLines, p.characterId, favor, ctx.probeStreak, titleLine, quoteBlock, ctx.threadLines, narrLine + loopHint(ctx.turns, p.message, `${ctx.daoName ?? ""}|${titleLine}`) + "\n" + tianshiLine() + timeSense(p.characterId) + life.text + rhythmHint(rMode, p.characterId, serious), askMode);
 
   let reply = "", tier: ChatResult["tier"] = "canned", cost = 0;
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）

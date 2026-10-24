@@ -1413,6 +1413,16 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
     }
 
+    // 清掉最近的對話原文（六六 2026-10-24）：刪回憶只刪 character_memories，
+    // 最近的對話還整段回灌，角色照著舊稿繞同一件事（師兄一直問肚子痛）。這支連原文一起清，
+    // 長期回憶不動。清掉的不再濃縮成回憶——他要的就是忘掉這一段。
+    if (body.mode === "chat_forget_recent") {
+      const cid = String(body.character_id ?? "");
+      if (!["daoshi_m", "daoshi_f", "lingshou"].includes(cid)) return Response.json({ kind: "err", msg: "角色不存在" }, { headers: CORS });
+      const { error } = await db.from("chat_messages").delete().eq("user_id", uid).eq("character_id", cid);
+      return Response.json({ kind: error ? "err" : "ok" }, { headers: CORS });
+    }
+
     // 釘選／取消釘選：釘住的永不因額度縮減而溢出。釘選數依方案上限。
     if (body.mode === "memory_pin") {
       const id = String(body.memory_id ?? "");

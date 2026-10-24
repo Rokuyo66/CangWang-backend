@@ -35,6 +35,38 @@ export function tianshiLine(now = Date.now()): string {
   const ys = yearStar(ey);
   return `【此刻天時】歲次${gzName(yi)}（${SHENGXIAO[yi % 12]}年，納音${NAYIN[Math.floor(yi / 2)]}），流年${STAR[ys]}入中；`
     + `月建${gzName(mi)}，日辰${gzName(di)}，${jq.name}第 ${jq.dayIndex} 日。`
-    + `三元九運：${sy.yuan}${NUM[sy.yun]}運（${sy.from}–${sy.to}），${STAR[sy.yun]}當運。`;
+    + `三元九運：${sy.yuan}${NUM[sy.yun]}運（${sy.from}–${sy.to}），${STAR[sy.yun]}當運。`
+    + `\n【此刻時辰】${shichenOf(now).text}。`;
 }
 export const __ZHI = ZHI;
+
+/* ── 時辰（六六 2026-10-24：凌晨五點還在聊，角色毫無知覺）──
+   天時只給到「哪一天」，角色不知道此刻幾點，就不會說「天都快亮了，回去睡一下」。
+   這裡給時辰＋那個時辰觀裡大概在做什麼；怎麼用、用不用交給角色（chat.ts 的 TIME_SENSE）。 */
+const SHICHEN_SCENE = [
+  "夜半，觀裡都睡了",            // 子
+  "雞鳴前，夜最深的時候",        // 丑
+  "平旦，天將亮未亮",            // 寅
+  "天光初起，觀裡起身洗漱、做早課",  // 卯
+  "食時，吃早飯的時候",          // 辰
+  "隅中，上午做事的時候",        // 巳
+  "日中，午飯、歇晌",            // 午
+  "日昳，午後人容易犯睏",        // 未
+  "晡時，下午用點心的時候",      // 申
+  "日入，吃晚飯、點燈",          // 酉
+  "黃昏過了，掌燈收拾",          // 戌
+  "人定，該歇下了",              // 亥
+];
+const NUM_CLOCK = ["", "一", "兩", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"];
+const CLOCK_PART = (h: number) => h === 0 ? "半夜" : h < 5 ? "凌晨" : h < 8 ? "清晨" : h < 11 ? "上午" : h < 13 ? "中午" : h < 17 ? "下午" : h < 19 ? "傍晚" : "晚上";
+
+/** 此刻時辰（台北時間）：「卯初（約清晨五點）——日出，觀裡起身洗漱、做早課」。 */
+export function shichenOf(now = Date.now()): { zhi: number; text: string } {
+  const t = new Date(now + 8 * 3600_000);
+  const h = t.getUTCHours();
+  const zhi = Math.floor((h + 1) / 2) % 12;          // 子時 23–1
+  const head = h % 2 === 1 ? "初" : "正";              // 單數鐘點是時辰的前半
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const half = t.getUTCMinutes() >= 30 ? "半" : "";
+  return { zhi, text: `${ZHI[zhi]}${head}（約${CLOCK_PART(h)}${NUM_CLOCK[h12]}點${half}）——${SHICHEN_SCENE[zhi]}` };
+}

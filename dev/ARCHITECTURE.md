@@ -36,7 +36,7 @@
 | --- | --- | --- | --- |
 | 起卦與批卦 | `core.ts`（排盤，與前端同一份）、`pipeline.ts`、`rules.ts`、`dongyao.ts`、`qrefine.ts` | `refine`、（預設）批卦、`deepen`、`followup`、`history`、`cast_detail`、`review` | `casts`、`cast_claims`、`feedback` |
 | 回評與反芻 | `reflect.ts` | `review` | `cast_reflections`、`reflection_rules`、`user_reading_notes`、`rule_priority` |
-| 閒聊與記憶 | `chat.ts`、`rhythm.ts`、`crisis.ts`、`whereabouts.ts` | `chat`、`chat_history`、`memory_list／pin／delete`、`whereabouts`、`hall_mention` | `chat_messages`、`character_memories`、`user_character`、`reminders` |
+| 閒聊與記憶 | `chat.ts`、`rhythm.ts`、`crisis.ts`、`whereabouts.ts` | `chat`、`chat_history`、`chat_forget_recent`、`memory_list／pin／delete`、`whereabouts`、`hall_mention` | `chat_messages`、`character_memories`、`user_character`、`reminders` |
 | 道緣事件與身分 | `events.ts` | `event_list／open／progress／finish`、`char_titles`、`set_char_title`、`player_titles`、`set_player_title` | `character_events`、`user_character_events`、`character_titles`、`player_titles`、`hidden_quests` |
 | 心跡（心事、月誌） | `xinji.ts` | `xinji_*` | `threads`、`thread_notes`、`monthly_reviews` |
 | 語音與貼紙 | `tts.ts`、`voice.ts`、`voices.ts`、`stickers.ts` | `tts`、`voice_*`、`sticker_*` | `voice_clips`、`tts_usage`、`sticker_packs`、`stickers`、`owned_packs`、`placed_stickers` |
