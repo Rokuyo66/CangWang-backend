@@ -309,6 +309,42 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
+/* ── 江湖編輯：摺疊、底色分區、跳轉列（六六 2026-10-24）──
+   主線＝紙色；變數＝金；結局＝硃；成就＝青（--ok）。摺起來的標題列帶一行摘要。 */
+.fold-t{width:22px;height:22px;flex:none;border:1px solid var(--edge);border-radius:50%;background:var(--field);cursor:pointer;position:relative;padding:0}
+.fold-t::before{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;border-right:1.5px solid var(--ink-soft);border-bottom:1.5px solid var(--ink-soft);transform:translate(-50%,-70%) rotate(45deg);transition:transform .15s}
+.fold.shut>.fold-h .fold-t::before,.fold.shut>.evhead .fold-t::before{transform:translate(-70%,-50%) rotate(-45deg)}
+.fold.shut>.fold-b{display:none}
+.fold-h{cursor:pointer;user-select:none}
+h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
+.evhead.fold-h{grid-template-columns:auto auto minmax(0,1fr) auto auto}
+.en .evhead.fold-h{grid-template-columns:auto auto minmax(0,1fr) auto auto}
+.evhead .sum{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;white-space:normal}
+.chip{font-style:normal;font-size:11.5px;border:1px solid var(--edge);border-radius:999px;padding:0 7px;background:var(--field);color:var(--ink-soft);max-width:28em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.chg{border-color:var(--gold);color:var(--gold)}
+.chip.rare{border-color:var(--gold);background:var(--gold);color:var(--paper)}
+.chip.off{opacity:.65}
+.part{border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.part-h{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-faint)}
+.part-h b{font-family:var(--f-display);font-size:13px;color:var(--ink);border-radius:4px;padding:0 6px}
+.part.main{border:1px solid var(--hair);background:transparent}
+.part.chg{border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);border-left:4px solid var(--gold);background:color-mix(in srgb,var(--gold) 13%,var(--paper-2))}
+.part.chg .part-h b{background:var(--gold);color:var(--paper)}
+.part.chg .er{background:color-mix(in srgb,var(--gold) 6%,var(--paper))}
+.en{border-left:4px solid var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 7%,var(--paper-2))}
+.en.rare{border-left-color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,color-mix(in srgb,var(--cinnabar) 6%,var(--paper-2)))}
+.tcard.ach{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--paper-2))}
+.jsec{display:flex;flex-direction:column;gap:8px;margin:10px 0 4px}
+#jh-main .sec,#jh-main .jsec,#jh-main .ev,#jh-main .en{scroll-margin-top:52px}
+.jsec>h3{font-size:15px;margin:0}
+.jsec>h3 small,.sec>h2 small{font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px}
+.lg{font-weight:500;padding:0 5px;border-radius:3px}
+.lg.chg{background:color-mix(in srgb,var(--gold) 22%,transparent)}.lg.end{background:color-mix(in srgb,var(--cinnabar) 16%,transparent)}.lg.ach{background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.jnav{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:6px 0;background:var(--paper);border-bottom:1px solid var(--hair)}
+.jnav button{border:1px solid var(--edge);background:var(--field);border-radius:999px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--ink-soft)}
+.jnav button:hover{border-color:var(--ink-faint);color:var(--ink)}
+.jnav-r{margin-left:auto;display:flex;gap:4px}
+.gptbox{display:grid;gap:10px}
 /* ── 江湖：前路銜接（六六 2026-10-24）── */
 .after{grid-column:1/-1;font-size:12.5px;border:1px dashed var(--edge);border-radius:6px;padding:4px 8px;background:var(--paper)}
 .after summary{cursor:pointer;color:var(--ink-soft)}
@@ -1098,6 +1134,8 @@ function needHtml(need, attr) {
 function jMain() {
   const j = jh[jcur]; if (!j) { $("jh-main").innerHTML = `<div class="empty">從左邊選一卦。</div>`; return; }
   const yj = YJ[j.gua] || [];
+  const fs = (k, title, small, body, def) => `<section class="sec ${foldCls("s:" + k, def)}" id="jh-s-${k}"><h2 class="fold-h">${foldBtn()}${title}${small ? ` <small>${small}</small>` : ""}</h2><div class="fold-b">${body}</div></section>`;
+  const early = ["draft", "gen"].includes(j.status);
   $("jh-main").innerHTML = `
   <section class="sec">
     <h2>${j.gua_no}・${esc(j.gua)} <small>${esc(j.id)}</small></h2>
@@ -1107,40 +1145,48 @@ function jMain() {
       <label class="field"><span>調性</span><select data-jk="tone">${sel({ small: "江湖小事", heavy: "重口" }, j.tone)}</select></label>
     </div>
   </section>
-  <section class="sec"><h2>卦辭與爻辭 <small>原文（取自前端 yijing-text.js），大綱與劇本以這裡為準</small></h2>
-    <div class="stage" style="max-width:none;gap:4px;font-family:var(--f-display)">${yj.slice(1).map((t, i) => `<div style="${i ? "" : "font-weight:600;"}font-size:14px">${esc(t)}</div>`).join("")}</div></section>
-  <section class="sec"><h2>大綱 <small>寫好把狀態改「請生成」，Claude 會照這裡寫初稿</small></h2>
-    <div class="grid">${OUTLINE.map(([k, n, rows]) => `<label class="field${rows > 1 || k === "summary" || k === "player_summary" ? " wide" : ""}"><span>${n}</span>${rows > 1
-      ? `<textarea rows="${rows}" data-jo="${k}">${esc(j.outline[k])}</textarea>` : `<input type="text" data-jo="${k}" value="${esc(j.outline[k])}">`}</label>`).join("")}</div></section>
-  <section class="sec"><h2>玩家身分</h2>
-    <div class="grid">
+  <nav class="jnav" id="jh-nav">${[["yj", "卦辭"], ["outline", "大綱"], ["who", "身分・人物"], ["open", "開場"], ["items", "道具旗標"], ["nodes", "六爻"], ["ends", "結局"], ["ach", "成就"], ["checks", "檢查"], ["gpt", "交給 GPT"]]
+    .map(([k, n]) => `<button type="button" data-jgo="${k}">${n}</button>`).join("")}
+    <span class="jnav-r"><button type="button" data-foldall="1">全部展開</button><button type="button" data-foldall="0">全部收起</button></span></nav>
+  ${fs("yj", "卦辭與爻辭", "原文（取自前端 yijing-text.js），大綱與劇本以這裡為準",
+    `<div class="stage" style="max-width:none;gap:4px;font-family:var(--f-display)">${yj.slice(1).map((t, i) => `<div style="${i ? "" : "font-weight:600;"}font-size:14px">${esc(t)}</div>`).join("")}</div>`, false)}
+  ${fs("outline", "大綱", "寫好把狀態改「請生成」，Claude 會照這裡寫初稿",
+    `<div class="grid">${OUTLINE.map(([k, n, rows]) => `<label class="field${rows > 1 || k === "summary" || k === "player_summary" ? " wide" : ""}"><span>${n}</span>${rows > 1
+      ? `<textarea rows="${rows}" data-jo="${k}">${esc(j.outline[k])}</textarea>` : `<input type="text" data-jo="${k}" value="${esc(j.outline[k])}">`}</label>`).join("")}</div>`, early)}
+  ${fs("who", "玩家身分與本篇人物", `身分：${j.identity.mode === "disguise" ? "偽裝成" + esc(j.identity.label || "？") : "幾知觀弟子"}・人物 ${j.npcs.length} 位`,
+    `<div class="grid">
       <label class="field"><span>身分</span><select data-ji="mode">${sel({ disciple: "幾知觀弟子（預設）", disguise: "偽裝身分" }, j.identity.mode)}</select></label>
       ${j.identity.mode === "disguise" ? `<label class="field"><span>偽裝成</span><input type="text" data-ji="label" value="${esc(j.identity.label)}" placeholder="例：送藥的郎中"></label>
       <label class="field wide"><span>為什麼要偽裝</span><input type="text" data-ji="reason" value="${esc(j.identity.reason)}"></label>` : ""}
     </div>
-    <p class="note" style="margin:0;font-size:12px;color:var(--ink-faint)">名字：入場時玩家選本名或抽化名（左上「數值與化名設定」）。台詞裡寫 <code>{名}</code>。</p></section>
-  <section class="sec"><h2>本篇人物 <small>只屬於這一篇；可以死，玩家與三位不會</small></h2>
+    <p class="note" style="margin:0;font-size:12px;color:var(--ink-faint)">名字：入場時玩家選本名或抽化名（左上「數值與化名設定」）。台詞裡寫 <code>{名}</code>。本篇人物只屬於這一篇；可以死，玩家與三位不會。</p>
     <div class="evs">${j.npcs.map((n, i) => `<div class="evhead" data-npc="${i}" style="grid-template-columns:140px minmax(0,1fr) auto">
       <input type="text" data-nf2="name" value="${esc(n.name)}" placeholder="名字（例：姚幫主）"><input type="text" data-nf2="desc" value="${esc(n.desc)}" placeholder="一句設定：身分、性格、他要什麼">
       <span class="rowops"><button data-ja="npcDel" title="刪掉">✕</button></span></div>`).join("")}</div>
-    <div><button class="btn sm" data-ja="npcAdd">＋一個人物</button></div></section>
-  <section class="sec"><h2>開場 <small>入場的第一段</small></h2>
-    <div class="grid">
+    <div><button class="btn sm" data-ja="npcAdd">＋一個人物</button></div>`, early)}
+  ${fs("open", "開場", "入場的第一段",
+    `<div class="grid">
       <label class="field"><span>場景</span><select data-op="bg">${sel({ "": "（無）", ...BGS }, j.opening.bg || "")}</select></label>
       <label class="field"><span>入場時身上的盤纏（財）<em>（觀裡派的、自己帶的；0＝身無分文）</em></span><input type="number" min="0" data-jstart="s5" value="${(j.start || {}).s5 ?? 0}"></label>
       <label class="field wide"><span>開場</span><textarea rows="3" data-op="text" placeholder="例：雨下了三天，{名}被困在半山的莊子裡。">${esc(j.opening.text)}</textarea></label>
-    </div></section>
+    </div>`, true)}
   <section class="sec">
     <div class="tabs"><button class="tab${jview === "write" ? " on" : ""}" data-jview="write">六爻節點與結局</button><button class="tab${jview === "sim" ? " on" : ""}" data-jview="sim">試走一趟</button></div>
     <div id="jh-body"></div>
   </section>
   <section class="sec"><h2>給 Claude 的備註</h2><textarea rows="2" data-jk="note" placeholder="美術、音樂、還沒想好的地方">${esc(j.note)}</textarea></section>
-  <section class="sec"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
-  <section class="sec"><h2>整篇 JSON <small>交給 GPT 寫或改：複製出去、把它寫好的貼回來（格式：JIANGHU-WRITER-BRIEF.md）</small></h2>
-    <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn" data-ja="jsonCopy">複製整篇</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div>
-    <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製整篇」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
+  <section class="sec" id="jh-s-checks"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
+  ${fs("gpt", "交給 GPT", "兩種：想故事（讀得懂的整理稿）、改稿（整篇 JSON，可以貼回來）",
+    `<div class="gptbox">
+      <div class="tcard"><h3>想故事用 <small>大綱、人物、每一爻的台詞與選項、結局條件，整理成讀得懂的文字；GPT 拿來提方向、改大綱，不是直接交 JSON</small></h3>
+        <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn primary" data-ja="gptIdea">複製・想故事用</button><button class="btn ghost" data-ja="gptPeek" data-k="idea">看一下內容</button></div></div>
+      <div class="tcard"><h3>改稿用 <small>開場白＋整篇 JSON（含前路銜接、稀有條件）；GPT 照交接包改完交回一整個 JSON，按「貼上整篇匯入」</small></h3>
+        <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn primary" data-ja="jsonCopy">複製・改稿用</button><button class="btn ghost" data-ja="gptPeek" data-k="json">看一下內容</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div></div>
+      <p class="fxnote" style="margin:0">規則交接包：後端 <code>dev/design/journal/JIANGHU-WRITER-BRIEF.md</code>＋範本 <code>jianghu/gua_01.json</code>，第一次跟 GPT 開對話時一起給。</p>
+    </div>
+    <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製・改稿用」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" data-ja="jsonGo" id="jh-imp-go">匯入（覆蓋這一卦）</button><button class="btn ghost" data-ja="jsonX">取消</button><span id="jh-imp-e" style="color:var(--cinnabar);font-size:13px"></span></div></div>
-    <div id="jh-out"></div></section>`;
+    <div id="jh-out"></div>`, false)}`;
   jBody(); jChecks(); jOut();
 }
 function jLists(j) {   // 🎒／🚩 的「挑既有」清單
@@ -1157,6 +1203,7 @@ const scPeek = (s) => { const t = String(s.text || "").replace(/\s+/g, " ").trim
 function scFalls(list, k) {   // 上一幕演完，會不會順著走到這一幕
   if (k === 0) return true;
   const p = list[k - 1];
+  if ((p.after || []).length && scFalls(list, k - 1)) return true;   // 上一幕有前路條件：沒演到它時會順著落到這一幕
   if (p.end) return false;
   const cs = (p.choices || []).filter((c) => (c.label || "").trim());
   return cs.length ? cs.some((c) => !c.to) : true;
@@ -1276,26 +1323,40 @@ function jWrite() {
   const j = jh[jcur], yj = YJ[j.gua] || [];
   jLists(j);
   const nodes = j.nodes.map((n, i) => {
-    const open = jopen[jcur + i] !== false, chOpen = !!jopen[jcur + "c" + i] || n.change.scenes.length > 0;
-    return `<div class="ev" data-node="${i}">
-      <div class="evhead"><b>${YAO[i]}</b><input type="text" data-nt="${i}" value="${esc(n.title)}" placeholder="這一節的名字" aria-label="節點名">
-        <span class="meta">${esc((yj[i + 2] || "").slice(0, 20))}</span>
-        <span class="rowops"><button data-ja="nodeToggle" title="${open ? "收起" : "展開"}">${open ? "▴" : "▾"}</button></span></div>
-      ${open ? `<div class="fxnote">${esc(yj[i + 2] || "")}</div>${sceneList(j, n.scenes, "n" + i)}
-      <div class="tcard" style="background:var(--paper)"><h3>動爻時多演（變數）<small>玩家的日運卦這一爻是動爻，演完上面再演這幾幕；空著＝這一節不出變數</small></h3>
-        ${chOpen ? sceneList(j, n.change.scenes, "c" + i) : `<div><button class="btn sm" data-ja="chOpen">寫變數</button></div>`}</div>` : ""}
+    const main = n.scenes.filter((x) => (x.text || "").trim()), chg = n.change.scenes.filter((x) => (x.text || "").trim());
+    const nch = (list) => list.filter((x) => (x.choices || []).some((c) => (c.label || "").trim())).length;
+    const its = [...n.scenes, ...n.change.scenes].flatMap((x) => (x.choices || []).flatMap((c) => [c.get && "🎒" + c.get, c.set && "🚩" + c.set].filter(Boolean)));
+    const ways = new Set(n.change.scenes.filter((x) => (x.after || []).length).map((x) => x.after.join())).size;
+    const chOpen = !!jopen[jcur + "c" + i] || n.change.scenes.length > 0;
+    return `<div class="ev ${foldCls("n:" + i, false)}" data-node="${i}">
+      <div class="evhead fold-h">${foldBtn()}<b>${YAO[i]}</b><input type="text" data-nt="${i}" value="${esc(n.title)}" placeholder="這一節的名字" aria-label="節點名">
+        <span class="meta sum">主線 ${main.length} 幕・${nch(n.scenes)} 選擇${chg.length ? `<i class="chip chg">變 ${chg.length} 幕${ways ? `・前路 ${ways} 種` : ""}</i>` : `<i class="chip off">無變數</i>`}${its.length ? `<i class="chip">${esc([...new Set(its)].join(" "))}</i>` : ""}</span></div>
+      <div class="fold-b">
+      <div class="fxnote">${esc(yj[i + 2] || "")}</div>
+      <div class="part main ${foldCls("m:" + i, true)}"><div class="part-h fold-h">${foldBtn()}<b>主線</b><span>${main.length} 幕・${nch(n.scenes)} 處選擇；每一趟都演</span></div>
+        <div class="fold-b">${sceneList(j, n.scenes, "n" + i)}</div></div>
+      <div class="part chg ${foldCls("c:" + i, true)}"><div class="part-h fold-h">${foldBtn()}<b>變</b><span>${YAO[i]}動時，演完主線再演這幾幕（每趟約四分之一機會）；${chg.length ? `${chg.length} 幕${ways ? `，依前面選項分 ${ways} 種接法` : ""}` : "空著＝這一節不出變數"}</span></div>
+        <div class="fold-b">${chOpen ? sceneList(j, n.change.scenes, "c" + i) : `<div><button class="btn sm" data-ja="chOpen">寫變數</button></div>`}</div></div>
+      </div>
     </div>`; }).join("");
-  const ens = j.endings.map((en, i) => `<div class="en" data-n="${i}">
-      <div class="evhead"><b>${i + 1}</b><input type="text" data-nf="title" value="${esc(en.title)}" placeholder="結局名" aria-label="結局名">
-        <label class="meta"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有</label>
+  const stName = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
+  const condSum = (en) => [
+    ...Object.entries(en.need || {}).map(([k, [lo, hi]]) => `${stName(k)}${lo != null ? "≥" + lo : ""}${hi != null ? "≤" + hi : ""}`),
+    ...(en.flags || []).map((f) => "🚩" + f), ...(en.not_flags || []).map((f) => "🚫" + f),
+    ...(en.moves || []).map((k) => YAO[k].slice(0, 1) + "變")].join(" ");
+  const ens = j.endings.map((en, i) => `<div class="en${en.rare ? " rare" : ""} ${foldCls("e:" + en.id, false)}" data-n="${i}">
+      <div class="evhead fold-h">${foldBtn()}<b>${i + 1}</b><input type="text" data-nf="title" value="${esc(en.title)}" placeholder="結局名" aria-label="結局名">
+        <span class="meta sum">${en.rare ? `<i class="chip rare">稀有</i>` : ""}<i class="chip">${esc(condSum(en) || (i === j.endings.length - 1 ? "保底：不設條件" : "⚠ 沒有條件"))}</i>${+en.reward_lingshi ? `<i class="chip">💎${+en.reward_lingshi}</i>` : ""}${en.player_title.label ? `<i class="chip">稱號 ${esc(en.player_title.label)}</i>` : ""}</span>
         <span class="rowops"><button data-ja="enUp" title="上移">▲</button><button data-ja="enDown" title="下移">▼</button><button data-ja="enDel" title="刪掉">✕</button></span></div>
+      <div class="fold-b">
+      <label class="ck"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有（成就榜上標金色）</label>
       <div class="field"><span>條件 <em>${i === j.endings.length - 1 ? "（最後一個：請全部留空，當保底）" : "（全部符合才算；留空＝不限）"}</em></span>${needHtml(en.need, 'data-nneed')}</div>
       <div class="grid">
         <div class="field"><span>要有旗標 <em>（勾的都要有）</em></span><div class="gua">${flagChecks(j, en, "flags")}</div></div>
         <div class="field"><span>不能有旗標 <em>（勾的一個都不能有）</em></span><div class="gua">${flagChecks(j, en, "not_flags")}</div></div>
         <div class="field wide"><span>要演過這幾爻的變數 <em>（那一爻動了、變數演到了才算；每爻約四分之一機會，勾越多越稀有）</em></span><div class="gua">${YAO.map((y, k) => `<label><input type="checkbox" data-nmove="${k}"${(en.moves || []).includes(k) ? " checked" : ""}>${y}</label>`).join("")}</div></div>
       </div>
-      <label class="field"><span>結語</span><textarea rows="2" data-nf="text">${esc(en.text)}</textarea></label>
+      <label class="field"><span>結語</span><textarea rows="3" data-nf="text">${esc(en.text)}</textarea></label>
       <div class="grid">
         <label class="field wide"><span>一句領悟</span><input type="text" data-nf="insight" value="${esc(en.insight)}"></label>
         <label class="field wide"><span>本篇人物的下場 <em>（例：姚幫主死／活下來；給試走與檢查看）</em></span><input type="text" data-nf="npc_fate" value="${esc(en.npc_fate)}"></label>
@@ -1308,14 +1369,19 @@ function jWrite() {
         <label class="field wide"><span>玩家帶去問的那句</span><input type="text" data-hk="ask" value="${esc((en.hook || {}).ask)}"></label>
         <label class="field wide"><span>寫進那位記憶的事</span><input type="text" data-hk="memory" value="${esc((en.hook || {}).memory)}"></label>
       </div>
+      </div>
     </div>`).join("");
   const achs = achList(j), enOpts = { "": "（還沒指定）", ...Object.fromEntries(j.endings.map((en) => [en.id, en.title || "（未命名結局）"])) };
+  const shd = (k, title, small, body) => `<div class="jsec ${foldCls("w:" + k, true)}" id="jh-s-${k}"><h3 class="fold-h">${foldBtn()}${title} <small>${small}</small></h3><div class="fold-b">${body}</div></div>`;
   $("jh-body").innerHTML = `
-    <h3 style="font-size:15px;margin:6px 0">六爻節點</h3>${itemsCard(j)}<div class="evs">${nodes}</div>
-    <h3 style="font-size:15px;margin:18px 0 6px">結局表 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">由上往下比，第一個符合的就是它</small></h3>
-    <div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>
-    <h3 style="font-size:15px;margin:18px 0 6px">這一卦的成就 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">亮了之後玩家在 App「道籍 › 成就」自己點領取靈石</small></h3>
-    <div class="evs">${achs.map((a, i) => `<div class="tcard" data-ach="${i}">
+    <div class="jsec ${foldCls("w:items", false)}" id="jh-s-items"><h3 class="fold-h">${foldBtn()}道具與旗標 <small>${itemsOfJ(j).length} 樣道具・${flagsOfJ(j).length} 個旗標；在選項裡打新名字就會進來</small></h3><div class="fold-b">${itemsCard(j)}</div></div>
+    ${shd("nodes", "六爻節點", "初爻→上爻依序演；底色：主線＝紙色、<b class='lg chg'>變數＝金</b>", `<div class="evs">${nodes}</div>`)}
+    ${shd("ends", "結局表", "由上往下比，第一個符合的就是它；<b class='lg end'>底色＝硃</b>",
+      `<div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>`)}
+    ${shd("ach", "這一卦的成就", "亮了之後玩家在 App「道籍 › 成就」自己點領取靈石；<b class='lg ach'>底色＝青</b>",
+    `<div class="evs">${achs.map((a, i) => `<div class="tcard ach ${foldCls("a:" + (a.id || i), false)}" data-ach="${i}">
+      <div class="evhead fold-h" style="grid-template-columns:auto auto minmax(0,1fr)">${foldBtn()}<b>${esc(a.name || "（未命名）")}</b><span class="meta sum"><i class="chip">${esc(ACH_KIND[a.kind] || a.kind)}</i>${+a.reward_lingshi ? `<i class="chip">💎${+a.reward_lingshi}</i>` : ""}${a.desc ? `<i class="chip off">${esc(a.desc)}</i>` : ""}</span></div>
+      <div class="fold-b">
       <div class="grid">
         <label class="field"><span>成就名</span><input type="text" data-acf="name" value="${esc(a.name)}" placeholder="例：待時而動"></label>
         <label class="field"><span>怎麼亮</span><select data-acf="kind">${sel(ACH_KIND, a.kind)}</select></label>
@@ -1326,8 +1392,109 @@ function jWrite() {
       </div>
       ${a.kind === "run" ? `<div class="field"><span>要帶著的道具 <em>（勾的都要在同一趟拿到）</em></span><div class="gua">${itemsOfJ(j).map((x) => `<label><input type="checkbox" data-acitem="${esc(x)}"${(a.items || []).includes(x) ? " checked" : ""}>${esc(x)}</label>`).join("") || `<span class="fxnote">這一卦還沒有選項給道具。</span>`}</div></div>
       <div class="field"><span>走完時的數值 <em>（留空＝不限）</em></span>${needHtml(a.need || {}, "data-aneed")}</div>` : ""}
-      <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div>`).join("")}</div>
-    <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`;
+      <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div></div>`).join("")}</div>
+    <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`)}`;
+}
+
+/* ── 摺疊（六六 2026-10-24：拉太長了）──
+   每一塊記自己開著沒（這台瀏覽器記住）；摺起來只是藏，不重畫，打到一半的字不會掉。 */
+const FOLD_LS = "script-sheet-fold";
+let jfold = (() => { try { return JSON.parse(localStorage.getItem(FOLD_LS) || "{}"); } catch (e) { return {}; } })();
+const foldOn = (k, def) => { const v = jfold[jcur + ":" + k]; return v == null ? def : v; };
+const foldCls = (k, def) => `fold${foldOn(k, def) ? "" : " shut"}" data-fk="${k}`;
+const foldBtn = () => `<button type="button" class="fold-t" data-fold aria-label="展開或收起"></button>`;
+function foldSet(el, open) {
+  el.classList.toggle("shut", !open); jfold[jcur + ":" + el.dataset.fk] = open;
+  try { localStorage.setItem(FOLD_LS, JSON.stringify(jfold)); } catch (e) {}
+}
+document.addEventListener("click", (e) => {
+  const root = e.target.closest("#jh-main"); if (!root) return;
+  const all = e.target.closest("[data-foldall]");
+  if (all) { const open = all.dataset.foldall === "1"; root.querySelectorAll(".fold[data-fk]").forEach((x) => { if (!x.dataset.fk.startsWith("w:") || open) foldSet(x, open); }); return; }
+  const go = e.target.closest("[data-jgo]");
+  if (go) {
+    const el = $("jh-s-" + go.dataset.jgo); if (!el) { if (jview !== "write") { jview = "write"; sim = null; jMain(); setTimeout(() => go && $("jh-s-" + go.dataset.jgo)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); } return; }
+    if (el.classList.contains("shut")) foldSet(el, true);
+    el.scrollIntoView({ behavior: "smooth", block: "start" }); return;
+  }
+  const h = e.target.closest(".fold-h"); if (!h) return;
+  // 標題列上的輸入框、選單、其他按鈕照常用；點空白或三角形才摺
+  if (!e.target.closest("[data-fold]") && e.target.closest("input,select,textarea,button,label,a")) return;
+  const f = h.closest(".fold[data-fk]"); if (f) foldSet(f, f.classList.contains("shut"));
+});
+
+/* ── 交給 GPT（六六 2026-10-24：輸出格式整理）──
+   想故事用：讀得懂的整理稿（台詞、選項的效果、結局條件寫成字）；改稿用：開場白＋可以貼回來的整篇 JSON。 */
+function gptDoc(j) {   // 貼回來 jFromPaste 認得的格式；只放寫故事要的欄位
+  const en = jClean(j).endings;
+  return { title: j.title, status: j.status, tone: j.tone, outline: j.outline, identity: j.identity, start: j.start || {},
+    npcs: j.npcs.map((n) => ({ id: n.id, name: n.name, desc: n.desc })), opening: j.opening,
+    nodes: j.nodes.map((n) => ({ title: n.title, scenes: jScenes(n.scenes), change: { scenes: jScenes(n.change.scenes) } })),
+    endings: en, achievements: achList(j) };
+}
+function gptJson(j) {
+  return `你是「幾知觀・江湖事件」的編劇。下面是第 ${j.gua_no} 卦《${j.gua}》「${j.title || "未命名"}」目前的整篇稿（JSON）。
+規則照編劇交接包（JIANGHU-WRITER-BRIEF.md）；範本是乾為天 gua_01.json。請照交接包第一節交出三樣東西：
+①整篇 JSON（一個 code block，可以直接貼回稿紙；欄位名、選項 key、幕 id、結局 id 沒要改的就照舊）②美術需求表 ③自檢報告。
+這一版多兩個欄位：幕的 "after"（前面選過這些選項 key 其中一個才演這一幕，空＝人人都演）、結局的 "moves"（要演過哪幾爻的變數，0＝初爻）。
+
+\`\`\`json
+${JSON.stringify(gptDoc(j), null, 1)}
+\`\`\``;
+}
+function gptIdea(j) {
+  const yj = YJ[j.gua] || [], who = (s) => s.me ? "你" : CHARS[s.who] || s.speaker || (s.npc && (j.npcs.find((n) => n.id === s.npc) || {}).name) || "";
+  const stName = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
+  const keyName = {}; choiceSpots(j).forEach((x) => { keyName[x.c.key] = `${YAO[x.i].slice(0, 2)}${x.part === "change" ? "變" : ""}「${x.c.label}」`; });
+  const fx = (c) => [...Object.entries(c.fx || {}).map(([k, v]) => `${stName(k)}${v > 0 ? "+" : ""}${v}`), c.cost && `花 ${c.cost} 財`, c.req && `要帶著「${c.req}」才出現`, c.get && `得到「${c.get}」`, c.set && `記下「${c.set}」`].filter(Boolean).join("，");
+  const lines = (list) => list.map((s, k) => {
+    const t = String(s.text || "").trim(); if (!t && !(s.choices || []).length) return "";
+    const head = `${k + 1}. ${(s.after || []).length ? `〔前面選過 ${s.after.map((x) => keyName[x] || x).join(" 或 ")} 才演〕` : ""}${s.place ? `〔換場：${s.place}〕` : ""}${who(s) ? `${who(s)}：` : "（旁白）"}`;
+    const body = t.split("\n").map((p, m) => (m ? "   " : "") + p).join("\n");
+    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => `   ▶ ${c.key}「${c.label}」${c.hint ? `（${c.hint}）` : ""}${fx(c) ? `　→ ${fx(c)}` : ""}${c.to === "end" ? "　→ 這一節結束" : c.to ? `　→ 跳到第 ${list.findIndex((x) => x.id === c.to) + 1} 幕` : ""}`).join("\n");
+    return `${head}${body}${s.end ? "　■這一節結束" : ""}${cs ? "\n" + cs : ""}`;
+  }).filter(Boolean).join("\n");
+  const ol = OUTLINE.map(([k, n]) => (j.outline[k] || "").trim() ? `- ${n}：${j.outline[k].trim()}` : "").filter(Boolean).join("\n");
+  const cond = (en, i) => [...Object.entries(en.need || {}).map(([k, [lo, hi]]) => `${stName(k)}${lo != null ? " ≥ " + lo : ""}${hi != null ? " ≤ " + hi : ""}`),
+    ...(en.flags || []).map((f) => `記下了「${f}」`), ...(en.not_flags || []).map((f) => `沒有「${f}」`), ...(en.moves || []).map((k) => `${YAO[k]}的變數演到`)].join("、") || (i === j.endings.length - 1 ? "保底（沒有條件）" : "（沒有條件）");
+  const its = jItemsWhere(j);
+  return `你是「幾知觀・江湖事件」的編劇夥伴。下面是第 ${j.gua_no} 卦《${j.gua}》「${j.title || "未命名"}」目前的稿，整理成文字給你讀。
+先讀完，再照我接下來的要求想故事（提方向、補動機、檢查前後邏輯）；這一步不用交 JSON。
+遊戲規則：六爻＝六節依序演；玩家日運卦的動爻那一節多演「變數」（每爻每趟約 1/4）；選了之後數值才跳；六節演完由上往下比結局表。
+
+# 卦辭與爻辭
+${yj.slice(1).join("\n")}
+
+# 大綱
+${ol || "（還沒寫）"}
+
+# 玩家
+${j.identity.mode === "disguise" ? `偽裝成${j.identity.label}（${j.identity.reason}）` : "幾知觀下山的弟子"}；入場盤纏 ${(j.start || {}).s5 ?? 0} 財
+
+# 本篇人物
+${j.npcs.map((n) => `- ${n.name}：${n.desc}`).join("\n") || "（沒有）"}
+
+# 開場
+${(j.opening.text || "").trim() || "（沒寫）"}
+
+${j.nodes.map((n, i) => `# ${YAO[i]}・${n.title || "（沒名字）"}
+爻辭：${yj[i + 2] || ""}
+## 主線
+${lines(n.scenes) || "（還沒寫）"}${n.change.scenes.some((x) => (x.text || "").trim()) ? `
+## 變數（${YAO[i]}動時，主線演完接著演）
+${lines(n.change.scenes)}` : ""}`).join("\n\n")}
+
+# 結局表（由上往下比，第一個符合的就是它）
+${j.endings.map((en, i) => `${i + 1}. ${en.title || "（沒名字）"}${en.rare ? "【稀有】" : ""}
+   條件：${cond(en, i)}
+   結語：${String(en.text || "").replace(/\n/g, " ")}
+   領悟：${en.insight || ""}；人物下場：${en.npc_fate || ""}${en.player_title.label ? `；稱號：${en.player_title.label}` : ""}`).join("\n")}
+
+# 道具與旗標
+${Object.entries(its).map(([k, o]) => `- ${k.slice(0, 2) === "🎒" ? "道具" : "旗標"}「${k.slice(2)}」：${o.get.length ? "拿到：" + o.get.join("、") : ""}${o.set.length ? "記下：" + o.set.join("、") : ""}${o.req.length ? "；要它：" + o.req.join("、") : ""}`).join("\n") || "（沒有）"}
+
+# 成就
+${achList(j).map((a) => `- ${a.name}（${ACH_KIND[a.kind] || a.kind}）：${a.desc || ""}`).join("\n") || "（沒有）"}`;
 }
 
 /* ── 編輯 ── */
@@ -1433,10 +1600,11 @@ $("jh-main").addEventListener("click", (e) => {
   const a = b.dataset.ja; if (!a) return;
   const w = where(b), mv = (arr, i, d) => { const k = i + d; if (k < 0 || k >= arr.length) return false; [arr[i], arr[k]] = [arr[k], arr[i]]; return true; };
   // 註：claude.ai 把稿紙放在受限的框架裡，confirm／alert／prompt 會被直接擋掉（等於按了取消）——一律在頁面上問（2026-10-22 匯入「沒反應」就是這個）
-  if (a === "jsonCopy") {
-    const t = JSON.stringify({ ...j, updated_at: undefined }, null, 1);
+  if (a === "gptPeek") { jOut(b.dataset.k); return; }
+  if (a === "jsonCopy" || a === "gptIdea") {
+    const t = a === "gptIdea" ? gptIdea(j) : gptJson(j), lbl = b.textContent;
     const fallback = () => { $("jh-imp").hidden = false; const ta = $("jh-imp-t"); ta.value = t; ta.focus(); ta.select(); $("jh-imp-e").textContent = "瀏覽器不讓自動複製：已經全選，請按 Ctrl／⌘＋C。"; };
-    try { navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = "複製整篇"), 1500); }, fallback); } catch (e) { fallback(); }
+    try { navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = lbl), 1500); }, fallback); } catch (e) { fallback(); }
     return;
   }
   if (a === "jsonPaste") { $("jh-imp").hidden = false; jPending = null; $("jh-imp-go").textContent = "匯入（覆蓋這一卦）"; $("jh-imp-e").textContent = ""; $("jh-imp-t").focus(); return; }
@@ -1738,9 +1906,10 @@ function jFromPaste(raw, cur) {
   delete j.stats; delete j.achievement; achSync(j);
   return [j, ""];
 }
-function jOut() {
+function jOut(kind) {
   const el = $("jh-out"); if (!el) return;
-  el.innerHTML = `<div class="outhead"><b>這一篇（JSON）</b><button class="btn sm" data-copy="jh-o">複製</button></div><pre class="out" id="jh-o">${esc(JSON.stringify(jClean(jh[jcur]), null, 2))}</pre>`;
+  if (!kind) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="outhead"><b>${kind === "idea" ? "想故事用（文字）" : "改稿用（開場白＋JSON）"}</b><button class="btn sm" data-copy="jh-o">複製</button></div><pre class="out" id="jh-o">${esc(kind === "idea" ? gptIdea(jh[jcur]) : gptJson(jh[jcur]))}</pre>`;
 }
 
 /* ── 開場 ── */
