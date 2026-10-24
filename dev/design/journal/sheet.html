@@ -309,6 +309,15 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
+/* ── 江湖：前路銜接（六六 2026-10-24）── */
+.after{grid-column:1/-1;font-size:12.5px;border:1px dashed var(--edge);border-radius:6px;padding:4px 8px;background:var(--paper)}
+.after summary{cursor:pointer;color:var(--ink-soft)}
+.after[open] summary{margin-bottom:6px}
+.after-l{display:flex;flex-direction:column;gap:4px}
+.after-g{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.after-g b{font-family:var(--f-display);font-weight:600;min-width:40px}
+.after-g label{display:inline-flex;gap:3px;align-items:center}
+.ec-note.bad,.bad{color:var(--cinnabar)}
 /* ── 企劃（六六 2026-10-23）：左邊寫、右邊看排版 ── */
 .plan-ed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:980px){.plan-ed{grid-template-columns:minmax(0,1fr)}}
@@ -1134,6 +1143,11 @@ function jMain() {
     <div id="jh-out"></div></section>`;
   jBody(); jChecks(); jOut();
 }
+function jLists(j) {   // 🎒／🚩 的「挑既有」清單
+  let dl = $("jh-dl"); if (!dl) { dl = document.createElement("div"); dl.id = "jh-dl"; dl.hidden = true; document.body.appendChild(dl); }
+  dl.innerHTML = `<datalist id="jh-dl-items">${itemsOfJ(j).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
+    <datalist id="jh-dl-flags">${flagsOfJ(j).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>`;
+}
 function jBody() { if (jview === "sim") simPaint(); else jWrite(); }
 
 /* ── 一節的幕：卡片一張一幕。左邊把手拖移換順序，每一幕後面直接插入下一段；
@@ -1168,6 +1182,7 @@ function sceneRow(j, ss, s, k, sl) {
     <select data-sf="who" aria-label="誰說">${sel(whoOptsJ(j), w)}</select>
     <select data-sf="portrait" aria-label="立繪">${sel(pOptsJ(), portraitOf(s))}</select>
     <span class="rowops"><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
+    ${sl[0] === "c" ? afterBox(j, s, +sl.slice(1)) : ""}
     <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白" : "「台詞」；打 // 清掉框、從頭重寫"}">${esc(s.text)}</textarea>
       ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
     ${(s.choices || []).length ? `<div class="chs"><div class="chs-h">玩家在這裡選：</div>${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
@@ -1178,16 +1193,53 @@ function sceneRow(j, ss, s, k, sl) {
       <div class="ec-r2"><label>選了之後 <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select></label>
         <span class="fx">數值 ${cfg.stats.map((st) => `${esc(st.name)}<input type="number" data-fx="${st.k}" value="${(ch.fx || {})[st.k] ?? ""}" placeholder="0" aria-label="${esc(st.name)} 加減">`).join("")}</span></div>
       <div class="ec-r3">
-        <label class="pill get">🎒 選了得到道具 <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）"></label>
-        <label class="pill req">🔒 身上帶著這道具才會出現 <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="（人人都看得到）"></label>
-        <label class="pill flag">🚩 暗旗標 <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）"></label>
+        <label class="pill get">🎒 選了得到道具 <input type="text" list="jh-dl-items" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）" title="點一下挑既有的，或打新的名字"></label>
+        <label class="pill req">🔒 身上帶著這道具才會出現 <select data-cf="req">${reqOpts(j, ch.req)}</select></label>
+        <label class="pill flag">🚩 暗旗標 <input type="text" list="jh-dl-flags" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）" title="點一下挑既有的，或打新的名字"></label>
         <label class="pill cost">💰 要花 <input type="number" min="0" data-cf="cost" value="${ch.cost || ""}" placeholder="0" style="width:56px"> 財（不夠就反灰選不了）</label></div>
       ${ch.req ? `<div class="ec-note">🔒 沒帶著「${esc(ch.req)}」的玩家，看不到這個選項（${esc(itemFrom(j, ch.req) || "⚠ 沒有任何選項給這個道具")}）</div>` : ""}
+      ${ch.req && reqLate(j, ch) ? `<div class="ec-note bad">⚠ 「${esc(ch.req)}」拿到的地方都在這個選項後面：這一趟走到這裡時不可能已經帶著</div>` : ""}
     </div>`).join("")}</div>` : ""}
     <div class="er-foot"><button class="btn sm" data-ja="chAdd">＋選項</button>
       <label class="ck"><input type="checkbox" data-sf="end"${s.end ? " checked" : ""}> 演完這幕，這一節就結束</label></div>
     ${s.end ? `<div class="scend">■ 這一節到此結束${sl[0] === "n" ? "（動爻的話接著演變數，不然往下一爻）" : "（往下一爻）"}</div>` : ""}
   </div>`;
+}
+/* ── 道具、旗標、前路：選單與前後檢查（六六 2026-10-24）──
+   道具與旗標不另外存一張表：劇本裡哪個選項給了、哪個結局看了，就自動出現在選單與下面那張表。
+   打新的名字＝新增；🔒 只能從已經有人給的道具裡挑（打錯字的道具永遠拿不到）。 */
+const ORDER = (i, part, k) => i * 1000 + (part === "change" ? 500 : 0) + k;   // 一趟裡的先後：爻 → 主線先、變數後 → 第幾幕
+function choiceSpots(j) {   // 每個選項在一趟裡的位置
+  const out = [];
+  j.nodes.forEach((n, i) => [["main", n.scenes], ["change", n.change.scenes]].forEach(([part, list]) => list.forEach((s, k) =>
+    (s.choices || []).forEach((c) => { if ((c.label || "").trim()) out.push({ c, i, part, k, o: ORDER(i, part, k) }); }))));
+  return out;
+}
+const flagsOfJ = (j) => [...new Set([...allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)),
+  ...j.endings.flatMap((en) => [...(en.flags || []), ...(en.not_flags || [])])])];
+function reqOpts(j, cur) {
+  const its = itemsOfJ(j), list = cur && !its.includes(cur) ? [...its, cur] : its;
+  return `<option value="">（人人都看得到）</option>` + list.map((x) => `<option value="${esc(x)}"${x === cur ? " selected" : ""}>${its.includes(x) ? "" : "⚠ "}${esc(x)}</option>`).join("");
+}
+function reqLate(j, ch) {   // 要的道具，拿到的地方全在這個選項之後
+  const sp = choiceSpots(j), me = sp.find((x) => x.c === ch); if (!me || !ch.req) return false;
+  const gets = sp.filter((x) => x.c.get === ch.req);
+  return gets.length > 0 && gets.every((x) => x.o >= me.o);
+}
+function earlierChoices(j, i) {   // 第 i 爻的變數之前，一趟裡可能選過的選項
+  return choiceSpots(j).filter((x) => x.i < i || (x.i === i && x.part === "main"));
+}
+function afterBox(j, s, i) {
+  const opts = earlierChoices(j, i), on = s.after || [];
+  const lbl = (x) => `${YAO[x.i].slice(0, 2)}${x.part === "change" ? "變" : ""}「${esc(x.c.label)}」`;
+  const chosen = opts.filter((x) => on.includes(x.c.key));
+  const lost = on.filter((k) => !opts.some((x) => x.c.key === k));
+  return `<details class="after"><summary>🔗 前路銜接：${on.length ? `前面選過 ${chosen.map(lbl).join(" 或 ") || "？"} 才演這一幕` : "人人都演（不分前面怎麼選）"}${lost.length ? `　<b class="bad">⚠ 勾的選項有 ${lost.length} 個已經不在前面了</b>` : ""}</summary>
+    <div class="after-l">${opts.length ? [0, 1, 2, 3, 4, 5].filter((n) => n <= i).map((n) => {
+      const g = opts.filter((x) => x.i === n); if (!g.length) return "";
+      return `<div class="after-g"><b>${YAO[n]}</b>${g.map((x) => `<label><input type="checkbox" data-after="${esc(x.c.key)}"${on.includes(x.c.key) ? " checked" : ""}>${x.part === "change" ? "變・" : ""}${esc(x.c.label)}</label>`).join("")}</div>`; }).join("")
+      : `<span class="fxnote">前面還沒有任何選項。</span>`}
+    <p class="fxnote" style="margin:4px 0 0">勾幾個＝前面選過其中任一個才演；都不勾＝人人都演。同一段變數可以寫好幾幕開頭、各勾不同的前路，後面再接共同的幕。</p></div></details>`;
 }
 /* 道具與旗標：在哪裡拿到、在哪裡用到 */
 function jItemsWhere(j) {
@@ -1200,19 +1252,29 @@ function jItemsWhere(j) {
 }
 function itemFrom(j, name) { const o = jItemsWhere(j)["🎒" + name]; return o && o.get.length ? "拿到的地方：" + o.get.join("、") : ""; }
 function itemsCard(j) {
-  const all = jItemsWhere(j), its = Object.entries(all).filter(([k]) => k[0] === "🎒" || k.startsWith("🎒")), fls = Object.entries(all).filter(([k]) => k.startsWith("🚩"));
+  const all = jItemsWhere(j);
+  for (const f of flagsOfJ(j)) all["🚩" + f] = all["🚩" + f] || { get: [], req: [], set: [] };   // 結局看了、卻沒有人設的旗標也列出來
+  const its = Object.entries(all).filter(([k]) => k.startsWith("🎒")), fls = Object.entries(all).filter(([k]) => k.startsWith("🚩"));
+  const late = new Set(choiceSpots(j).filter((x) => x.c.req && reqLate(j, x.c)).map((x) => x.c.req));
   const ends = (f) => j.endings.filter((en) => (en.flags || []).includes(f) || (en.not_flags || []).includes(f)).map((en) => `結局「${esc(en.title)}」${(en.flags || []).includes(f) ? "要有" : "不能有"}`).join("、") || "⚠ 沒有結局看它";
   return `<div class="tcard itemscard"><h3>道具與旗標怎麼運作</h3>
     <p class="fxnote" style="margin:0 0 8px">某個選項填 🎒「選了得到道具」→ 玩家選了，那樣東西就帶在身上一整趟。<br>
       另一個選項填 🔒「身上帶著這道具才會出現」（同一個名字）→ 只有帶著的人看得到那個選項；沒帶的人那一格直接不出現。<br>
       🚩 暗旗標玩家看不到，只給結局判斷「他做過哪件事」。</p>
     ${its.length ? `<table class="itab"><tr><th>道具</th><th>在哪裡拿到</th><th>在哪裡用到</th></tr>${its.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td>
-      <td>${o.get.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有地方給</span>"}</td><td>${o.req.map(esc).join("<br>") || "<span class='fxnote'>（拿了沒用到：只算成就「帶齊道具」）</span>"}</td></tr>`).join("")}</table>` : `<p class="fxnote">這一篇還沒有道具。</p>`}
-    ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>")}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
+      <td>${o.get.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有地方給</span>"}</td><td>${o.req.map(esc).join("<br>") || "<span class='fxnote'>（拿了沒用到：只算成就「帶齊道具」）</span>"}${late.has(k.slice(2)) ? "<br><span class='bad'>⚠ 有要它的選項排在拿到之前</span>" : ""}</td></tr>`).join("")}</table>` : `<p class="fxnote">這一篇還沒有道具。</p>`}
+    ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有選項設它</span>"}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
   </div>`;
+}
+function flagChecks(j, en, f) {
+  const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
+  const list = flagsOfJ(j);
+  return list.map((x) => `<label><input type="checkbox" data-nflag="${f}" data-flag="${esc(x)}"${(en[f] || []).includes(x) ? " checked" : ""}>${sets.has(x) ? "" : "⚠ "}${esc(x)}</label>`).join("")
+    || `<span class="fxnote">還沒有旗標：在選項的 🚩 打一個名字就會出現在這裡。</span>`;
 }
 function jWrite() {
   const j = jh[jcur], yj = YJ[j.gua] || [];
+  jLists(j);
   const nodes = j.nodes.map((n, i) => {
     const open = jopen[jcur + i] !== false, chOpen = !!jopen[jcur + "c" + i] || n.change.scenes.length > 0;
     return `<div class="ev" data-node="${i}">
@@ -1229,8 +1291,9 @@ function jWrite() {
         <span class="rowops"><button data-ja="enUp" title="上移">▲</button><button data-ja="enDown" title="下移">▼</button><button data-ja="enDel" title="刪掉">✕</button></span></div>
       <div class="field"><span>條件 <em>${i === j.endings.length - 1 ? "（最後一個：請全部留空，當保底）" : "（全部符合才算；留空＝不限）"}</em></span>${needHtml(en.need, 'data-nneed')}</div>
       <div class="grid">
-        <label class="field"><span>要有旗標 <em>（逗號分隔）</em></span><input type="text" data-nfl="flags" value="${esc((en.flags || []).join("、"))}"></label>
-        <label class="field"><span>不能有旗標</span><input type="text" data-nfl="not_flags" value="${esc((en.not_flags || []).join("、"))}"></label>
+        <div class="field"><span>要有旗標 <em>（勾的都要有）</em></span><div class="gua">${flagChecks(j, en, "flags")}</div></div>
+        <div class="field"><span>不能有旗標 <em>（勾的一個都不能有）</em></span><div class="gua">${flagChecks(j, en, "not_flags")}</div></div>
+        <div class="field wide"><span>要演過這幾爻的變數 <em>（那一爻動了、變數演到了才算；每爻約四分之一機會，勾越多越稀有）</em></span><div class="gua">${YAO.map((y, k) => `<label><input type="checkbox" data-nmove="${k}"${(en.moves || []).includes(k) ? " checked" : ""}>${y}</label>`).join("")}</div></div>
       </div>
       <label class="field"><span>結語</span><textarea rows="2" data-nf="text">${esc(en.text)}</textarea></label>
       <div class="grid">
@@ -1312,10 +1375,17 @@ function onEdit(e, structural) {
     if (f === "ending" && !a.ending) delete a.ending;
     achSync(j); jtouch(jcur); if (f === "kind") jWrite(); return;
   }
+  if (t.dataset.after != null && w.s) {
+    if (!structural) return;
+    const set = new Set(w.s.after || []); if (t.checked) set.add(t.dataset.after); else set.delete(t.dataset.after);
+    w.s.after = [...set]; if (!w.s.after.length) delete w.s.after;
+    jtouch(jcur); jWrite(); return;
+  }
   if (w.ch) {
     if (t.dataset.cf === "to") { if (!structural) return; if (t.value === "end") w.ch.to = "end"; else if (t.value === "") delete w.ch.to; else { const x = w.list[+t.value]; if (!x.id) x.id = newId(); w.ch.to = x.id; } }
     else if (t.dataset.cf === "cost") { const v = Math.max(0, +t.value || 0); if (v) w.ch.cost = v; else delete w.ch.cost; }
-    else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value; if (!t.value) delete w.ch[t.dataset.cf]; }
+    else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value.trim(); if (!w.ch[t.dataset.cf]) delete w.ch[t.dataset.cf];
+      if (structural && /^(get|req|set)$/.test(t.dataset.cf)) { jtouch(jcur); jWrite(); return; } }   // 新名字一打完：選單與表跟著更新
     else if (t.dataset.fx) { w.ch.fx = w.ch.fx || {}; const v = numOrNull(t.value); if (v) w.ch.fx[t.dataset.fx] = v; else delete w.ch.fx[t.dataset.fx]; if (!Object.keys(w.ch.fx).length) delete w.ch.fx; }
     jtouch(jcur); return;
   }
@@ -1341,6 +1411,8 @@ function onEdit(e, structural) {
     else if (t.dataset.hk) { if (t.dataset.hk === "who" && !structural) return; en.hook[t.dataset.hk] = t.value; }
     else if (t.hasAttribute("data-nneed")) setNeed(en.need, t.dataset.nk, t.dataset.nb, t.value);
     else if (t.dataset.nfl) en[t.dataset.nfl] = items(t.value);
+    else if (t.dataset.nflag) { if (!structural) return; const f = t.dataset.nflag, set = new Set(en[f] || []); if (t.checked) set.add(t.dataset.flag); else set.delete(t.dataset.flag); en[f] = [...set]; }
+    else if (t.dataset.nmove != null) { if (!structural) return; const set = new Set(en.moves || []); if (t.checked) set.add(+t.dataset.nmove); else set.delete(+t.dataset.nmove); en.moves = [...set].sort(); if (!en.moves.length) delete en.moves; }
     jtouch(jcur);
   }
 }
@@ -1448,7 +1520,9 @@ $("jh-main").addEventListener("pointerdown", (e) => {
 /* ── 試走一趟：六爻依序演，動爻那一節多演變數，最後比結局表 ── */
 const needOk = (need, st) => Object.entries(need || {}).every(([k, [lo, hi]]) => (lo == null || (st[k] || 0) >= lo) && (hi == null || (st[k] || 0) <= hi));
 const flagsOk = (en, fl) => (en.flags || []).every((f) => fl.includes(f)) && !(en.not_flags || []).some((f) => fl.includes(f));
-const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st) && flagsOk(en, sim ? sim.flags : [])) || null;
+const movesOk = (en, ch) => (en.moves || []).every((i) => ch.includes(i));
+const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st) && flagsOk(en, sim ? sim.flags : []) && movesOk(en, sim ? sim.changes : [])) || null;
+const sceneOn = (s, picked) => !(s.after || []).length || s.after.some((k) => picked.includes(k));   // 同後端 jianghu.ts
 const nameIn = (t) => String(t || "").replace(/\{名\}/g, sim ? sim.name : "{名}");
 function simLine(j, s) {
   const w = whoOfJ(s), npc = s.npc && j.npcs.find((n) => n.id === s.npc);
@@ -1487,6 +1561,7 @@ function simRun() {
   const j = jh[jcur];
   while (sim.si >= 0 && sim.si < sim.list.length) {
     const s = sim.list[sim.si];
+    if (!sceneOn(s, sim.picked)) { sim.si++; continue; }   // 前路不合：這一幕不演
     if ((s.text || "").trim()) sim.log.push(simLine(j, s));
     // 看得到（道具帶著）的都列出來；錢不夠的反灰選不了。一個都選不了就當沒有選項（同後端 jianghu.ts）
     const cs = (s.choices || []).filter((ch) => !ch.req || sim.items.includes(ch.req)).map((ch) => ({ ...ch, poor: !!ch.cost && (sim.st.s5 || 0) < ch.cost }));
@@ -1503,6 +1578,7 @@ function simStep() {   // 這一節演完：有變數就演變數，否則往下
   if (sim.pendingChange) {
     sim.pendingChange = false;
     sim.log.push(`<div class="evmark">${YAO[sim.node]}動・變數</div>`);
+    sim.changes.push(sim.node);
     sim.list = j.nodes[sim.node].change.scenes; sim.si = 0; simRun(); return;
   }
   if (sim.node >= 5) { sim.ending = endingOf(j, sim.st); return; }
@@ -1522,7 +1598,7 @@ function simAct(b) {
       moving = act === "rand" ? YAO.map((_, i) => i).filter(() => Math.random() < 0.3) : [...$("jh-body").querySelectorAll("[data-mv]:checked")].map((x) => +x.dataset.mv);
       name = $("sim-nm").value === "alias" ? alias(Date.now()) : ($("sim-own").value.trim() || "無名");
     }
-    sim = { name, moving, st: { ...(j.start || {}) }, items: [], flags: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
+    sim = { name, moving, st: { ...(j.start || {}) }, items: [], flags: [], picked: [], changes: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
     if ((j.opening.text || "").trim()) sim.log.push(`${j.opening.bg ? `<div class="place">${esc(BGS[j.opening.bg] || "")}</div>` : ""}<div class="line narr">${esc(nameIn(j.opening.text))}</div>`);
     simStep();
   } else if (act === "next") simStep();
@@ -1532,6 +1608,7 @@ function simAct(b) {
     fx.forEach(([k, v]) => { sim.st[k] = (sim.st[k] || 0) + v; });
     if (ch.get && !sim.items.includes(ch.get)) sim.items.push(ch.get);
     if (ch.set && !sim.flags.includes(ch.set)) sim.flags.push(ch.set);
+    sim.picked.push(ch.key);
     const nm = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
     sim.log.push(`<div class="line me"><span class="sp">你選</span>${esc(nameIn(ch.label))}${ch.get ? ` <span class="fxnote">（得到 ${esc(ch.get)}）</span>` : ""}${fx.length ? ` <span class="fxnote">（${fx.map(([k, v]) => nm(k) + (v > 0 ? "+" : "") + v).join("、")}）</span>` : ""}</div>`);
     sim.choices = null;
@@ -1557,16 +1634,26 @@ function jChecksOf(j) {
       if (!(ch.label || "").trim()) E(`${at}有選項沒有字。`);
       if (ch.to && ch.to !== "end" && !list.some((x) => x.id === ch.to)) E(`${at}有選項跳到找不到的幕。`);
       if (ch.req && !gets.has(ch.req)) E(`${at}有選項要「${ch.req}」，但沒有任何選項會給這個道具。`);
+      else if (ch.req && reqLate(j, ch)) E(`${at}「${ch.label}」要「${ch.req}」，但拿到它的地方都在後面：走到這裡時不可能帶著。`);
     });
     if (s.npc && !j.npcs.some((n) => n.id === s.npc)) E(`${at}有一幕的說話者是已刪掉的人物。`);
+    if ((s.after || []).length) {
+      const early = earlierChoices(j, i).filter((x) => part === "change" || x.o < ORDER(i, part, list.indexOf(s))).map((x) => x.c.key);
+      const bad = s.after.filter((k) => !early.includes(k));
+      if (bad.length) E(`${at}有一幕的前路銜接勾了已經不在前面的選項（${bad.join("、")}）：那幾個條件永遠不會成立。`);
+    }
   });
   j.npcs.forEach((n) => { if (!(n.name || "").trim()) E("本篇人物有一位沒有名字。"); else if (!allScenes(j).some(([s]) => s.npc === n.id) && !allScenes(j).some(([s]) => (s.text || "").includes(n.name))) W(`人物「${n.name}」沒有出場。`); });
   const ens = j.endings;
-  const hasCond = (en) => Object.keys(en.need).length || (en.flags || []).length || (en.not_flags || []).length;
+  const hasCond = (en) => Object.keys(en.need).length || (en.flags || []).length || (en.not_flags || []).length || (en.moves || []).length;
   if (hasCond(ens[ens.length - 1])) E("最後一個結局有條件：請留空當保底。");
   ens.slice(0, -1).forEach((en, i) => { if (!hasCond(en)) E(`結局 ${i + 1} 沒有條件卻不是最後一個：它會擋住下面所有結局。`); });
   const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
   ens.forEach((en, i) => [...(en.flags || []), ...(en.not_flags || [])].forEach((f) => { if (!sets.has(f)) E(`結局 ${i + 1} 看旗標「${f}」，但沒有任何選項會設它。`); }));
+  ens.forEach((en, i) => (en.moves || []).forEach((k) => { if (!j.nodes[k].change.scenes.some((x) => (x.text || "").trim())) E(`結局 ${i + 1} 要演過${YAO[k]}的變數，但那一爻沒寫變數：永遠走不到。`); }));
+  ens.forEach((en, i) => { if ((en.moves || []).length) O(`結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""}要${en.moves.map((k) => YAO[k]).join("、")}動：一趟大約 ${Math.round(100 * Math.pow(0.25, en.moves.length))}% 的機會（再走一趟重搖）。`); });
+  const setsAll = allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean));
+  [...new Set(setsAll)].forEach((f) => { if (!ens.some((en) => (en.flags || []).includes(f) || (en.not_flags || []).includes(f))) W(`旗標「${f}」有選項會設，但沒有結局看它。`); });
   ens.forEach((en, i) => {
     const n = `結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""}`;
     if (!(en.title || "").trim()) E(`結局 ${i + 1} 沒有名字。`);
@@ -1616,6 +1703,7 @@ function jChecks() {
 function jScenes(ss) {
   return ss.filter((s) => (s.text || "").trim()).map((s) => {
     const o = {}; for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (k in s && s[k] !== undefined && s[k] !== "") o[k] = s[k];
+    if ((s.after || []).length) o.after = s.after;
     const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req", "set", "cost"]) if (c[k]) x[k] = c[k]; return x; });
     if (cs.length) o.choices = cs; return o;
   });
@@ -1624,7 +1712,7 @@ function jClean(j) {
   return { id: j.id, gua_no: j.gua_no, gua: j.gua, title: j.title, tone: j.tone, player_summary: j.outline.player_summary,
     identity: j.identity, npcs: j.npcs, opening: j.opening, start: j.start || {},
     nodes: j.nodes.map((n, i) => ({ yao: i + 1, title: n.title, scenes: jScenes(n.scenes), change: jScenes(n.change.scenes) })),
-    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
+    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], ...((en.moves || []).length ? { moves: en.moves } : {}), text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),
     achievement: j.achievement, achievements: achList(j), stats: cfg.stats.map((s) => s.k) };
 }

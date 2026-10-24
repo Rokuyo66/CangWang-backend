@@ -69,6 +69,13 @@ v1（事件池＋隨機抽）作廢；起點是六六與 GPT 討論的〈江湖�
 | `items_all` | 一趟之內，劇本裡所有道具都帶在身上 |
 | `run` | 一趟之內做到：`items`（勾的道具都帶著）、`need`（走完時的數值，格式同結局）、`ending`（選填：還要是這個結局），全部在同一趟成立。舊紀錄沒存數值的，後端照當時的選擇重演補上（`jianghu_runs.st`，0103） |
 
+### 前路銜接（`after`）與「要演過哪幾爻的變數」（`moves`）（六六 2026-10-24）
+- 幕的 `after: ["c33","c34"]`：這一趟前面選過其中任一個才演這一幕，否則跳過、順著往下（連它的「到此結束」也不算）；空＝人人都演。
+  寫在變數裡最常用：同一段變數依前面怎麼選，開頭接不同的話，後面再接共同的幕。稿紙在變數幕的「🔗 前路銜接」勾。
+- 結局的 `moves: [5]`：那幾爻的變數這一趟都要演到才可能走到（每爻約四分之一機會；再走一趟重搖）。稀有結局用。
+- 後端 `_shared/jianghu.ts`（`sceneOn`、`endingOf`）、App `src/pages/jianghu.js`（`skip`）、稿紙試走，三處同一條規則；`dev/jianghu-test.mts` 釘住。
+- 道具與旗標不另存表：🔒 只能從劇本裡已經有人給的道具挑；🎒／🚩 點一下挑既有的或打新的；結局的旗標用勾的。檢查會抓「要的道具拿到的地方在後面」「結局看的旗標沒人設」「設了沒結局看」。
+
 ## 上線：稿紙 → App
 1. 稿紙存好（Claude 讀雲端 `jianghu/gua_NN`）→ 存成 `dev/design/journal/jianghu/gua_NN.json`
 2. `node dev/jianghu-seed.mjs > supabase/migrations/00xx_jianghu_<名>.sql`，跑 migration（status 是 review／temp／final 的才上架）
