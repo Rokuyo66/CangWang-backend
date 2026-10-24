@@ -1821,7 +1821,8 @@ function simPaint() {
     tail = en ? `<div class="endcard"><h3>${esc(en.title || "（結局沒有名字）")}${en.rare ? "・稀有" : ""}</h3><div class="line">${esc(nameIn(en.text))}</div>
       ${en.insight ? `<div class="line" style="margin-top:8px;color:var(--gold)">「${esc(en.insight)}」</div>` : ""}
       ${en.npc_fate ? `<p class="fxnote" style="margin:6px 0 0">人物下場：${esc(en.npc_fate)}</p>` : ""}
-      <p style="margin:8px 0 0;font-size:13px">${en.player_title.label ? `拿到稱號「<b>${esc(en.player_title.label)}</b>」` : "這個結局不發稱號。"}${+en.reward_lingshi ? `　第一次達成 💎${+en.reward_lingshi}` : ""}${ach ? `<br>成就亮起：<b>${esc(ach)}</b>` : ""}</p>
+      ${(() => { const got = [en.player_title.label && `拿到稱號「<b>${esc(en.player_title.label)}</b>」`, +en.reward_lingshi && `第一次達成 💎${+en.reward_lingshi}`].filter(Boolean).join("　");
+        return got || ach ? `<p style="margin:8px 0 0;font-size:13px">${got}${got && ach ? "<br>" : ""}${ach ? `成就亮起：<b>${esc(ach)}</b>` : ""}</p>` : ""; })()}
       ${en.hook && en.hook.who ? `<p style="margin:8px 0 0;font-size:13px">談心多一顆：<b>去問${esc(CHARS[en.hook.who])}</b>「${esc(nameIn(en.hook.ask))}」</p>` : ""}</div>`
       : `<div class="endcard"><h3>沒有任何結局符合</h3><div class="line">結局表最後一個要留空條件當保底。</div></div>`;
     tail += `<div><button class="btn" data-sim="again">同一卦再走一趟</button> <button class="btn ghost" data-sim="reset">重設</button></div>`;
