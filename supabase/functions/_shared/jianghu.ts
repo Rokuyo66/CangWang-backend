@@ -9,7 +9,8 @@
 //
 // 純函式、不碰資料庫：interpret 拿它來判，測試直接 import。
 
-export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string; set?: string; to?: string;
+/** req：身上帶著才看得到。一樣道具（字串），或幾樣裡帶著任一樣（陣列，六六 2026-10-24） */
+export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string | string[]; set?: string; to?: string;
   /** 要花的錢（財 s5）：身上不夠就選不了（畫面上照樣列出來、反灰），選了扣掉 */
   cost?: number };
 /** 財＝盤纏。花費（cost）只看它 */
@@ -52,6 +53,10 @@ export type Walk = {
 } | { ok: false; err: string };
 
 const hasText = (s: Scene) => !!String(s.text ?? "").trim();
+/** 選項的 req 攤成一串道具名；空＝人人都看得到 */
+export const reqsOf = (c: Choice) => (Array.isArray(c.req) ? c.req : c.req ? [c.req] : []).filter(Boolean);
+/** 帶著其中任一樣就看得到 */
+export const reqOk = (c: Choice, items: string[]) => { const r = reqsOf(c); return !r.length || r.some((x) => items.includes(x)); };
 /** 前路銜接：沒填 after＝人人都演；填了＝前面選過其中一個才演 */
 export const sceneOn = (s: Scene, picked: string[]) => !(s.after ?? []).length || (s.after ?? []).some((k) => picked.includes(k));
 /** 這一爻動了、而且有變數幕，才會演變數 */
@@ -73,7 +78,7 @@ export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[
       if (!sceneOn(s, picked)) { si++; continue; }   // 前路不合：這一幕不演，連它的「到此結束」也不算
       if (trace) trace(s);   // 見聞：這一幕演到了（場景、誰說話）
       // 看得到＝有字、道具帶著；選得了＝看得到而且錢夠。一個都選不了就當這一幕沒有選項（不會卡死；稿紙檢查會提醒）
-      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req))
+      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && reqOk(c, items)
         && (!c.cost || (st[MONEY] ?? 0) >= c.cost));
       if (cs.length) {
         if (chooser) keys.push(chooser(cs));

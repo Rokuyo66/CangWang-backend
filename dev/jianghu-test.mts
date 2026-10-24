@@ -33,14 +33,22 @@ t("前路銜接：喊上去的那一趟，上爻變數只演「來晚了」、�
   if (!w.ok) throw new Error(w.err); if (saw) throw new Error("喊上去之後不該再看到跟捕頭走"); if (w.ending.title !== "亢龍有悔") throw new Error(w.ending.title); });
 t("前路銜接：客戶端劇本帶 after", () => { const c = J.clientDoc(doc).nodes[5].change as { after?: string[] }[]; if (!c.some((x) => (x.after ?? []).includes("c35"))) throw new Error("沒帶 after"); });
 t("保底 → 空手而歸", () => { const w = keep(route([], ["找他","陪你練","收下","回客棧","躍上","搖頭","攔住"])); if (title(w) !== "空手而歸") throw new Error(title(w)); });
+t("帳頁舉起來、沒揭局 → 斷尾（10-24 DeepSeek 校稿新增）", () => { const w = keep(route([0], ["撕下","下河","肋下","推回去","回客棧","站在台下","泡爛的帳頁","攔住"])); if (title(w) !== "斷尾") throw new Error(title(w)); });
+t("四爻說破周收錢：帶帳本或周的口風任一樣就看得到，都沒有就看不到", () => {
+  const seen = (moving: number[], want: string[]) => { let saw = false; const ch = by(want);
+    const w = J.walk(doc, moving, (cs) => { if (cs.some((c) => (c.label ?? "").includes("周收了萬金號"))) saw = true; return ch(cs); }); if (!w.ok) throw new Error(w.err); return saw; };
+  if (!seen([2], ["找他","肋下","推回去","回客棧","你收了"])) throw new Error("帶著周的口風卻看不到");
+  if (!seen([], ["找他","肋下","卦我替","揣進懷裡"])) throw new Error("帶著帳本卻看不到");
+  if (seen([], ["找他","肋下","推回去","回客棧"])) throw new Error("兩樣都沒帶卻看得到");
+});
 t("六條路走完：見群龍无首、六位時成亮；時乘六龍亮（第一趟六爻皆動）", () => {
   const lit = J.litAchievements(doc, runs);
   for (const id of ["qun", "liuwei", "liulong"]) if (!lit.includes(id)) throw new Error(`沒亮 ${id}（亮了 ${lit}）`);
 });
-t("品物流形：初、二、五爻動，一趟帶齊七樣", () => {
-  const w = route([0, 1, 4], ["撕下","下河","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","你收了","回渡口叫","讓擺船","小心收進懷裡","把龍旗拆了"]);
+t("品物流形：初、二、三、五爻動，一趟帶齊八樣", () => {
+  const w = route([0, 1, 2, 4], ["撕下","下河","陪你練","捕頭也","收下錦囊","繞到","揣進懷裡","你收了","回渡口叫","讓擺船","小心收進懷裡","把龍旗拆了"]);
   if (!w.ok) throw new Error("走不完");
-  if (J.allItems(doc).length !== 7) throw new Error("道具不是七樣：" + J.allItems(doc));
+  if (J.allItems(doc).length !== 8) throw new Error("道具不是八樣：" + J.allItems(doc));
   if (!J.litAchievements(doc, [{ ending_id: w.ending.id, changes: w.changes, items: w.items }]).includes("pinwu")) throw new Error("沒亮，帶著 " + w.items);
 });
 t("品物流形：初爻沒動就湊不齊", () => {
