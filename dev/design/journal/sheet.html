@@ -144,6 +144,18 @@ textarea{resize:vertical;line-height:1.7}
 .line .sp{display:block;font-family:var(--f-body);font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
 .line.me .sp{color:var(--gold)}
 .line.narr{text-align:center;color:var(--ink-soft);font-size:14px}
+/* App 的字區：寬 350（390 減左右 20）、字級行高字距照 App；量分頁的框在畫面外 */
+.appcol{display:block;width:350px;max-width:100%;font-family:"Noto Serif TC",serif;font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap}
+.appcol.narr{font-size:13.5px;letter-spacing:.16em;text-align:center;margin:0 auto}
+.appbox{position:fixed;left:-10000px;top:0;width:390px;height:844px;visibility:hidden;pointer-events:none}
+.ab-deck{position:absolute;left:0;right:0;bottom:0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:76%;overflow-y:auto;padding:36px 20px 24px}
+.appbox.talk .ab-deck{top:64%;min-height:0;max-height:none;justify-content:flex-start;padding-top:52px;overflow:hidden}
+.ab-spk{font-size:14px;font-weight:700;height:20px;flex:none}   /* App 實測：名字列 20、輕觸繼續 17、空的選項槽不佔位（display:none） */
+.appbox:not(.talk) .ab-spk{visibility:hidden;height:1.2em}
+.ab-line{font-family:"Noto Serif TC",serif;font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap;min-height:0;overflow-y:auto;flex:0 1 auto}
+.appbox:not(.talk) .ab-line{font-size:13.5px;letter-spacing:.16em;text-align:center}
+.ab-slot{display:none}.ab-next{font-size:12px;letter-spacing:.2em;height:17px;line-height:17px;flex:none}.appbox.talk .ab-next{margin-top:auto}
+.pgbrk.auto{border-top-style:dotted;color:var(--ink-faint);border-color:var(--ink-faint)}
 .pgbrk{display:block;margin:6px 0;font-style:normal;font-family:var(--f-body);font-size:11px;letter-spacing:.3em;color:var(--gold);text-align:center;border-top:1px dashed var(--gold);padding-top:2px}
 .opts{display:flex;flex-direction:column;gap:6px}
 .opt{border:1px solid var(--edge);border-radius:5px;padding:6px 10px;font-family:var(--f-display);background:var(--paper)}
@@ -522,6 +534,42 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<"
 // 換頁記號（同前端 Scene.PAGE）：台詞裡打「//」或「／／」，App 演到這裡一定清掉對話框、從第一行重寫
 const PAGE = /[ \t]*(?:\/\/|／／)[ \t]*/g;
 const escLine = (t) => String(t ?? "").split(PAGE).map((x) => esc(x.replace(/^\n+|\n+$/g, ""))).join(`<i class="pgbrk">換頁</i>`);
+/* ── App 對話框的實際分行與分頁（六六 2026-10-24：試走的單行字數要跟 App 一樣）──
+   照 App（前端 styles/scene.css、story.css 的 .st-root、ui/scene.js 的 paginate）在畫面外擺一個同樣的框：
+   手機 390×844、左右各留 20、台詞 14px／行高 1.9／字距 .04em（旁白 13.5px、字距 .16em、置中），
+   有人說話＝框頂在 64%（字區約六行）；旁白＝框貼底、最高 76% 螢幕。一句一句排進去，放不下就換頁，跟 App 同一套。
+   App 的這幾個數字改了，這裡要一起改（APP_BOX）。 */
+const APP_BOX = { w: 390, h: 844, pad: 20, talkTop: 0.64, narrMax: 0.76 };
+let appBox = null;
+function appMeasure(narr) {
+  if (!appBox) {
+    appBox = document.createElement("div"); appBox.className = "appbox"; appBox.setAttribute("aria-hidden", "true");
+    appBox.innerHTML = `<div class="ab-deck"><div class="ab-spk">名</div><div class="ab-line"></div><div class="ab-slot"></div><div class="ab-next">輕觸繼續 ▾</div></div>`;
+    document.body.appendChild(appBox);
+  }
+  appBox.classList.toggle("talk", !narr);
+  return appBox.querySelector(".ab-line");
+}
+function appPages(text, narr) {   // → [{ t: 這一頁的字, forced: 是 // 換的頁 }]
+  const line = appMeasure(narr), out = [];
+  const overflows = (t) => { line.textContent = t; return line.scrollHeight > line.clientHeight + 1; };
+  String(text ?? "").split(PAGE).map((x) => x.replace(/^\n+|\n+$/g, "")).filter(Boolean).forEach((full, fi) => {
+    const pages = []; let cur = "";
+    for (const para of full.split("\n")) {
+      if (!cur) cur = para;
+      else if (overflows(cur + "\n" + para)) { pages.push(cur); cur = para; }
+      else { cur = cur + "\n" + para; continue; }
+      if (overflows(cur)) { const parts = cur.match(/[^。！？]*[。！？]+」?|[^。！？]+$/g) || [cur]; cur = ""; for (const x of parts) { if (cur && overflows(cur + x)) { pages.push(cur); cur = x; } else cur += x; } }
+    }
+    if (cur) pages.push(cur);
+    (pages.length ? pages : [full]).forEach((t, k) => out.push({ t, forced: fi > 0 && k === 0 }));
+  });
+  line.textContent = "";
+  return out;
+}
+/* 一句台詞照 App 的寬度、字級排出來；App 會換頁的地方畫一條線（虛線＝框放不下自動換、實線＝//） */
+const appText = (t, narr) => `<span class="appcol${narr ? " narr" : ""}">${appPages(t, narr).map((p, i) =>
+  (i ? `<i class="pgbrk${p.forced ? "" : " auto"}">${p.forced ? "換頁 //" : "放不下・換頁"}</i>` : "") + esc(p.t)).join("")}</span>`;
 
 function blank(cid, no) {
   return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
@@ -795,8 +843,8 @@ function paintPreview() {
     const w = whoOf(s);
     const name = w === "me" ? "你" : CHARS[w] || s.speaker || "";
     const titleNote = w === c.character_id && c.char_title.label ? `・${c.char_title.label}` : "";
-    html += w === "narr" ? `<div class="line narr">${escLine(s.text)}</div>`
-      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${escLine(s.text)}</div>`;
+    html += w === "narr" ? `<div class="line narr">${appText(s.text, true)}</div>`
+      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${appText(s.text, false)}</div>`;
     if ((s.choices || []).length) html += `<div class="opts">${s.choices.map((ch) =>
       `<div class="opt">${esc(ch.label || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}<small>→ ${esc(ch.to || "下一幕")}</small></div>`).join("")}</div>`;
     if (s.end) html += `<div class="endmark">— 此路到此 —</div>`;
@@ -1750,7 +1798,7 @@ const nameIn = (t) => String(t || "").replace(/\{名\}/g, sim ? sim.name : "{名
 function simLine(j, s) {
   const w = whoOfJ(s), npc = s.npc && j.npcs.find((n) => n.id === s.npc);
   const name = w === "me" ? sim.name : CHARS[w] || (npc && npc.name) || s.speaker || "";
-  return w === "narr" ? `<div class="line narr">${escLine(nameIn(s.text))}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${escLine(nameIn(s.text))}</div>`;
+  return w === "narr" ? `<div class="line narr">${appText(nameIn(s.text), true)}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${appText(nameIn(s.text), false)}</div>`;
 }
 function simPaint() {
   const j = jh[jcur];
