@@ -83,6 +83,8 @@ t("財：收了錦囊（+5）就撈得起槍，撈完扣 3", () => {
     const pref = ["替婆婆", "收下錦囊", "回客棧"]; for (const k of pref) { const x = cs.find((y) => (y.label ?? "").includes(k)); if (x) return x.key; } return cs[0].key; });
   if (!w.ok) throw new Error(w.err); if (!took) throw new Error("沒出現撈槍"); if (w.st.s5 !== 3 - 1 + 5 - 3) throw new Error("財應為 4，得到 " + w.st.s5);
 });
+t("選項 key 全篇不重複", () => { const ks = doc.nodes.flatMap((n: any) => [...n.scenes, ...(n.change?.scenes ?? [])]).flatMap((x: any) => (x.choices ?? []).map((c: any) => c.key));
+  const dup = ks.filter((k: string, i: number) => ks.indexOf(k) !== i); if (dup.length) throw new Error("重複：" + dup.join(",")); });
 t("亂送 key、多送、少送都拒絕", () => {
   if (J.walk(doc, [], ["nope"]).ok) throw new Error("亂送過了");
   const w = route([], ["找他"]); if (!w.ok) throw new Error();

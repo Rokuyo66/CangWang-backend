@@ -1838,6 +1838,9 @@ function jChecksOf(j) {
   if (j.identity.mode === "disguise" && !(j.identity.label || "").trim()) W("選了偽裝身分，但沒寫偽裝成什麼。");
   j.nodes.forEach((n, i) => { if (!n.scenes.some((s) => (s.text || "").trim())) W(`${YAO[i]}這一節還沒寫。`); });
   const gets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)));
+  // 選項 key 全篇不能重複：前路銜接、試走、後端判結局都靠它認人（10-24 Claude 手改上爻撞了三爻的 c39／c40）
+  const kc = {}; allScenes(j).forEach(([s, i, part]) => (s.choices || []).forEach((c) => { (kc[c.key] = kc[c.key] || []).push(`${YAO[i]}${part === "change" ? "變" : ""}「${c.label || "？"}」`); }));
+  Object.entries(kc).forEach(([k, at]) => { if (at.length > 1) E(`選項代號 ${k} 重複了：${at.join("、")}。刪掉其中一個重新按「＋選項」，或請 Claude 改。`); });
   allScenes(j).forEach(([s, i, part, list]) => {
     const at = `${YAO[i]}${part === "change" ? "的變數" : ""}`;
     (s.choices || []).forEach((ch) => {
