@@ -406,7 +406,7 @@ h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
 <div class="app">
 <aside class="side" id="side">
   <div class="brand"><h1>幾知觀 企劃工作臺</h1><span class="save" id="save">連線中…</span></div>
-  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button><button role="tab" data-mode="plan">企劃</button></div>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="letter">道緣信</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button><button role="tab" data-mode="plan">企劃</button></div>
   <div class="sidebody">
   <div class="rail" id="r-char">
     <section class="sec">
@@ -436,6 +436,21 @@ h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
         <li>記憶是他之後聊天會引用的一句，寫成他記得的那件事。不寫也可以。</li>
         <li>道緣門檻：初識 0・相熟 300・相知 500・知己 800。修為門檻選境界，跟道緣兩個都要到才開。</li>
         <li>要跳到別的幕（分支）時，在「演完往哪」或選項的「跳到」選第幾幕就好，不用另外取名。</li>
+      </ul>
+    </details>
+  </div>
+  <div class="rail" id="r-letter" hidden>
+    <section class="sec">
+      <h3>道緣信 <small class="fxnote">升一階才寄一封</small></h3>
+      <div class="chlist" id="letter-list"></div>
+    </section>
+    <details class="sec rulebox">
+      <summary>寫的時候記得</summary>
+      <ul class="rules">
+        <li>一位角色三封：初識→相熟（300）、相熟→相知（500）、相知→知己（800）。</li>
+        <li>書信文言；信裡不寫遊戲數字（道緣、點數、靈石幾枚）。</li>
+        <li>「寫入記憶」寫成他記得的那件事，不寫推測。</li>
+        <li>本地端寫的稿審過會自動放進來（標「待看」）；不行就在上面寫意見、按「駁回重寫」。</li>
       </ul>
     </details>
   </div>
@@ -494,6 +509,7 @@ h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
   <p class="sub" id="mode-sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</p>
   <div class="banner" id="banner" hidden></div>
   <div id="m-char"><main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main></div>
+  <div id="m-letter" hidden><main class="main" id="letter-main"><div class="empty">從左邊選一封。</div></main></div>
   <div id="m-jh" hidden><main class="main" id="jh-main"><div class="empty">從左邊選一卦。</div></main></div>
   <div id="m-plan" hidden><main class="main" id="plan-main"><div class="empty">從左邊選一份企劃，或按「＋ 新企劃」。</div></main></div>
   <div class="artwrap" id="m-art" hidden>
@@ -949,10 +965,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); });
+    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); if (typeof letterInit === "function") letterInit(); });
     return;
   }
-  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); });
+  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); if (typeof letterInit === "function") letterInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -1135,9 +1151,10 @@ $("modes").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
   const m = b.dataset.mode, jhOn = m === "jh";
   $("modes").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const k of ["char", "jh", "art", "plan"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
+  for (const k of ["char", "letter", "jh", "art", "plan"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
   $("pane").scrollTop = 0;
-  $("mode-sub").textContent = m === "plan" ? "一份企劃一件事。寫好改成「待做」，Claude 從這裡讀走、照著做。"
+  $("mode-sub").textContent = m === "letter" ? "道緣升一階寄一封。本地端寫好、審過的會自動放進來，你看過改「定稿」。"
+    : m === "plan" ? "一份企劃一件事。寫好改成「待做」，Claude 從這裡讀走、照著做。"
     : m === "art" ? "App 所有美術的唯一上傳位置。左邊選一張，右邊換圖、勾「下次更新放進 App」。"
     : jhOn ? "一卦一篇：今天的日運卦就是今天的江湖。六爻六節，動爻那一節出變數。"
     : "一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。";
@@ -2026,7 +2043,7 @@ function jApply(list) {
   if (jcur && jcur !== "__cfg" && jh[jcur] && !jdirty.has(jcur) && !document.activeElement?.closest?.("#jh-main") && jview === "write") jMain();
 }
 function jhInit() {
-  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art" || m === "plan") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
+  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art" || m === "plan" || m === "letter") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
   if (!db) {
     try { jh = JSON.parse(localStorage.getItem(JLS) || "{}"); Object.assign(cfg, JSON.parse(localStorage.getItem(JLS + "-cfg") || "{}")); } catch (e) {}
     jRail(); return;
@@ -2959,3 +2976,143 @@ if (typeof artItemHtml === "function") { const _ai = artItemHtml; artItemHtml = 
   const h = _ai(a), url = a.asset_url || artOrigin(a), p = decoPanel(a, url);
   return p ? h + p : h; }; }
 </script>
+
+<style>
+/* ── 道緣信、本地端稿的駁回欄（六六 2026-10-25）── */
+.aibox{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--paper-2));margin-bottom:14px}
+.aibox.rej{border-left-color:var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 7%,var(--paper-2))}
+.aibox .aist{margin:0;font-size:13px;color:var(--cinnabar);font-weight:600}
+.aibox .aist.sent{color:var(--warn)}
+.aibox textarea{width:100%;font:inherit;font-size:13.5px;padding:6px 8px;border:1px solid var(--edge);border-radius:6px;background:var(--field);color:var(--ink)}
+.aibox .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.aibox .aie{color:var(--cinnabar);font-size:13px}
+.modes{grid-template-columns:repeat(3,1fr);border-radius:16px}
+.pill.ai{color:var(--warn);border-color:var(--warn)} .pill.rej{color:#fff;background:var(--cinnabar);border-color:var(--cinnabar)}
+.ch.empty-slot b{color:var(--ink-faint);font-weight:400}
+.lt-ed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.lt-ed{grid-template-columns:1fr}}
+.lt-ed textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.9;padding:10px;border:1px solid var(--edge);border-radius:6px;background:var(--field);color:var(--ink);min-height:360px}
+.lt-pv{background:var(--paper-2);border:1px solid var(--edge);border-radius:6px;padding:18px 20px;font-size:14.5px;line-height:2}
+.lt-pv h3{margin:0 0 10px;font:600 16px var(--f-display)}
+.lt-pv p{margin:0 0 .6em}
+.lt-pv .mem{margin-top:12px;padding-top:8px;border-top:1px dashed var(--edge);font-size:12.5px;color:var(--ink-faint)}
+</style>
+<script>
+/* ══ 道緣信（六六 2026-10-25）══
+   升一階才寄一封：初識→相熟 300、相熟→相知 500、相知→知己 800。一位角色三封，存在雲端 letters/<角色>_t<道緣>。
+   { id, character_id, at, prev, tier, subject, body, lingshi, memory, status(draft/review/final), note, updated_at,
+     ai_task, ai_meta{round,score,at}, ai_reject{state,text,at} }
+   本地端寫手台審過的稿，由 Claude 巡檢放進來（status=review）。 */
+const LT_TIERS = [[300, "初識", "相熟"], [500, "相熟", "相知"], [800, "相知", "知己"]];
+const LT_ST = { draft: "草稿", review: "待看", final: "定稿" };
+let letters = {}, ltCur = null, ltTimers = {}, ltDirty = new Set(), ltStarted = false;
+const ltId = (cid, at) => `${cid}_t${at}`;
+function ltBlank(cid, at) {
+  const t = LT_TIERS.find((x) => x[0] === at) || LT_TIERS[0];
+  return { id: ltId(cid, at), character_id: cid, at, prev: t[1], tier: t[2], subject: "", body: "", lingshi: 0, memory: "", status: "draft", note: "", updated_at: "" };
+}
+function ltRail() {
+  const el = $("letter-list"); if (!el) return;
+  el.innerHTML = Object.entries(CHARS).map(([cid, nm]) => LT_TIERS.map(([at, a, b]) => {
+    const d = letters[ltId(cid, at)], id = ltId(cid, at), rj = d && d.ai_reject && d.ai_reject.state;
+    return `<button class="ch${id === ltCur ? " on" : ""}${d ? "" : " empty-slot"}" data-lt="${esc(id)}">
+      <b>${esc(nm)}・${a}→${b}${d && d.subject ? "　" + esc(d.subject) : d ? "" : "　（還沒有）"}</b>
+      ${d ? `<span class="pill ${rj ? "rej" : esc(d.status)}">${rj ? (rj === "pending" ? "駁回待送" : "重寫中") : LT_ST[d.status] || d.status}</span>` : "<span></span>"}
+      <small>道緣 ${at}${d && d.ai_task ? "・本地端稿" : ""}${d && +d.lingshi ? `・夾 ${+d.lingshi} 靈石` : ""}</small></button>`; }).join("")).join("");
+}
+const ltParas = (t) => String(t || "").split("\n").map((p) => p.trim() ? `<p>${esc(p)}</p>` : "").join("");
+function letterPaint() {
+  const d = letters[ltCur], main = $("letter-main"); if (!main) return;
+  if (!d) { main.innerHTML = `<div class="empty">從左邊選一封。</div>`; return; }
+  main.innerHTML = `${aiBox("letters", d)}<section class="sec">
+    <h2>${esc(CHARS[d.character_id] || d.character_id)}的信・${esc(d.prev)}→${esc(d.tier)} <small>${esc(d.id)}・道緣 ${d.at}</small></h2>
+    <div class="status" id="lt-status">${Object.entries(LT_ST).map(([k, v]) => `<button data-ltst="${k}" class="${d.status === k ? "on" : ""}">${v}</button>`).join("")}</div>
+    <div class="grid">
+      <label class="field wide"><span>信題</span><input type="text" data-ltk="subject" value="${esc(d.subject)}"></label>
+      <label class="field"><span>夾帶靈石</span><input type="number" min="0" data-ltk="lingshi" data-num value="${+d.lingshi || 0}"></label>
+    </div>
+    <div class="lt-ed">
+      <label class="field"><span>內文 <em>（一行一段）</em></span><textarea data-ltk="body" spellcheck="false">${esc(d.body)}</textarea></label>
+      <div class="field"><span>收信時的樣子</span><div class="lt-pv" id="lt-pv">${ltPv(d)}</div></div>
+    </div>
+    <label class="field"><span>寫入記憶 <em>（他之後聊天會記得的那件事）</em></span><input type="text" data-ltk="memory" value="${esc(d.memory)}"></label>
+    <label class="field"><span>六六的備註</span><textarea data-ltk="note" rows="2" style="min-height:0;font-size:13px">${esc(d.note || "")}</textarea></label>
+  </section>`;
+}
+const ltPv = (d) => `<h3>${esc(d.subject || "（信題）")}</h3>${ltParas(d.body) || `<p class="fxnote">（還沒有內文）</p>`}<div class="mem">寫入記憶：${esc(d.memory || "（無）")}</div>`;
+function letterSave(id) {
+  const d = letters[id]; if (!d) return;
+  d.updated_at = new Date().toISOString(); ltDirty.add(id); setSave("有未存的修改…");
+  clearTimeout(ltTimers[id]);
+  ltTimers[id] = setTimeout(async () => {
+    if (!db) { try { localStorage.setItem("script-sheet-letters", JSON.stringify(letters)); } catch (e) {} ltDirty.delete(id); setSave("已存在這台瀏覽器"); return; }
+    try { await db.collection("letters").doc(id).set(JSON.parse(JSON.stringify(d))); ltDirty.delete(id); setSave("已存檔"); }
+    catch (e) { setSave(e && e.code === "invalid_argument" ? "你沒有寫入權限：這裡只能看" : "道緣信沒存上", true); }
+  }, 700);
+  ltRail();
+}
+function letterInit() {
+  if (ltStarted) return; ltStarted = true;
+  $("letter-list").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-lt]"); if (!b) return;
+    const id = b.dataset.lt;
+    if (!letters[id]) { const m = /^(.+)_t(\d+)$/.exec(id); letters[id] = ltBlank(m[1], +m[2]); letterSave(id); }
+    ltCur = id; ltRail(); letterPaint(); $("pane").scrollTop = 0;
+  });
+  const main = $("letter-main");
+  main.addEventListener("input", (e) => {
+    const t = e.target, d = letters[ltCur]; if (!d || !t.dataset.ltk) return;
+    d[t.dataset.ltk] = t.hasAttribute("data-num") ? Math.max(0, +t.value || 0) : t.value;
+    const pv = $("lt-pv"); if (pv) pv.innerHTML = ltPv(d);
+    letterSave(ltCur);
+  });
+  main.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ltst]"), d = letters[ltCur]; if (!b || !d) return;
+    d.status = b.dataset.ltst; letterSave(ltCur);
+    $("lt-status").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+  if (!db) { try { letters = JSON.parse(localStorage.getItem("script-sheet-letters") || "{}"); } catch (e) {} ltRail(); return; }
+  db.collection("letters").onSnapshot((snap) => {
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#letter-main");
+    for (const x of snap.docs) { if (!x.exists || ltDirty.has(x.id)) continue; letters[x.id] = JSON.parse(JSON.stringify(x.data())); }
+    ltRail(); if (ltCur && !typing) letterPaint();
+  }, () => setSave("道緣信讀不到", true));
+}
+ltRail();
+
+/* ══ 本地端稿：反饋＋駁回重寫（六六 2026-10-25）══
+   只出現在本地端寫的稿（有 ai_task）。按「駁回重寫」→ ai_reject = { state:"pending", text, at }。
+   Claude 巡檢讀到 pending：把意見送回本地端那份稿重寫，改成 state:"sent"；重寫審過就覆蓋這一份、清掉 ai_reject。 */
+const aiT = (iso) => { const x = new Date(iso || ""); if (isNaN(x)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${x.getMonth() + 1}/${x.getDate()} ${p(x.getHours())}:${p(x.getMinutes())}`; };
+function aiBox(col, d) {
+  if (!d || !d.ai_task) return "";
+  const r = d.ai_reject || {}, m = d.ai_meta || {};
+  const st = r.state === "pending" ? `<p class="aist">已駁回（${aiT(r.at)}）：等 Claude 巡檢送回本地端。改主意就按「撤回駁回」。</p>`
+    : r.state === "sent" ? `<p class="aist sent">已送回本地端重寫（${aiT(r.sent_at || r.at)}）：寫好、審過會直接覆蓋這一份。</p>` : "";
+  return `<div class="tcard aibox${r.state ? " rej" : ""}" data-aicol="${col}" data-aiid="${esc(d.id)}">
+    <h3>本地端寫的稿 <small>#${esc(d.ai_task)}${m.round ? `・第 ${m.round} 輪` : ""}${m.score != null ? `・審稿 ${m.score} 分` : ""}${m.at ? `・${aiT(m.at)} 放進來` : ""}</small></h3>
+    ${st}
+    ${r.state === "sent" ? `<p class="fxnote" style="margin:0">送回去的意見：${esc(r.text || "")}</p>` : `
+    <label class="field"><span>給本地端的意見 <em>（哪裡不行、要怎麼改；駁回時一起送回）</em></span><textarea data-aifb rows="3">${esc(r.state === "pending" ? r.text || "" : "")}</textarea></label>
+    <div class="row"><button class="btn primary" data-airej>${r.state === "pending" ? "更新意見" : "駁回重寫"}</button>${r.state === "pending" ? `<button class="btn ghost sm" data-aiundo>撤回駁回</button>` : ""}<span class="aie"></span></div>`}
+    <p class="fxnote" style="margin:0">重寫的稿會蓋掉這一份：你在這裡直接改過、想留下的字，寫進意見裡。</p></div>`;
+}
+const aiDoc = (col, id) => col === "chapters" ? chapters[id] : col === "jianghu" ? jh[id] : letters[id];
+function aiSave(col, id) { if (col === "chapters") touch(id); else if (col === "jianghu") jtouch(id); else letterSave(id); }
+function aiRepaint(col) { if (col === "chapters") { paintRail(); paintMain(); } else if (col === "jianghu") { jRail(); jMain(); } else { ltRail(); letterPaint(); } }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-airej],[data-aiundo]"); if (!b) return;
+  const box = b.closest(".aibox"), col = box.dataset.aicol, id = box.dataset.aiid, d = aiDoc(col, id); if (!d) return;
+  e.stopPropagation();
+  if (b.hasAttribute("data-aiundo")) { delete d.ai_reject; aiSave(col, id); aiRepaint(col); return; }
+  const text = box.querySelector("[data-aifb]").value.trim();
+  if (!text) { box.querySelector(".aie").textContent = "先寫意見：本地端要知道哪裡不行。"; return; }
+  d.ai_reject = { state: "pending", text, at: new Date().toISOString() };
+  aiSave(col, id); aiRepaint(col);
+}, true);
+// 掛到角色事件、江湖事件的編輯畫面最上面
+if (typeof paintMain === "function") { const _pm = paintMain; paintMain = function () { _pm(); const c = chapters[cur]; if (c && c.ai_task) $("main").insertAdjacentHTML("afterbegin", aiBox("chapters", c)); }; }
+if (typeof jMain === "function") { const _jm = jMain; jMain = function () { _jm(); const j = jh[jcur]; if (j && j.ai_task && jcur !== "__cfg" && jcur !== "__world") $("jh-main").insertAdjacentHTML("afterbegin", aiBox("jianghu", j)); }; }
+if (typeof db !== "undefined" && db) letterInit();
+</script>
+
