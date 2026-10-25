@@ -2604,7 +2604,9 @@ if (typeof artPaint === "function") { const _ap = artPaint; artPaint = function 
   --wx-木:#7fae6e;--wx-火:#d86a52;--wx-土:#CE9764;--wx-金:#FFE380;--wx-水:#6fa3c4}
 .avx{position:relative;width:var(--s,140px);height:var(--s,140px);flex:none;isolation:isolate}
 .avx-av{position:absolute;inset:0;border-radius:50%;overflow:hidden;z-index:1;background:var(--paper-2)}
-.avx-av>*{width:100%;height:100%;object-fit:cover;display:block}
+.avx-av>*{width:100%;height:100%;object-fit:cover;display:block;transform-origin:50% 50%}
+.avx.big .avx-av{cursor:grab;touch-action:none}.avx.big .avx-av:active{cursor:grabbing}
+.avd-crop{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair);font-size:13px}
 .avx-ring{position:absolute;z-index:2;border-radius:50%;pointer-events:none;inset:calc(var(--rw) * -1);padding:var(--rw);background:var(--rg);
   -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);box-shadow:var(--rs,none)}
 .avx-fimg{position:absolute;z-index:2;inset:-16.667%;width:133.333%;height:133.333%;pointer-events:none;object-fit:contain;
@@ -2742,10 +2744,15 @@ function avdFrame(f) {
   return "";
 }
 // 一顆頭像：avUrl（圖或影片）＋ 框 ＋ 粒子
-function avdAv(avUrl, avType, d, size, guide) {
-  const p = d && d.fx && d.fx_on !== false ? avdeco.fx[d.fx] : null;
-  const media = !avUrl ? "" : isVid(avUrl, avType) ? `<video src="${esc(avUrl)}" autoplay loop muted playsinline></video>` : `<img src="${esc(avUrl)}" alt="">`;
-  return `<div class="avx" style="--s:${size}px">${p ? avdFx(p, 0) : ""}<div class="avx-av">${media}</div>${avdFrame(d && d.frame)}${p ? avdFx(p, 1) : ""}${guide ? `<div class="avx-guide"></div>` : ""}</div>`;
+/* 顯示範圍：crop {x,y,z}——z 放大倍數（1＝整張塞滿圓），x／y 是圓心落在原圖的哪裡（0～1）。
+   一律先 object-fit:cover 裁成正方形再裁圓，所以上傳什麼比例都一樣。App 照同一條算式。 */
+const avdCropFix = (c) => { const z = Math.min(3, Math.max(1, +(c && c.z) || 1)), m = .5 - .5 / z;
+  return { z, x: Math.min(.5 + m, Math.max(.5 - m, c && c.x != null ? +c.x : .5)), y: Math.min(.5 + m, Math.max(.5 - m, c && c.y != null ? +c.y : .5)) }; };
+const avdCropCss = (c) => { const { z, x, y } = avdCropFix(c); return z === 1 ? "" : `transform:translate(${((.5 - x) * z * 100).toFixed(2)}%,${((.5 - y) * z * 100).toFixed(2)}%) scale(${z.toFixed(3)})`; };
+function avdAv(avUrl, avType, d, size, guide, big) {
+  const p = d && d.fx && d.fx_on !== false ? avdeco.fx[d.fx] : null, cs = avdCropCss(d && d.crop);
+  const media = !avUrl ? "" : isVid(avUrl, avType) ? `<video src="${esc(avUrl)}" autoplay loop muted playsinline style="${cs}"></video>` : `<img src="${esc(avUrl)}" alt="" draggable="false" style="${cs}">`;
+  return `<div class="avx${big ? " big" : ""}" style="--s:${size}px">${p ? avdFx(p, 0) : ""}<div class="avx-av">${media}</div>${avdFrame(d && d.frame)}${p ? avdFx(p, 1) : ""}${guide ? `<div class="avx-guide"></div>` : ""}</div>`;
 }
 const AVD_SAMPLE = () => { const a = Object.values(arts || {}).find((x) => x.key === "av/daoshi_m") || Object.values(arts || {}).find((x) => x.kind === "頭像" && (x.asset_url || artOrigin(x)));
   return a ? [a.asset_url || artOrigin(a), a.asset_type] : ["", ""]; };
@@ -2808,7 +2815,7 @@ function avdFrameOpts(cur) {
     + `<optgroup label="圖片框（頭像框組）">${imgs.length ? imgs.map((a) => `<option value="img:${esc(a.key)}"${cur === "img:" + a.key ? " selected" : ""}>${esc(a.name)}</option>`).join("") : `<option disabled>（還沒有）</option>`}</optgroup>`;
 }
 
-const avdPvHtml = (a, url, d) => avdAv(url, a.asset_type, d, 168, avdUi.guide && (d.frame || "").startsWith("img:")) + avdAv(url, a.asset_type, d, 96, false) + avdAv(url, a.asset_type, { frame: d.frame }, 40, false);
+const avdPvHtml = (a, url, d) => avdAv(url, a.asset_type, d, 168, avdUi.guide && (d.frame || "").startsWith("img:"), true) + avdAv(url, a.asset_type, d, 96, false) + avdAv(url, a.asset_type, { frame: d.frame, crop: d.crop }, 40, false);
 /* 美術資產一列底下的面板 */
 function decoPanel(a, url) {
   const isAv = a.kind === "頭像" || a.kind === "動態頭像";
@@ -2831,7 +2838,10 @@ function decoPanel(a, url) {
   return `<div class="avd" data-avda="${esc(a.id)}"><h4>框與粒子 <small class="fxnote">這張頭像預設戴的</small></h4>
     <div class="avd-top"><div class="l">${th}
     <div class="avd-pv" data-th="${avdUi.th}" style="margin-top:10px">${avdPvHtml(a, url, d)}</div>
-    <p class="avd-note">大＝道籍頭、中＝觀堂、小＝閒聊列表（列表只畫框）。</p></div><div class="r">
+    <p class="avd-note">大＝道籍頭、中＝觀堂、小＝閒聊列表（列表只畫框）。</p>
+    <div class="avd-crop"><b>顯示範圍</b> <small class="fxnote">在大的那顆上拖曳移動</small>
+      <div class="avd-sl" style="margin-top:4px"><b>放大</b><input type="range" min="1" max="3" step="0.01" value="${avdCropFix(d.crop).z}" data-avdzoom><output>${avdCropFix(d.crop).z.toFixed(2)}×</output></div>
+      <button class="btn sm ghost" data-avdcropreset style="margin-top:6px">回到整張</button></div></div><div class="r">
     <div class="avd-ctl" style="margin-top:0">
       <span>框</span><select data-avdset="frame">${avdFrameOpts(d.frame || "")}</select>
       <span>粒子</span><div class="avd-row"><select data-avdset="fx"><option value="">不加</option>${Object.entries(avdeco.fx).map(([k, v]) => `<option value="${esc(k)}"${fxId === k ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</select>
@@ -2895,6 +2905,30 @@ document.addEventListener("click", (e) => {
     delete avdeco.fx[t.dataset.avddel]; for (const x of used) { x.deco.fx = ""; artSave(x.id); } avdUi.ed = ""; avdUiSave(); avdTouch(); artPaint(true); }
 });
 // 框的模板：512×512 透明，紅線＝頭像邊（直徑 384），藍虛線＝框最多往內壓到（352），灰色＝挖空區
+function avdCropSet(a, c, save) {
+  a.deco = { ...(a.deco || {}), crop: c }; const cs = avdCropCss(c);
+  document.querySelectorAll(`.avd[data-avda="${a.id}"] .avx-av>*`).forEach((m) => { m.style.transform = cs ? cs.slice(10) : ""; });
+  if (save) artSave(a.id);
+}
+document.addEventListener("pointerdown", (e) => {
+  const av = e.target.closest(".avd[data-avda] .avx.big .avx-av"); if (!av) return;
+  const a = avdRow(av); if (!a) return;
+  const W = av.clientWidth, c0 = avdCropFix(a.deco && a.deco.crop), sx = e.clientX, sy = e.clientY;
+  av.setPointerCapture(e.pointerId); e.preventDefault();
+  // 往右拖＝圖往右移＝圓心在原圖上往左
+  const mv = (ev) => avdCropSet(a, avdCropFix({ z: c0.z, x: c0.x - (ev.clientX - sx) / (W * c0.z), y: c0.y - (ev.clientY - sy) / (W * c0.z) }), false);
+  const up = () => { av.removeEventListener("pointermove", mv); av.removeEventListener("pointerup", up); av.removeEventListener("pointercancel", up); artSave(a.id); };
+  av.addEventListener("pointermove", mv); av.addEventListener("pointerup", up); av.addEventListener("pointercancel", up);
+});
+document.addEventListener("input", (e) => {
+  const t = e.target; if (!t.matches("[data-avdzoom]")) return; const a = avdRow(t); if (!a) return;
+  const c = avdCropFix({ ...avdCropFix(a.deco && a.deco.crop), z: +t.value }); t.nextElementSibling.textContent = c.z.toFixed(2) + "×"; avdCropSet(a, c, false);
+});
+document.addEventListener("change", (e) => { const t = e.target; if (t.matches("[data-avdzoom]")) { const a = avdRow(t); if (a) artSave(a.id); } });
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-avdcropreset]"); if (!t) return; const a = avdRow(t); if (!a) return;
+  avdCropSet(a, { z: 1, x: .5, y: .5 }, true); const r = t.closest(".avd-crop").querySelector("[data-avdzoom]"); r.value = 1; r.nextElementSibling.textContent = "1.00×";
+});
 function avdTemplate() {
   const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d");
   g.fillStyle = "rgba(128,128,128,.25)"; g.beginPath(); g.arc(256, 256, 176, 0, Math.PI * 2); g.fill();
