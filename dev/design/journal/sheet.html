@@ -285,7 +285,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .aepic{display:flex;flex-direction:column;gap:8px}
 .aeimg{position:relative;width:100%;aspect-ratio:3/4;border-radius:10px;background:var(--paper-2);border:1px dashed var(--edge);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--ink-faint);font-size:13px;text-align:center;cursor:pointer;padding:12px}
 .aeimg.has{border-style:solid;padding:0}
-.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg:is([data-kind="頭像"],[data-kind="動態頭像"],[data-kind="頭像框"]){aspect-ratio:1/1}
+.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg:is([data-kind="頭像"],[data-kind="動態頭像"],[data-kind="頭像框"],[data-kind="粒子圖"]){aspect-ratio:1/1}
 .aeimg .orig{position:absolute;left:8px;top:8px;font-size:11px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
 .aeimg video,.aeimg img{width:100%;height:100%;object-fit:contain;display:block}
 .aeimg input{display:none}
@@ -949,10 +949,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); });
+    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); });
     return;
   }
-  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); });
+  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -2051,7 +2051,7 @@ function jhInit() {
 const ART_CHARS = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
 // 左欄分組的順序；列在這裡的組就算還沒有任何一列也照樣出現（頭像框：之後要做，先佔位）
 const ART_GROUP_ORDER = ["主要角色", "玩家頭像", "其他頭像", "頭像框", "場景", "頁面底圖", "江湖・乾為天"];
-const ART_GROUP_NOTE = { 頭像框: "還沒有任何一個頭像框。要做的時候按左邊「＋一列」，類型選「頭像框」。" };
+const ART_GROUP_NOTE = { 頭像框: "自己畫的框與粒子圖放這組：按「＋新增」，類型選「頭像框」（512×512）或「粒子圖」（128×128）。上傳後到任一張頭像的「框與粒子」選它。CSS 色框不用圖，直接在頭像那裡選。" };
 // App 現在用的線上那張（Supabase 雲端）：列上 origin_url，舊資料從 temp「雲端 資料夾/檔名」推出來
 const ART_CLOUD = "https://ajogafvzlhqwlxwkfcpn.supabase.co/storage/v1/object/public/";
 const artOrigin = (a) => a.origin_url || ((/^雲端 (\S+\.(?:png|jpe?g|webp|mp4|webm))$/i.exec(a.temp || "") || [])[1] ? ART_CLOUD + /^雲端 (\S+)/.exec(a.temp)[1] : "");
@@ -2065,7 +2065,8 @@ const ART_SPEC = {
   場景: "1280×1920 直式 JPG／WebP，焦點在中央 70%，下方 45% 會被對話框蓋住（畫地板、桌面這類低對比的東西），不畫人物、不放字。",
   頭像: "正方形 ≥512px，臉在中央；畫面上一律裁成圓形。主要角色的頭像也拿來做手機通知的圓形大圖。",
   動態頭像: "正方形 512×512、2～4 秒無縫循環；交 MP4／MOV／動態 WebP 都可以；進 App 一律轉成動態 WebP（384×384、15fps、600 KB 內，另出一張靜止首格給列表用）。",
-  頭像框: "512×512 透明 PNG／WebP；頭像圓形在正中央、直徑約 80%，框畫在外圈（格式待定）。" };
+  頭像框: "512×512 透明 PNG／WebP。正中央直徑 384px 的圓＝頭像（跟動態頭像 384×384 同尺寸，1:1 疊上去）；框可以往內壓到直徑 352px，往外畫到畫布邊。中間要挖空。按下面「下載框的模板」拿參考線。",
+  粒子圖: "128×128 透明 PNG／WebP，一片粒子（葉、瓣、光點）置中、尖端朝上；白色或原色都可以。在「框與粒子」把粒子形狀選成這張。" };
 let arts = {}, assetsNs = null, artSel = "";
 const artTimers = {};
 try { artSel = localStorage.getItem("script-sheet-art-sel") || ""; } catch (e) {}
@@ -2292,9 +2293,9 @@ function artInit() {
   // 新增一張（六六 2026-10-23）：在哪一組（哪位角色）按的，就加在那裡；類型決定 App 代號。
   // 怎麼獲得、用在哪寫在備註，Claude 抓圖時照備註接進 App。表單在頁面上（claude.ai 的框架會擋 prompt）
   let artNewAt = null;
-  const ART_NEW_KINDS = { 主要角色: ["立繪", "頭像", "動態頭像"], 玩家頭像: ["頭像", "動態頭像"], 其他頭像: ["頭像", "動態頭像"], 頭像框: ["頭像框"], 場景: ["場景"], 頁面底圖: ["場景"] };
+  const ART_NEW_KINDS = { 主要角色: ["立繪", "頭像", "動態頭像"], 玩家頭像: ["頭像", "動態頭像"], 其他頭像: ["頭像", "動態頭像"], 頭像框: ["頭像框", "粒子圖"], 場景: ["場景"], 頁面底圖: ["場景"] };
   const artNewKey = (at, kind, code) => !code ? "" : at.cid ? (kind === "立繪" ? `char/${at.cid}/` : `av/${at.cid}/`) + code
-    : at.g === "玩家頭像" ? "av/player/" + code : kind === "頭像框" ? "frame/" + code : kind === "場景" ? "scene/" + code
+    : at.g === "玩家頭像" ? "av/player/" + code : kind === "頭像框" ? "frame/" + code : kind === "粒子圖" ? "fx/" + code : kind === "場景" ? "scene/" + code
     : kind === "頭像" || kind === "動態頭像" ? "av/" + code : "char/n_" + code;
   const artNewHint = () => {
     const code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ""), k = artNewKey(artNewAt, $("art-new-kind").value, code);
@@ -2588,3 +2589,313 @@ if (typeof artPaint === "function") { const _ap = artPaint; artPaint = function 
 </script>
 
 
+
+<style>
+/* ── 框與粒子（美術資產：頭像、動態頭像、頭像框、粒子圖）── */
+.avd{margin-top:14px;padding:14px;border:1px solid var(--edge);border-radius:12px;background:var(--field)}
+.avd h4{margin:0 0 10px;font:600 14px var(--f-display)}
+.avd-top{display:grid;grid-template-columns:minmax(260px,380px) 1fr;gap:18px;align-items:start}
+.avd-top>.l{position:sticky;top:10px}
+@media (max-width:900px){.avd-top{grid-template-columns:1fr}.avd-top>.l{position:static}}
+.avd-pv{--paper:#F2EBDA;--paper-2:#EBE1CC;--ink:#1C1917;--ink-faint:#746958;--cinnabar:#B5402E;--gold:#D59F62;
+  --wx-木:#4f7a4d;--wx-火:#b5402e;--wx-土:#9a7b3f;--wx-金:#9a8f6b;--wx-水:#3b6a86;
+  background:var(--paper);border-radius:12px;padding:30px;display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap;border:1px solid var(--edge)}
+.avd-pv[data-th="night"]{--paper:#15120E;--paper-2:#413935;--ink:#ECE3D1;--ink-faint:#C1A776;--cinnabar:#D86A52;--gold:#C4A164;
+  --wx-木:#7fae6e;--wx-火:#d86a52;--wx-土:#CE9764;--wx-金:#FFE380;--wx-水:#6fa3c4}
+.avx{position:relative;width:var(--s,140px);height:var(--s,140px);flex:none;isolation:isolate}
+.avx-av{position:absolute;inset:0;border-radius:50%;overflow:hidden;z-index:1;background:var(--paper-2)}
+.avx-av>*{width:100%;height:100%;object-fit:cover;display:block}
+.avx-ring{position:absolute;z-index:2;border-radius:50%;pointer-events:none;inset:calc(var(--rw) * -1);padding:var(--rw);background:var(--rg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);box-shadow:var(--rs,none)}
+.avx-fimg{position:absolute;z-index:2;inset:-16.667%;width:133.333%;height:133.333%;pointer-events:none;object-fit:contain}
+.avx-guide{position:absolute;z-index:4;inset:-16.667%;pointer-events:none;border-radius:50%}
+.avx-guide::before,.avx-guide::after{content:"";position:absolute;border-radius:50%}
+.avx-guide::before{inset:12.5%;border:1.5px solid #e0473a}
+.avx-guide::after{inset:15.625%;border:1.5px dashed #2f8fd8}
+.avx-fx{position:absolute;inset:-25%;pointer-events:none;overflow:hidden;container-type:size;
+  -webkit-mask:radial-gradient(closest-side,#000 var(--fm,70%),transparent);mask:radial-gradient(closest-side,#000 var(--fm,70%),transparent)}
+.avx-fx.b{z-index:0}.avx-fx.f{z-index:3}
+.avx-fx i{position:absolute;left:0;top:0;width:var(--w);aspect-ratio:1/var(--ar,1);opacity:0;will-change:transform,opacity;
+  animation:var(--an) var(--du) linear var(--dl) infinite}
+.avx-fx i::before{content:"";position:absolute;inset:0;background:var(--bg);border-radius:var(--br,0);transform:rotate(var(--r0,0deg));
+  animation:avfx-flk var(--fd,1.6s) ease-in-out var(--dl) infinite alternate;animation-play-state:var(--fp,paused)}
+@keyframes avfx-flk{to{opacity:var(--fo,1)}}
+@keyframes avfx-a{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}8%{opacity:var(--op)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  92%{opacity:var(--op)}100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@keyframes avfx-b{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}18%{opacity:var(--op)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  82%{opacity:var(--op)}100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@keyframes avfx-c{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  35%{opacity:var(--op)}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  65%{opacity:var(--op)}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@media (prefers-reduced-motion: reduce){.avx-fx{display:none}}
+.avd-ctl{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;font-size:13px;margin-top:12px}
+.avd-ctl>span{color:var(--ink-soft);white-space:nowrap}
+.avd-ctl select,.avd-ctl input[type=text]{font:inherit;font-size:13px;padding:4px 8px;border:1px solid var(--edge);border-radius:8px;background:var(--paper);color:var(--ink);max-width:100%}
+.avd-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.avd-ed{margin-top:12px;border-top:1px solid var(--edge);padding-top:10px}
+.avd-ed summary{cursor:pointer;font-weight:600;font-size:13.5px}
+.avd-sl{display:grid;grid-template-columns:7.5em 1fr 4.2em;gap:6px 10px;align-items:center;font-size:12.5px;margin-top:10px}
+.avd-sl>b{font-weight:500;color:var(--ink-soft)}
+.avd-sl output{font-family:var(--f-mono);font-size:12px;text-align:right}
+.avd-sl input[type=range]{width:100%;accent-color:var(--cinnabar)}
+.avd-sl .sub{grid-column:1/-1;margin:8px 0 0;font-size:12px;color:var(--ink-faint);border-bottom:1px solid var(--hair);padding-bottom:2px}
+.avd-note{font-size:12px;color:var(--ink-faint);margin:6px 0 0;line-height:1.6}
+</style>
+<script>
+/* ══ 框與粒子 ══（六六 2026-10-25）
+   動態頭像只算人物，不帶框、不帶粒子；框與粒子是 App 用 CSS 疊上去的兩層，跟頭像脫鉤。
+   存哪裡：
+     - 粒子預設、CSS 色框 → jianghu_cfg/avdeco { fx:{<id>:參數}, frames:{<id>:參數} }
+     - 圖片框 → 美術資產「頭像框」組的列（key frame/<代號>），粒子圖 → 同組「粒子圖」（key fx/<代號>）
+     - 一張頭像預設戴什麼 → 那一列的 deco { frame:"css:<id>"|"img:<key>"|"", fx:"<id>"|"", fx_on:true|false }
+   進 App：Claude 更新 App 時連同 avdeco 與各列 deco 一起帶（寫成前端的 assets/art/deco.json），
+   App 照同一套參數畫（同一條 keyframes、同一組換算），這裡看到的就是 App 的樣子。 */
+const AVD_DEF = {
+  frames: {
+    ink:      { name: "素墨", c1: "--ink", c2: "--ink", angle: 180, width: 3,   halo: 1 },
+    gold:     { name: "金箔", c1: "--gold", c2: "--paper-2", angle: 160, width: 5, halo: 0 },
+    cinnabar: { name: "硃砂", c1: "--cinnabar", c2: "--cinnabar", angle: 160, width: 4, halo: 1 },
+    jade:     { name: "青玉", c1: "--wx-木", c2: "--paper-2", angle: 200, width: 5, halo: 0 },
+  },
+  fx: {
+    bamboo:  { name: "竹葉", shape: "leaf",  back: 3, front: 2, size: 8,  ar: 3.2, sizeVar: .35, dur: 7.5, durVar: .35, dir: "down",  travel: 130, area: .9, sway: 9,  spin: 140, spinVar: .6, tilt: 40, op: .9,  fade: "a", flicker: 0,  color: "--wx-木",   color2: "" },
+    petal:   { name: "花瓣", shape: "petal", back: 3, front: 3, size: 6,  ar: 1,   sizeVar: .3,  dur: 8.5, durVar: .3,  dir: "down",  travel: 130, area: 1,  sway: 14, spin: 320, spinVar: .5, tilt: 90, op: .85, fade: "a", flicker: 0,  color: "--cinnabar", color2: "" },
+    mist:    { name: "雲霧", shape: "mist",  back: 2, front: 1, size: 75, ar: .45, sizeVar: .25, dur: 13,  durVar: .3,  dir: "right", travel: 170, area: .8, sway: 3,  spin: 0,   spinVar: 0,  tilt: 0,  op: .5,  fade: "c", flicker: 0,  color: "--paper-2",  color2: "" },
+    firefly: { name: "螢火", shape: "spark", back: 3, front: 2, size: 4,  ar: 1,   sizeVar: .4,  dur: 6,   durVar: .4,  dir: "up",    travel: 90,  area: .8, sway: 7,  spin: 0,   spinVar: 0,  tilt: 0,  op: 1,   fade: "b", flicker: .8, color: "--gold",     color2: "" },
+    snow:    { name: "雪",   shape: "round", back: 4, front: 3, size: 3.5,ar: 1,   sizeVar: .5,  dur: 9,   durVar: .35, dir: "down",  travel: 130, area: 1,  sway: 5,  spin: 0,   spinVar: 0,  tilt: 0,  op: .9,  fade: "a", flicker: 0,  color: "--paper-2",  color2: "" },
+  },
+};
+let avdeco = JSON.parse(JSON.stringify(AVD_DEF)), avdDirty = false, avdTimer = 0;
+const avdUi = { th: "paper", guide: true, ed: "" };
+try { Object.assign(avdUi, JSON.parse(localStorage.getItem("script-sheet-avd") || "{}")); } catch (e) {}
+const avdUiSave = () => { try { localStorage.setItem("script-sheet-avd", JSON.stringify(avdUi)); } catch (e) {} };
+const AVD_TOK = ["--gold", "--cinnabar", "--wx-木", "--wx-火", "--wx-土", "--wx-金", "--wx-水", "--paper-2", "--paper", "--ink", "--ink-faint"];
+const AVD_TOKN = { "--gold": "金", "--cinnabar": "硃砂", "--wx-木": "木", "--wx-火": "火", "--wx-土": "土", "--wx-金": "金（五行）", "--wx-水": "水", "--paper-2": "紙（淺）", "--paper": "紙", "--ink": "墨", "--ink-faint": "淡墨" };
+const avdCol = (c) => !c ? "" : c.startsWith("--") ? `var(${c})` : c;
+// 半隨機但固定：同一個預設每次長得一樣（App 也用同一條）
+const avdRnd = (i, k) => { const x = Math.sin((i + 1) * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+const avdImgs = (kind) => Object.values(arts || {}).filter((a) => a.kind === kind && (a.asset_url || artOrigin(a)));
+
+/* 一層粒子。layer 是頭像的 150%（四邊各多 25%）；位置用 cqw／cqh（layer 的寬高） */
+function avdFx(p, front) {
+  if (!p) return "";
+  const n = Math.max(0, Math.min(10, Math.round(front ? p.front : p.back))); let h = "";
+  const c1 = avdCol(p.color) || "var(--ink)", c2 = avdCol(p.color2) || `color-mix(in srgb, ${c1} 50%, white)`;
+  const imgRow = p.shape === "img" && p.img ? (arts || {})[p.img] : null, imgUrl = imgRow ? imgRow.asset_url || artOrigin(imgRow) : "";
+  const bg = { leaf: [`linear-gradient(135deg, ${c2}, ${c1} 70%)`, "0 100% 0 100%"],
+    petal: [`radial-gradient(circle at 30% 30%, ${c2}, ${c1} 80%)`, "100% 0 100% 100%"],
+    round: [`radial-gradient(closest-side, ${c1} 60%, transparent)`, "50%"],
+    spark: [`radial-gradient(closest-side, ${c2}, ${c1} 40%, transparent)`, "50%"],
+    mist:  [`radial-gradient(closest-side, ${c1}, transparent)`, "50%"],
+    img:   [imgUrl ? `url('${imgUrl}') center/contain no-repeat` : "transparent", "0"] }[p.shape] || ["", ""];
+  for (let j = 0; j < n; j++) {
+    const i = front ? j * 2 + 1 : j * 2, r = (k) => avdRnd(i, k);
+    const sz = p.size / 1.5 * (1 + (r(1) - .5) * 2 * p.sizeVar);                 // 佔 layer 寬的 %
+    const du = Math.max(1, p.dur * (1 + (r(2) - .5) * 2 * p.durVar));
+    const lane = 50 + (r(3) - .5) * 100 * p.area;                                  // 出生的那條線上的位置（%）
+    const tv = p.travel / 1.5, half = tv / 2, sw = p.sway / 1.5 * (r(4) < .5 ? 1 : -1);
+    let x0, y0, x1, y1, sx = 0, sy = 0;
+    const L = `${(lane - sz / 2).toFixed(2)}cqw`, LH = `${(lane - sz / 2).toFixed(2)}cqh`;
+    if (p.dir === "down")  { x0 = x1 = L; y0 = `${(50 - half - sz).toFixed(2)}cqh`; y1 = `${(50 + half).toFixed(2)}cqh`; sx = sw; }
+    else if (p.dir === "up") { x0 = x1 = L; y0 = `${(50 + half).toFixed(2)}cqh`; y1 = `${(50 - half - sz).toFixed(2)}cqh`; sx = sw; }
+    else if (p.dir === "right") { y0 = y1 = LH; x0 = `${(50 - half - sz).toFixed(2)}cqw`; x1 = `${(50 + half).toFixed(2)}cqw`; sy = sw; }
+    else if (p.dir === "left")  { y0 = y1 = LH; x0 = `${(50 + half).toFixed(2)}cqw`; x1 = `${(50 - half - sz).toFixed(2)}cqw`; sy = sw; }
+    else { x0 = `${(lane - half).toFixed(2)}cqw`; x1 = `${(lane + half * .6).toFixed(2)}cqw`; y0 = `${(50 - half - sz).toFixed(2)}cqh`; y1 = `${(50 + half).toFixed(2)}cqh`; sx = sw; }  // diag：斜落
+    const sp = p.spin * (1 - p.spinVar + r(5) * p.spinVar * 2) * (r(6) < .5 ? 1 : -1);
+    const st = { "--w": sz.toFixed(2) + "%", "--ar": p.ar, "--x0": x0, "--y0": y0, "--x1": x1, "--y1": y1,
+      "--sx": (p.dir === "down" || p.dir === "up" || p.dir === "diag" ? sw : 0).toFixed(2) + "cqw", "--sy": (sy).toFixed(2) + "cqh",
+      "--sp": sp.toFixed(0) + "deg", "--r0": ((r(7) - .5) * 2 * p.tilt).toFixed(0) + "deg", "--op": p.op,
+      "--an": "avfx-" + (p.fade || "a"), "--du": du.toFixed(2) + "s", "--dl": (-r(8) * du).toFixed(2) + "s",
+      "--bg": bg[0], "--br": bg[1] };
+    if (p.flicker > 0) Object.assign(st, { "--fp": "running", "--fo": (1 - p.flicker).toFixed(2), "--fd": (0.8 + r(9) * 1.2).toFixed(2) + "s" });
+    h += `<i style="${Object.entries(st).map(([k, v]) => `${k}:${v}`).join(";")}"></i>`;
+  }
+  return `<div class="avx-fx ${front ? "f" : "b"}">${h}</div>`;
+}
+function avdFrame(f) {
+  if (!f) return "";
+  if (f.startsWith("css:")) {
+    const v = avdeco.frames[f.slice(4)]; if (!v) return "";
+    const c1 = avdCol(v.c1), c2 = avdCol(v.c2) || c1;
+    return `<div class="avx-ring" style="--rw:calc(var(--s) * ${(v.width / 100).toFixed(3)});--rg:linear-gradient(${v.angle}deg, ${c1}, ${c2});${v.halo ? "--rs:0 0 0 calc(var(--s) * .012) var(--paper)" : ""}"></div>`;
+  }
+  if (f.startsWith("img:")) { const a = Object.values(arts || {}).find((x) => x.key === f.slice(4)); const u = a && (a.asset_url || artOrigin(a)); return u ? `<img class="avx-fimg" src="${esc(u)}" alt="">` : ""; }
+  return "";
+}
+// 一顆頭像：avUrl（圖或影片）＋ 框 ＋ 粒子
+function avdAv(avUrl, avType, d, size, guide) {
+  const p = d && d.fx && d.fx_on !== false ? avdeco.fx[d.fx] : null;
+  const media = !avUrl ? "" : isVid(avUrl, avType) ? `<video src="${esc(avUrl)}" autoplay loop muted playsinline></video>` : `<img src="${esc(avUrl)}" alt="">`;
+  return `<div class="avx" style="--s:${size}px">${p ? avdFx(p, 0) : ""}<div class="avx-av">${media}</div>${avdFrame(d && d.frame)}${p ? avdFx(p, 1) : ""}${guide ? `<div class="avx-guide"></div>` : ""}</div>`;
+}
+const AVD_SAMPLE = () => { const a = Object.values(arts || {}).find((x) => x.key === "av/daoshi_m") || Object.values(arts || {}).find((x) => x.kind === "頭像" && (x.asset_url || artOrigin(x)));
+  return a ? [a.asset_url || artOrigin(a), a.asset_type] : ["", ""]; };
+
+/* ── 粒子參數表（同一份給所有用到這個預設的頭像） ── */
+const AVD_SL = [
+  ["數量", null],
+  ["back", "頭像背後", 0, 8, 1, ""], ["front", "蓋在框上", 0, 8, 1, ""],
+  ["形狀與大小", null],
+  ["size", "大小（頭像的%）", 1, 90, .5, "%"], ["ar", "長寬比（高÷寬）", .3, 5, .05, ""], ["sizeVar", "大小差異", 0, .9, .05, ""], ["tilt", "初始角度散布", 0, 180, 5, "°"],
+  ["動法", null],
+  ["dur", "飄一趟（秒）", 1.5, 25, .5, "s"], ["durVar", "快慢差異", 0, .8, .05, ""], ["travel", "飄多遠（頭像的%）", 40, 200, 5, "%"],
+  ["area", "散布寬度", .1, 1, .05, ""], ["sway", "左右擺幅（頭像的%）", 0, 30, .5, "%"], ["spin", "一趟轉幾度", 0, 720, 10, "°"], ["spinVar", "轉速差異", 0, 1, .05, ""],
+  ["亮度", null],
+  ["op", "不透明度", .1, 1, .05, ""], ["flicker", "明滅（0＝不閃）", 0, 1, .05, ""],
+];
+function avdEditor(id) {
+  const p = avdeco.fx[id]; if (!p) return "";
+  const colSel = (k) => { const v = p[k] || "", custom = v && !v.startsWith("--");
+    return `<select data-avdc="${k}">${k === "color2" ? `<option value=""${!v ? " selected" : ""}>自動（主色調淡）</option>` : ""}${AVD_TOK.map((t) => `<option value="${t}"${v === t ? " selected" : ""}>${AVD_TOKN[t]}（跟主題變）</option>`).join("")}<option value="#"${custom ? " selected" : ""}>自訂色碼（不跟主題）</option></select>${custom ? ` <input type="color" data-avdhex="${k}" value="${esc(v)}">` : ""}`; };
+  const imgs = avdImgs("粒子圖");
+  return `<div class="avd-sl" data-avdfx="${esc(id)}">
+    <b>名字</b><input type="text" data-avdk="name" value="${esc(p.name)}"><span></span>
+    <b>形狀</b><select data-avdk="shape">${[["leaf", "葉（尖）"], ["petal", "花瓣"], ["round", "圓點（雪）"], ["spark", "光點"], ["mist", "霧"], ["img", "用粒子圖"]].map(([v, l]) => `<option value="${v}"${p.shape === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    ${p.shape === "img" ? `<b>粒子圖</b><select data-avdk="img"><option value="">（選一張）</option>${imgs.map((a) => `<option value="${esc(a.id)}"${p.img === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select><span></span>
+      ${imgs.length ? "" : `<p class="sub" style="border:0">還沒有粒子圖：左欄「頭像框」組按「＋」，類型選「粒子圖」上傳一張 128×128 透明圖。</p>`}` : `<b>主色</b><span>${colSel("color")}</span><span></span><b>亮部</b><span>${colSel("color2")}</span><span></span>`}
+    <b>方向</b><select data-avdk="dir">${[["down", "往下落"], ["diag", "斜落"], ["up", "往上飄"], ["right", "往右飄"], ["left", "往左飄"]].map(([v, l]) => `<option value="${v}"${p.dir === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    <b>淡入淡出</b><select data-avdk="fade">${[["a", "快（頭尾 8%）"], ["b", "中（頭尾 18%）"], ["c", "慢（頭尾 35%）"]].map(([v, l]) => `<option value="${v}"${p.fade === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    ${AVD_SL.map(([k, l, mn, mx, stp, u]) => l === null ? `<p class="sub">${k}</p>` : `<b>${l}</b><input type="range" min="${mn}" max="${mx}" step="${stp}" value="${p[k]}" data-avdn="${k}"><output>${p[k]}${u}</output>`).join("")}
+  </div>
+  <div class="avd-row" style="margin-top:10px"><button class="btn sm" data-avdcopy="${esc(id)}">複製成新的一種</button>${AVD_DEF.fx[id] ? `<button class="btn sm ghost" data-avdreset="${esc(id)}">回到預設值</button>` : `<button class="btn sm danger" data-avddel="${esc(id)}">刪掉這種</button>`}</div>
+  <p class="avd-note">這組參數是<b>所有選了「${esc(p.name)}」的頭像共用</b>的。只想給一張頭像不一樣的，先「複製成新的一種」再調。<br>效能上限：前後加起來最多 16 片；App 只在一個畫面一顆的大頭像畫粒子（道籍頭、觀堂、選頭像預覽），閒聊、留言、排行只畫框。</p>`;
+}
+function avdFrameEditor(id) {
+  const v = avdeco.frames[id]; if (!v) return "";
+  const sel = (k) => `<select data-avdfc="${k}">${AVD_TOK.map((t) => `<option value="${t}"${v[k] === t ? " selected" : ""}>${AVD_TOKN[t]}</option>`).join("")}</select>`;
+  return `<div class="avd-sl" data-avdfr="${esc(id)}"><b>名字</b><input type="text" data-avdfk="name" value="${esc(v.name)}"><span></span>
+    <b>起色</b><span>${sel("c1")}</span><span></span><b>迄色</b><span>${sel("c2")}</span><span></span>
+    <b>粗細（頭像的%）</b><input type="range" min="1" max="12" step=".5" value="${v.width}" data-avdfn="width"><output>${v.width}%</output>
+    <b>漸層角度</b><input type="range" min="0" max="360" step="5" value="${v.angle}" data-avdfn="angle"><output>${v.angle}°</output>
+    <b>外圈留白</b><input type="range" min="0" max="1" step="1" value="${v.halo ? 1 : 0}" data-avdfn="halo"><output>${v.halo ? "有" : "無"}</output></div>`;
+}
+function avdFrameOpts(cur) {
+  const imgs = avdImgs("頭像框");
+  return `<option value=""${!cur ? " selected" : ""}>無框</option><optgroup label="CSS 色框">${Object.entries(avdeco.frames).map(([k, v]) => `<option value="css:${esc(k)}"${cur === "css:" + k ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</optgroup>`
+    + `<optgroup label="圖片框（頭像框組）">${imgs.length ? imgs.map((a) => `<option value="img:${esc(a.key)}"${cur === "img:" + a.key ? " selected" : ""}>${esc(a.name)}</option>`).join("") : `<option disabled>（還沒有）</option>`}</optgroup>`;
+}
+
+const avdPvHtml = (a, url, d) => avdAv(url, a.asset_type, d, 168, avdUi.guide && (d.frame || "").startsWith("img:")) + avdAv(url, a.asset_type, d, 96, false) + avdAv(url, a.asset_type, { frame: d.frame }, 40, false);
+/* 美術資產一列底下的面板 */
+function decoPanel(a, url) {
+  const isAv = a.kind === "頭像" || a.kind === "動態頭像";
+  if (!isAv && a.kind !== "頭像框" && a.kind !== "粒子圖") return "";
+  const th = `<div class="avd-row"><button class="btn sm${avdUi.th === "paper" ? "" : " ghost"}" data-avdth="paper">宣紙</button><button class="btn sm${avdUi.th === "night" ? "" : " ghost"}" data-avdth="night">夜觀</button>
+    <label style="font-size:12px;margin-left:8px"><input type="checkbox" data-avdguide${avdUi.guide ? " checked" : ""}> 參考線</label></div>`;
+  if (a.kind === "粒子圖") {
+    return `<div class="avd"><h4>粒子圖</h4><p class="avd-note">在任何一張頭像的「框與粒子」裡，把粒子形狀選成「用粒子圖」→ 選這張，就能看到它飄起來的樣子。</p></div>`;
+  }
+  if (a.kind === "頭像框") {
+    const [su, st] = AVD_SAMPLE(), d = { frame: url ? "img:" + a.key : "" };
+    return `<div class="avd"><h4>戴起來的樣子</h4>${th}
+      <div class="avd-pv" data-th="${avdUi.th}" style="margin-top:10px">${avdAv(su, st, d, 168, avdUi.guide)}${avdAv(su, st, d, 96, false)}${avdAv(su, st, d, 40, false)}</div>
+      <p class="avd-note"><span style="color:#e0473a">紅線</span>＝頭像的邊（直徑 384／512）；<span style="color:#2f8fd8">藍虛線</span>＝框最多壓到這裡（352／512），再往內會蓋到臉。三個大小是道籍頭、觀堂、列表。</p>
+      <div class="avd-row" style="margin-top:8px"><button class="btn sm" data-avdtpl>下載框的模板（512×512 參考線 PNG）</button></div></div>`;
+  }
+  const d = a.deco || {}, [fid, frv] = (d.frame || "").startsWith("css:") ? [d.frame.slice(4), 1] : ["", 0];
+  const fxId = d.fx || "", fxOn = d.fx_on !== false;
+  const edId = avdUi.ed && avdeco.fx[avdUi.ed] ? avdUi.ed : fxId;
+  return `<div class="avd" data-avda="${esc(a.id)}"><h4>框與粒子 <small class="fxnote">這張頭像預設戴的</small></h4>
+    <div class="avd-top"><div class="l">${th}
+    <div class="avd-pv" data-th="${avdUi.th}" style="margin-top:10px">${avdPvHtml(a, url, d)}</div>
+    <p class="avd-note">大＝道籍頭、中＝觀堂、小＝閒聊列表（列表只畫框）。</p></div><div class="r">
+    <div class="avd-ctl" style="margin-top:0">
+      <span>框</span><select data-avdset="frame">${avdFrameOpts(d.frame || "")}</select>
+      <span>粒子</span><div class="avd-row"><select data-avdset="fx"><option value="">不加</option>${Object.entries(avdeco.fx).map(([k, v]) => `<option value="${esc(k)}"${fxId === k ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</select>
+        ${fxId ? `<label style="font-size:12.5px"><input type="checkbox" data-avdon${fxOn ? " checked" : ""}> 預設開著（玩家可以在選框那裡關）</label>` : ""}</div>
+    </div>
+    ${frv ? `<details class="avd-ed"${avdUi.fo ? " open" : ""} data-avdfo><summary>調色框「${esc(avdeco.frames[fid]?.name || fid)}」</summary>${avdFrameEditor(fid)}<p class="avd-note">色框是所有選它的頭像共用的。</p></details>` : ""}
+    ${edId ? `<details class="avd-ed"${avdUi.eo ? " open" : ""} data-avdeo><summary>調粒子「${esc(avdeco.fx[edId].name)}」的細節</summary>${avdEditor(edId)}</details>` : ""}
+    <p class="avd-note">${a.ship || artShip(a) ? "這張勾了「下次更新放進 App」：框與粒子會跟著一起帶進去。" : "框與粒子跟著這張頭像進 App；已經在 App 裡的，改了這裡下次更新也會帶。"}</p></div></div></div>`;
+}
+
+/* ── 存 ── */
+function avdTouch() {
+  avdDirty = true; clearTimeout(avdTimer); setSave("有未存的修改…");
+  if (!db) { try { localStorage.setItem("script-sheet-avdeco", JSON.stringify(avdeco)); } catch (e) {} avdDirty = false; return; }
+  avdTimer = setTimeout(async () => {
+    try { await db.collection("jianghu_cfg").doc("avdeco").set(JSON.parse(JSON.stringify(avdeco))); avdDirty = false; setSave("已存檔"); }
+    catch (e) { setSave("框與粒子沒存上", true); }
+  }, 600);
+}
+// 拉桿拖動時只換預覽，不整頁重畫（不然拉桿會被換掉、拖不動）
+function avdRefreshPv() {
+  const el = document.querySelector("#art-view .avd[data-avda]"), a = el && arts[el.dataset.avda]; if (!a) return;
+  const url = a.asset_url || artOrigin(a), d = a.deco || {};
+  el.querySelector(".avd-pv").innerHTML = avdPvHtml(a, url, d);
+}
+const avdRow = (t) => { const el = t.closest(".avd[data-avda]"); return el ? arts[el.dataset.avda] : null; };
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.matches("[data-avdn]")) { const p = avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx]; p[t.dataset.avdn] = +t.value;
+    const u = (AVD_SL.find((x) => x[0] === t.dataset.avdn) || [])[5] || ""; t.nextElementSibling.textContent = t.value + u; avdRefreshPv(); avdTouch(); }
+  else if (t.matches("[data-avdfn]")) { const v = avdeco.frames[t.closest("[data-avdfr]").dataset.avdfr], k = t.dataset.avdfn; v[k] = +t.value;
+    t.nextElementSibling.textContent = k === "halo" ? (v.halo ? "有" : "無") : t.value + (k === "angle" ? "°" : "%"); avdRefreshPv(); avdTouch(); }
+  else if (t.matches("[data-avdhex]")) { avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx][t.dataset.avdhex] = t.value; avdRefreshPv(); avdTouch(); }
+  else if (t.matches("[data-avdk=name]")) { avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx].name = t.value; avdTouch(); }
+  else if (t.matches("[data-avdfk=name]")) { avdeco.frames[t.closest("[data-avdfr]").dataset.avdfr].name = t.value; avdTouch(); }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = avdRow(t);
+  if (t.matches("[data-avdset]") && a) { a.deco = { ...(a.deco || {}), [t.dataset.avdset]: t.value }; if (t.dataset.avdset === "fx") { avdUi.ed = t.value; avdUiSave(); if (t.value && a.deco.fx_on == null) a.deco.fx_on = true; } artSave(a.id); artPaint(true); }
+  else if (t.matches("[data-avdon]") && a) { a.deco = { ...(a.deco || {}), fx_on: t.checked }; artSave(a.id); artPaint(true); }
+  else if (t.matches("[data-avdk]:not([data-avdk=name])")) { avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx][t.dataset.avdk] = t.value; avdTouch(); artPaint(true); }
+  else if (t.matches("[data-avdc]")) { const p = avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx]; p[t.dataset.avdc] = t.value === "#" ? "#8a9a5b" : t.value; avdTouch(); artPaint(true); }
+  else if (t.matches("[data-avdfc]")) { avdeco.frames[t.closest("[data-avdfr]").dataset.avdfr][t.dataset.avdfc] = t.value; avdTouch(); artPaint(true); }
+  else if (t.matches("[data-avdguide]")) { avdUi.guide = t.checked; avdUiSave(); artPaint(true); }
+});
+document.addEventListener("toggle", (e) => { const t = e.target; if (t.matches?.("[data-avdeo]")) { avdUi.eo = t.open; avdUiSave(); } if (t.matches?.("[data-avdfo]")) { avdUi.fo = t.open; avdUiSave(); } }, true);
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-avdth],[data-avdcopy],[data-avdreset],[data-avddel],[data-avdtpl]"); if (!t) return;
+  if (t.dataset.avdth) { avdUi.th = t.dataset.avdth; avdUiSave(); artPaint(true); return; }
+  if (t.hasAttribute("data-avdtpl")) { avdTemplate(); return; }
+  const a = avdRow(t);
+  if (t.dataset.avdcopy) { const src = avdeco.fx[t.dataset.avdcopy], id = "fx" + Date.now().toString(36);
+    avdeco.fx[id] = { ...JSON.parse(JSON.stringify(src)), name: src.name + "・改" }; avdUi.ed = id; avdUiSave();
+    if (a) { a.deco = { ...(a.deco || {}), fx: id }; artSave(a.id); } avdTouch(); artPaint(true); }
+  else if (t.dataset.avdreset) { if (!confirm("回到預設值？調過的數字會不見。")) return; avdeco.fx[t.dataset.avdreset] = JSON.parse(JSON.stringify(AVD_DEF.fx[t.dataset.avdreset])); avdTouch(); artPaint(true); }
+  else if (t.dataset.avddel) { const used = Object.values(arts).filter((x) => x.deco && x.deco.fx === t.dataset.avddel);
+    if (!confirm(used.length ? `有 ${used.length} 張頭像用這種，刪掉之後它們會變成不加粒子。確定？` : "刪掉這種粒子？")) return;
+    delete avdeco.fx[t.dataset.avddel]; for (const x of used) { x.deco.fx = ""; artSave(x.id); } avdUi.ed = ""; avdUiSave(); avdTouch(); artPaint(true); }
+});
+// 框的模板：512×512 透明，紅線＝頭像邊（直徑 384），藍虛線＝框最多往內壓到（352），灰色＝挖空區
+function avdTemplate() {
+  const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d");
+  g.fillStyle = "rgba(128,128,128,.25)"; g.beginPath(); g.arc(256, 256, 176, 0, Math.PI * 2); g.fill();
+  g.lineWidth = 2; g.strokeStyle = "#e0473a"; g.beginPath(); g.arc(256, 256, 192, 0, Math.PI * 2); g.stroke();
+  g.setLineDash([8, 6]); g.strokeStyle = "#2f8fd8"; g.beginPath(); g.arc(256, 256, 176, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = "rgba(0,0,0,.25)"; g.lineWidth = 1; g.strokeRect(.5, .5, 511, 511);
+  g.beginPath(); g.moveTo(256, 0); g.lineTo(256, 512); g.moveTo(0, 256); g.lineTo(512, 256); g.stroke();
+  g.fillStyle = "#e0473a"; g.font = "13px sans-serif"; g.textAlign = "center";
+  g.fillText("紅線：頭像的邊（直徑 384）", 256, 50); g.fillStyle = "#2f8fd8"; g.fillText("藍虛線：框最多壓到這裡（直徑 352）", 256, 70);
+  g.fillStyle = "#666"; g.fillText("灰色＝要挖空（透明）；框畫在紅線外、可以畫到畫布邊", 256, 470); g.fillText("交圖前把這一層藏起來", 256, 490);
+  c.toBlob(async (blob) => {
+    let dl = null; try { dl = window.claude && claude.use ? await claude.use("downloads") : null; } catch (e) {}
+    if (!dl) { setSave("這個畫面不能下載：請從 claude.ai 打開工作臺", true); return; }
+    try { await dl.save({ filename: "avatar-frame-template-512.png", data: blob }); }
+    catch (e) { if (e && e.code !== "declined") setSave("模板沒存成：" + (e.message || e.code || ""), true); }
+  }, "image/png");
+}
+function avdInit() {
+  if (!db) { try { const v = JSON.parse(localStorage.getItem("script-sheet-avdeco") || "null"); if (v) avdeco = v; } catch (e) {} return; }
+  db.collection("jianghu_cfg").onSnapshot((snap) => {
+    const d = snap.docs.find((x) => x.exists && x.id === "avdeco");
+    if (d && !avdDirty) { const v = JSON.parse(JSON.stringify(d.data())); avdeco = { frames: v.frames || {}, fx: v.fx || {} };
+      if (!document.activeElement?.closest?.(".avd")) artPaint(true); }
+  }, () => {});
+}
+// 掛進美術資產：一列的面板接在橫幅框後面
+if (typeof artItemHtml === "function") { const _ai = artItemHtml; artItemHtml = function (a) {
+  const h = _ai(a), url = a.asset_url || artOrigin(a), p = decoPanel(a, url);
+  return p ? h + p : h; }; }
+</script>
