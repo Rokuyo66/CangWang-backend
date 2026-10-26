@@ -23,12 +23,13 @@ def who(role: str) -> str:
     cfg = load_config()
     short = lambda m: m.replace("qwen3.5:", "Qwen ").upper().replace("QWEN", "Qwen")
     return {
-        "duty": "🛎 值班",
+        "duty": "🛎 幾筆台",
         "writer": f"✍️ 寫手（{short(cfg['writer_model'])}）",
         "reviewer": f"🔎 審稿（{short(cfg['reviewer_model'])}）",
         "agent": f"🤖 本地助理（{short(cfg.get('agent_model', cfg['writer_model']))}）",
         "claude": "🧠 Claude",
-        "mailbot": "📮 觀主管家",
+        "mailbot": "📮 知錄台",
+        "guan": "🏛 觀樞台",
     }.get(role, role)
 
 
@@ -112,6 +113,7 @@ def roster(loaded_models=None, gpu=None, started_at=None, agent_busy=False, abte
         f"{who('agent')}　{'回覆你中' if agent_busy else '閒置'}",
         f"{who('claude')}　{claude}",
         f"{who('mailbot')}　雲端運行（66-butler），狀態尚未串接",
+        f"{who('guan')}　總機（Hermes），唯讀狀態＋暫停／恢復",
         *([f"🧪 A/B 測試　{abtest}"] if abtest else []),
         "",
         f"題庫 {len(list_stage('ideas'))}｜佇列 {q}｜待審 {p}｜已通過 {len(list_stage('approved'))}",
