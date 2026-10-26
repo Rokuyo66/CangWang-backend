@@ -112,7 +112,7 @@ def text(cmd, arg):
     s = summary()
     c = s["counts"]
     lines = ["幾筆台 " + ("⏸ 暫停中" if s["paused"] else ("⏳ " + s["blocked"] if s["blocked"] else "運作中")),
-             f"排隊 {c['queue']}｜寫作中 {c['work']}｜待你審 {c['pending']}｜等 Claude {c["claude"]}｜已通過 {c['approved']}"]
+             f"排隊 {c['queue']}｜寫作中 {c['work']}｜待你審 {c['pending']}｜等 Claude {c['claude']}｜已通過 {c['approved']}"]
     if s["current"]:
         cur = s["current"]
         lines.append(f"手上：{cur['title']}（{cur['step']}，已 {cur['minutes']} 分鐘）")
