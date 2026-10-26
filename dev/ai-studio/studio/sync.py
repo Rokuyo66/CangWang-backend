@@ -5,6 +5,7 @@
   python3 -m studio.sync reject TID 意見…   # 六六在工作臺駁回：帶意見送回本地端、排最前面重寫
   python3 -m studio.sync review             # 列出本地 ≥90、等 Claude 複審的稿（逐行版＋本地審稿）
   python3 -m studio.sync verdict TID 分數 意見…  # Claude 複審：≥95 交六六待審；否則帶意見排回重寫
+  python3 -m studio.sync inbox              # 審過的稿推上收件匣、把工作臺的駁回拉回來（幾筆台每 10 分鐘自動跑）
 
 規格：SYNC.md
 """
@@ -14,7 +15,7 @@ import sys
 from datetime import datetime, timezone
 
 from . import kinds
-from .common import DIRS, find_task, read_json, write_json
+from .common import DIRS, find_task, load_config, log, read_json, write_json
 
 COL = {"letter": "letters", "chapter": "chapters", "jh_outline": "jianghu"}
 OUTLINE_KEYS = list(kinds.JhOutline.FIELD.values())
@@ -139,6 +140,55 @@ def verdict(tid, score, notes):
     return f"#{tid} Claude {score} 分 → {'交六六待審' if to == 'pending' else '排回重寫'}"
 
 
+# ---------- 收件匣（Supabase studio-inbox，見 supabase/migrations/0108）----------
+# 工作臺是 claude.ai Artifact，本機寫不進去。以前靠 Claude 手動搬，現在推上收件匣，
+# 工作臺打開時自己收（規則照 SYNC.md：她改過的不覆蓋、江湖大綱只補空欄，這段在工作臺那頭做）。
+def _inbox(method, action, payload=None):
+    import httpx
+    cfg = load_config()
+    url, key = cfg.get("studio_inbox_url"), cfg.get("studio_key")
+    if not url or not key:
+        return None
+    r = httpx.request(method, f"{url.rstrip('/')}/{action}", json=payload,
+                      headers={"x-studio-key": key}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def inbox_push():
+    """approved 裡還沒推過的稿推上去；推成功才 mark（這樣 pending() 下次不會再列）。"""
+    items = pending()
+    if not items:
+        return []
+    ts = {x["task"]: read_json(find_task(x["task"])[1]) for x in items}
+    payload = [{"task": x["task"], "round": len(ts[x["task"]]["rounds"]), "col": x["col"],
+                "doc_id": x["doc_id"], "doc": x["doc"]} for x in items]
+    if _inbox("POST", "push", {"items": payload}) is None:
+        return []
+    return [mark(x["task"], x["col"], x["doc_id"]) for x in items]
+
+
+def inbox_rejects():
+    """工作臺駁回 → 帶意見排回佇列最前面；排好才 ack，當機沒排到的下次還拉得到。"""
+    r = _inbox("GET", "rejects")
+    out, done = [], []
+    for x in (r or {}).get("items", []):
+        msg = reject(x["task_id"], x["text"])
+        out.append(msg)
+        if not msg.startswith("找不到"):
+            done.append(x["id"])
+        else:
+            log.warning("工作臺駁回對不到任務：%s", x["task_id"])
+            done.append(x["id"])   # 對不到的也 ack，免得每 10 分鐘撞一次；log 裡查得到
+    if done:
+        _inbox("POST", "rejects_ack", {"ids": done})
+    return out
+
+
+def inbox_sync():
+    return {"pushed": inbox_push(), "rejected": inbox_rejects()}
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if a[:1] == ["pending"]:
@@ -151,5 +201,7 @@ if __name__ == "__main__":
         print(json.dumps(review_list(), ensure_ascii=False, indent=1))
     elif a[:1] == ["verdict"] and len(a) >= 4:
         print(verdict(a[1], a[2], " ".join(a[3:])))
+    elif a[:1] == ["inbox"]:
+        print(json.dumps(inbox_sync(), ensure_ascii=False, indent=1))
     else:
         print(__doc__)

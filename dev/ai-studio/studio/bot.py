@@ -795,7 +795,17 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         move_task(t, "approved")
         await q.answer("已通過")
         await q.edit_message_reply_markup(None)
-        await q.message.reply_text(tag(f"✅ #{tid} 已通過，等 {who('claude')} 終審。"), reply_markup=MENU)
+        if load_config().get("studio_inbox_url"):
+            from . import sync
+            try:
+                pushed = await asyncio.to_thread(sync.inbox_push)
+                note = "已送進企劃工作臺收件匣，打開工作臺就會收進去。" if pushed else "收件匣這次沒送出，10 分鐘內自動重試。"
+            except Exception as e:
+                log.warning("推收件匣失敗：%s", e)
+                note = "收件匣暫時連不上，10 分鐘內自動重試。"
+            await q.message.reply_text(tag(f"✅ #{tid} 已通過，{note}"), reply_markup=MENU)
+        else:
+            await q.message.reply_text(tag(f"✅ #{tid} 已通過，等 {who('claude')} 終審。"), reply_markup=MENU)
     elif act == "dr":
         move_task(t, "rejected")
         await q.answer("已捨棄")
@@ -1033,6 +1043,22 @@ async def export_loop():
         await asyncio.sleep(60)
 
 
+async def inbox_loop(app):
+    """每 10 分鐘：通過的稿推上收件匣、工作臺的駁回拉回來排隊。沒設 studio_inbox_url 就什麼都不做。"""
+    from . import sync
+    while True:
+        try:
+            if load_config().get("studio_inbox_url"):
+                r = await asyncio.to_thread(sync.inbox_sync)
+                if r["pushed"]:
+                    await notify(app, f"📥 {len(r['pushed'])} 份已送進企劃工作臺收件匣，打開工作臺就會收進去。", sender="duty")
+                if r["rejected"]:
+                    await notify(app, "↩️ 工作臺駁回，已帶意見排回重寫：\n" + "\n".join(r["rejected"]), sender="duty")
+        except Exception as e:
+            log.warning("收件匣同步失敗：%s", e)
+        await asyncio.sleep(600)
+
+
 async def post_init(app: Application):
     cfg = load_config()
     app.bot_data["ollama"] = Ollama(cfg["ollama_url"])
@@ -1042,7 +1068,7 @@ async def post_init(app: Application):
         await app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
     except Exception as e:
         log.warning("註冊指令選單失敗：%s", e)
-    for coro in (worker(app), ops.poll(app, notify), nightly_ask(app), export_loop()):
+    for coro in (worker(app), ops.poll(app, notify), nightly_ask(app), export_loop(), inbox_loop(app)):
         asyncio.create_task(coro)
     st = load_state()
     await notify(app, "上線。" + (f"寫稿暫停中，按 {B_RESUME} 繼續。" if st["paused"] else "")

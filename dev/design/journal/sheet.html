@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>幾知觀 企劃工作臺</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -144,6 +145,18 @@ textarea{resize:vertical;line-height:1.7}
 .line .sp{display:block;font-family:var(--f-body);font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
 .line.me .sp{color:var(--gold)}
 .line.narr{text-align:center;color:var(--ink-soft);font-size:14px}
+/* App 的字區：寬 350（390 減左右 20）、字級行高字距照 App；量分頁的框在畫面外 */
+.appcol{display:block;width:350px;max-width:100%;font-family:"Noto Serif TC",serif;font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap}
+.appcol.narr{font-size:13.5px;letter-spacing:.16em;text-align:center;margin:0 auto}
+.appbox{position:fixed;left:-10000px;top:0;width:390px;height:844px;visibility:hidden;pointer-events:none}
+.ab-deck{position:absolute;left:0;right:0;bottom:0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:76%;overflow-y:auto;padding:36px 20px 24px}
+.appbox.talk .ab-deck{top:64%;min-height:0;max-height:none;justify-content:flex-start;padding-top:52px;overflow:hidden}
+.ab-spk{font-size:14px;font-weight:700;height:20px;flex:none}   /* App 實測：名字列 20、輕觸繼續 17、空的選項槽不佔位（display:none） */
+.appbox:not(.talk) .ab-spk{visibility:hidden;height:1.2em}
+.ab-line{font-family:"Noto Serif TC",serif;font-size:14px;line-height:1.9;letter-spacing:.04em;white-space:pre-wrap;min-height:0;overflow-y:auto;flex:0 1 auto}
+.appbox:not(.talk) .ab-line{font-size:13.5px;letter-spacing:.16em;text-align:center}
+.ab-slot{display:none}.ab-next{font-size:12px;letter-spacing:.2em;height:17px;line-height:17px;flex:none}.appbox.talk .ab-next{margin-top:auto}
+.pgbrk.auto{border-top-style:dotted;color:var(--ink-faint);border-color:var(--ink-faint)}
 .pgbrk{display:block;margin:6px 0;font-style:normal;font-family:var(--f-body);font-size:11px;letter-spacing:.3em;color:var(--gold);text-align:center;border-top:1px dashed var(--gold);padding-top:2px}
 .opts{display:flex;flex-direction:column;gap:6px}
 .opt{border:1px solid var(--edge);border-radius:5px;padding:6px 10px;font-family:var(--f-display);background:var(--paper)}
@@ -273,7 +286,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .aepic{display:flex;flex-direction:column;gap:8px}
 .aeimg{position:relative;width:100%;aspect-ratio:3/4;border-radius:10px;background:var(--paper-2);border:1px dashed var(--edge);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--ink-faint);font-size:13px;text-align:center;cursor:pointer;padding:12px}
 .aeimg.has{border-style:solid;padding:0}
-.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg:is([data-kind="頭像"],[data-kind="動態頭像"],[data-kind="頭像框"]){aspect-ratio:1/1}
+.aeimg[data-kind="場景"]{aspect-ratio:2/3} .aeimg:is([data-kind="頭像"],[data-kind="動態頭像"],[data-kind="頭像框"],[data-kind="粒子圖"]){aspect-ratio:1/1}
 .aeimg .orig{position:absolute;left:8px;top:8px;font-size:11px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
 .aeimg video,.aeimg img{width:100%;height:100%;object-fit:contain;display:block}
 .aeimg input{display:none}
@@ -309,6 +322,69 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .agc b{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agc span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-faint)}
 @media (max-width:700px){.ae{grid-template-columns:minmax(0,1fr)}.aepic{max-width:300px}}
+/* ── 見聞設定與橫幅框（六六 2026-10-24）── */
+.wtab{width:100%;border-collapse:collapse;font-size:13px}
+.wtab th{text-align:left;font-weight:400;color:var(--ink-faint);font-size:12px;padding:4px 6px}
+.wtab td{vertical-align:top;padding:6px;border-top:1px solid var(--hair)}
+.wtab .th{width:84px;height:56px;border-radius:6px;background:center/cover no-repeat var(--paper-2);border:1px solid var(--edge)}
+.wtab textarea{min-height:44px}
+.bancrop{display:flex;flex-direction:column;gap:6px;border:1px solid var(--edge);border-radius:8px;padding:8px;background:var(--paper)}
+.bancrop h4{margin:0;font-size:13px;font-family:var(--f-display)}
+.bc-stage{position:relative;line-height:0;user-select:none;touch-action:none}
+.bc-stage img{width:100%;display:block;border-radius:4px}
+.bc-stage::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45);border-radius:4px;pointer-events:none}
+.bc-rect{position:absolute;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5);cursor:move;background-size:cover;border-radius:3px}
+.bc-prev{width:100%;aspect-ratio:340/104;border-radius:10px;background-color:var(--paper-2);background-repeat:no-repeat;position:relative;overflow:hidden}
+.bc-prev::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(0,0,0,.42))}
+.bc-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-faint)}
+.bc-row input[type=range]{flex:1}
+/* ── 江湖編輯：摺疊、底色分區、跳轉列（六六 2026-10-24）──
+   主線＝紙色；變數＝金；結局＝硃；成就＝青（--ok）。摺起來的標題列帶一行摘要。 */
+.fold-t{width:22px;height:22px;flex:none;border:1px solid var(--edge);border-radius:50%;background:var(--field);cursor:pointer;position:relative;padding:0}
+.fold-t::before{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;border-right:1.5px solid var(--ink-soft);border-bottom:1.5px solid var(--ink-soft);transform:translate(-50%,-70%) rotate(45deg);transition:transform .15s}
+.fold.shut>.fold-h .fold-t::before,.fold.shut>.evhead .fold-t::before{transform:translate(-70%,-50%) rotate(-45deg)}
+.fold.shut>.fold-b{display:none}
+.fold-h{cursor:pointer;user-select:none}
+h2.fold-h,h3.fold-h{display:flex;align-items:center;gap:8px}
+.evhead.fold-h{grid-template-columns:auto auto minmax(0,1fr) auto auto}
+.en .evhead.fold-h{grid-template-columns:auto auto minmax(0,1fr) auto auto}
+.evhead .sum{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;white-space:normal}
+.chip{font-style:normal;font-size:11.5px;border:1px solid var(--edge);border-radius:999px;padding:0 7px;background:var(--field);color:var(--ink-soft);max-width:28em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.chg{border-color:var(--gold);color:var(--gold)}
+.chip.rare{border-color:var(--gold);background:var(--gold);color:var(--paper)}
+.chip.off{opacity:.65}
+.part{border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.part-h{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-faint)}
+.part-h b{font-family:var(--f-display);font-size:13px;color:var(--ink);border-radius:4px;padding:0 6px}
+.part.main{border:1px solid var(--hair);background:transparent}
+.part.chg{border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);border-left:4px solid var(--gold);background:color-mix(in srgb,var(--gold) 13%,var(--paper-2))}
+.part.chg .part-h b{background:var(--gold);color:var(--paper)}
+.part.chg .er{background:color-mix(in srgb,var(--gold) 6%,var(--paper))}
+.en{border-left:4px solid var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 7%,var(--paper-2))}
+.en.rare{border-left-color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,color-mix(in srgb,var(--cinnabar) 6%,var(--paper-2)))}
+.tcard.ach{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--paper-2))}
+.jsec{display:flex;flex-direction:column;gap:8px;margin:10px 0 4px}
+#jh-main .sec,#jh-main .jsec,#jh-main .ev,#jh-main .en{scroll-margin-top:52px}
+.jsec>h3{font-size:15px;margin:0}
+.jsec>h3 small,.sec>h2 small{font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px}
+.lg{font-weight:500;padding:0 5px;border-radius:3px}
+.lg.chg{background:color-mix(in srgb,var(--gold) 22%,transparent)}.lg.end{background:color-mix(in srgb,var(--cinnabar) 16%,transparent)}.lg.ach{background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.jnav{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:6px 0;background:var(--paper);border-bottom:1px solid var(--hair)}
+.jnav button{border:1px solid var(--edge);background:var(--field);border-radius:999px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--ink-soft)}
+.jnav button:hover{border-color:var(--ink-faint);color:var(--ink)}
+.jnav-r{margin-left:auto;display:flex;gap:4px}
+.gptbox{display:grid;gap:10px}
+/* ── 江湖：前路銜接（六六 2026-10-24）── */
+.after{grid-column:1/-1;font-size:12.5px;border:1px dashed var(--edge);border-radius:6px;padding:4px 8px;background:var(--paper)}
+.after summary{cursor:pointer;color:var(--ink-soft)}
+.after[open] summary{margin-bottom:6px}
+.after-l{display:flex;flex-direction:column;gap:4px}
+.after-g{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.after-g b{font-family:var(--f-display);font-weight:600;min-width:40px}
+.after-g label{display:inline-flex;gap:3px;align-items:center}
+.ec-note.bad,.bad{color:var(--cinnabar)}
+.reqpick summary{cursor:pointer;list-style:none}.reqpick summary::-webkit-details-marker{display:none}
+.reqpick[open]{border-radius:10px}.reqpick .gua{margin-top:6px}
 /* ── 企劃（六六 2026-10-23）：左邊寫、右邊看排版 ── */
 .plan-ed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:980px){.plan-ed{grid-template-columns:minmax(0,1fr)}}
@@ -331,7 +407,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 <div class="app">
 <aside class="side" id="side">
   <div class="brand"><h1>幾知觀 企劃工作臺</h1><span class="save" id="save">連線中…</span></div>
-  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button><button role="tab" data-mode="plan">企劃</button></div>
+  <div class="modes" role="tablist" id="modes"><button role="tab" data-mode="char" class="on">角色事件</button><button role="tab" data-mode="letter">道緣信</button><button role="tab" data-mode="jh">江湖事件</button><button role="tab" data-mode="art">美術資產</button><button role="tab" data-mode="plan">企劃</button></div>
   <div class="sidebody">
   <div class="rail" id="r-char">
     <section class="sec">
@@ -364,6 +440,21 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
       </ul>
     </details>
   </div>
+  <div class="rail" id="r-letter" hidden>
+    <section class="sec">
+      <h3>道緣信 <small class="fxnote">升一階才寄一封</small></h3>
+      <div class="chlist" id="letter-list"></div>
+    </section>
+    <details class="sec rulebox">
+      <summary>寫的時候記得</summary>
+      <ul class="rules">
+        <li>一位角色三封：初識→相熟（300）、相熟→相知（500）、相知→知己（800）。</li>
+        <li>書信文言；信裡不寫遊戲數字（道緣、點數、靈石幾枚）。</li>
+        <li>「寫入記憶」寫成他記得的那件事，不寫推測。</li>
+        <li>本地端寫的稿審過會自動放進來（標「待看」）；不行就在上面寫意見、按「駁回重寫」。</li>
+      </ul>
+    </details>
+  </div>
   <div class="rail" id="r-jh" hidden>
     <section class="sec">
       <h3>江湖・六十四卦</h3>
@@ -371,6 +462,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
         <button data-jf="" class="on">全部</button><button data-jf="draft">草稿</button><button data-jf="gen">請生成</button><button data-jf="review">待看</button><button data-jf="final">定稿</button>
       </div>
       <button class="btn" id="jh-cfg" style="margin-top:6px">數值與化名設定</button>
+      <button class="btn" id="jh-world" style="margin-top:6px">見聞設定（地點・場景・人物）</button>
       <div class="chlist" id="jh-list"></div>
     </section>
     <details class="sec rulebox">
@@ -418,6 +510,7 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
   <p class="sub" id="mode-sub">一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。</p>
   <div class="banner" id="banner" hidden></div>
   <div id="m-char"><main class="main" id="main"><div class="empty">從左邊選一章，或新開一章。</div></main></div>
+  <div id="m-letter" hidden><main class="main" id="letter-main"><div class="empty">從左邊選一封。</div></main></div>
   <div id="m-jh" hidden><main class="main" id="jh-main"><div class="empty">從左邊選一卦。</div></main></div>
   <div id="m-plan" hidden><main class="main" id="plan-main"><div class="empty">從左邊選一份企劃，或按「＋ 新企劃」。</div></main></div>
   <div class="artwrap" id="m-art" hidden>
@@ -458,6 +551,42 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<"
 // 換頁記號（同前端 Scene.PAGE）：台詞裡打「//」或「／／」，App 演到這裡一定清掉對話框、從第一行重寫
 const PAGE = /[ \t]*(?:\/\/|／／)[ \t]*/g;
 const escLine = (t) => String(t ?? "").split(PAGE).map((x) => esc(x.replace(/^\n+|\n+$/g, ""))).join(`<i class="pgbrk">換頁</i>`);
+/* ── App 對話框的實際分行與分頁（六六 2026-10-24：試走的單行字數要跟 App 一樣）──
+   照 App（前端 styles/scene.css、story.css 的 .st-root、ui/scene.js 的 paginate）在畫面外擺一個同樣的框：
+   手機 390×844、左右各留 20、台詞 14px／行高 1.9／字距 .04em（旁白 13.5px、字距 .16em、置中），
+   有人說話＝框頂在 64%（字區約六行）；旁白＝框貼底、最高 76% 螢幕。一句一句排進去，放不下就換頁，跟 App 同一套。
+   App 的這幾個數字改了，這裡要一起改（APP_BOX）。 */
+const APP_BOX = { w: 390, h: 844, pad: 20, talkTop: 0.64, narrMax: 0.76 };
+let appBox = null;
+function appMeasure(narr) {
+  if (!appBox) {
+    appBox = document.createElement("div"); appBox.className = "appbox"; appBox.setAttribute("aria-hidden", "true");
+    appBox.innerHTML = `<div class="ab-deck"><div class="ab-spk">名</div><div class="ab-line"></div><div class="ab-slot"></div><div class="ab-next">輕觸繼續 ▾</div></div>`;
+    document.body.appendChild(appBox);
+  }
+  appBox.classList.toggle("talk", !narr);
+  return appBox.querySelector(".ab-line");
+}
+function appPages(text, narr) {   // → [{ t: 這一頁的字, forced: 是 // 換的頁 }]
+  const line = appMeasure(narr), out = [];
+  const overflows = (t) => { line.textContent = t; return line.scrollHeight > line.clientHeight + 1; };
+  String(text ?? "").split(PAGE).map((x) => x.replace(/^\n+|\n+$/g, "")).filter(Boolean).forEach((full, fi) => {
+    const pages = []; let cur = "";
+    for (const para of full.split("\n")) {
+      if (!cur) cur = para;
+      else if (overflows(cur + "\n" + para)) { pages.push(cur); cur = para; }
+      else { cur = cur + "\n" + para; continue; }
+      if (overflows(cur)) { const parts = cur.match(/[^。！？]*[。！？]+」?|[^。！？]+$/g) || [cur]; cur = ""; for (const x of parts) { if (cur && overflows(cur + x)) { pages.push(cur); cur = x; } else cur += x; } }
+    }
+    if (cur) pages.push(cur);
+    (pages.length ? pages : [full]).forEach((t, k) => out.push({ t, forced: fi > 0 && k === 0 }));
+  });
+  line.textContent = "";
+  return out;
+}
+/* 一句台詞照 App 的寬度、字級排出來；App 會換頁的地方畫一條線（虛線＝框放不下自動換、實線＝//） */
+const appText = (t, narr) => `<span class="appcol${narr ? " narr" : ""}">${appPages(t, narr).map((p, i) =>
+  (i ? `<i class="pgbrk${p.forced ? "" : " auto"}">${p.forced ? "換頁 //" : "放不下・換頁"}</i>` : "") + esc(p.t)).join("")}</span>`;
 
 function blank(cid, no) {
   return { id: `${cid}_c${no}`, character_id: cid, chapter: no, title: "", summary: "",
@@ -731,8 +860,8 @@ function paintPreview() {
     const w = whoOf(s);
     const name = w === "me" ? "你" : CHARS[w] || s.speaker || "";
     const titleNote = w === c.character_id && c.char_title.label ? `・${c.char_title.label}` : "";
-    html += w === "narr" ? `<div class="line narr">${escLine(s.text)}</div>`
-      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${escLine(s.text)}</div>`;
+    html += w === "narr" ? `<div class="line narr">${appText(s.text, true)}</div>`
+      : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}${esc(titleNote)}</span>${appText(s.text, false)}</div>`;
     if ((s.choices || []).length) html += `<div class="opts">${s.choices.map((ch) =>
       `<div class="opt">${esc(ch.label || "（選項還沒寫字）")}${ch.hint ? `<small>${esc(ch.hint)}</small>` : ""}<small>→ ${esc(ch.to || "下一幕")}</small></div>`).join("")}</div>`;
     if (s.end) html += `<div class="endmark">— 此路到此 —</div>`;
@@ -837,10 +966,10 @@ function apply(list) {
     chapters = drafts; paintRail(); setSave("沒有連上雲端存檔");
     $("banner").hidden = false;
     $("banner").textContent = "這個畫面沒有連上雲端存檔：寫的東西先存在這台瀏覽器，換裝置看不到，Claude 也讀不到。從 claude.ai 打開這一頁就會接上。";
-    whenReady(() => { jhInit(); artInit(); planInit(); });
+    whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); if (typeof letterInit === "function") letterInit(); });
     return;
   }
-  whenReady(() => { jhInit(); artInit(); planInit(); });
+  whenReady(() => { jhInit(); artInit(); planInit(); jwInit(); if (typeof avdInit === "function") avdInit(); if (typeof letterInit === "function") letterInit(); });
   db.collection("chapters").onSnapshot((snap) => {
     apply(snap.docs.filter((d) => d.exists).map((d) => JSON.parse(JSON.stringify(d.data()))));
     if (!dirty.size) setSave("已同步");
@@ -1023,9 +1152,10 @@ $("modes").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
   const m = b.dataset.mode, jhOn = m === "jh";
   $("modes").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const k of ["char", "jh", "art", "plan"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
+  for (const k of ["char", "letter", "jh", "art", "plan"]) { $("m-" + k).hidden = m !== k; $("r-" + k).hidden = m !== k; }
   $("pane").scrollTop = 0;
-  $("mode-sub").textContent = m === "plan" ? "一份企劃一件事。寫好改成「待做」，Claude 從這裡讀走、照著做。"
+  $("mode-sub").textContent = m === "letter" ? "道緣升一階寄一封。本地端寫好、審過的會自動放進來，你看過改「定稿」。"
+    : m === "plan" ? "一份企劃一件事。寫好改成「待做」，Claude 從這裡讀走、照著做。"
     : m === "art" ? "App 所有美術的唯一上傳位置。左邊選一張，右邊換圖、勾「下次更新放進 App」。"
     : jhOn ? "一卦一篇：今天的日運卦就是今天的江湖。六爻六節，動爻那一節出變數。"
     : "一章一張。寫好標「定稿」，Claude 從這裡讀走、轉成 character_events 那一列。";
@@ -1089,6 +1219,8 @@ function needHtml(need, attr) {
 function jMain() {
   const j = jh[jcur]; if (!j) { $("jh-main").innerHTML = `<div class="empty">從左邊選一卦。</div>`; return; }
   const yj = YJ[j.gua] || [];
+  const fs = (k, title, small, body, def) => `<section class="sec ${foldCls("s:" + k, def)}" id="jh-s-${k}"><h2 class="fold-h">${foldBtn()}${title}${small ? ` <small>${small}</small>` : ""}</h2><div class="fold-b">${body}</div></section>`;
+  const early = ["draft", "gen"].includes(j.status);
   $("jh-main").innerHTML = `
   <section class="sec">
     <h2>${j.gua_no}・${esc(j.gua)} <small>${esc(j.id)}</small></h2>
@@ -1098,41 +1230,56 @@ function jMain() {
       <label class="field"><span>調性</span><select data-jk="tone">${sel({ small: "江湖小事", heavy: "重口" }, j.tone)}</select></label>
     </div>
   </section>
-  <section class="sec"><h2>卦辭與爻辭 <small>原文（取自前端 yijing-text.js），大綱與劇本以這裡為準</small></h2>
-    <div class="stage" style="max-width:none;gap:4px;font-family:var(--f-display)">${yj.slice(1).map((t, i) => `<div style="${i ? "" : "font-weight:600;"}font-size:14px">${esc(t)}</div>`).join("")}</div></section>
-  <section class="sec"><h2>大綱 <small>寫好把狀態改「請生成」，Claude 會照這裡寫初稿</small></h2>
-    <div class="grid">${OUTLINE.map(([k, n, rows]) => `<label class="field${rows > 1 || k === "summary" || k === "player_summary" ? " wide" : ""}"><span>${n}</span>${rows > 1
-      ? `<textarea rows="${rows}" data-jo="${k}">${esc(j.outline[k])}</textarea>` : `<input type="text" data-jo="${k}" value="${esc(j.outline[k])}">`}</label>`).join("")}</div></section>
-  <section class="sec"><h2>玩家身分</h2>
-    <div class="grid">
+  <nav class="jnav" id="jh-nav">${[["yj", "卦辭"], ["outline", "大綱"], ["who", "身分・人物"], ["open", "開場"], ["items", "道具旗標"], ["nodes", "六爻"], ["ends", "結局"], ["ach", "成就"], ["checks", "檢查"], ["gpt", "交給 GPT"]]
+    .map(([k, n]) => `<button type="button" data-jgo="${k}">${n}</button>`).join("")}
+    <span class="jnav-r"><button type="button" data-foldall="1">全部展開</button><button type="button" data-foldall="0">全部收起</button></span></nav>
+  ${fs("yj", "卦辭與爻辭", "原文（取自前端 yijing-text.js），大綱與劇本以這裡為準",
+    `<div class="stage" style="max-width:none;gap:4px;font-family:var(--f-display)">${yj.slice(1).map((t, i) => `<div style="${i ? "" : "font-weight:600;"}font-size:14px">${esc(t)}</div>`).join("")}</div>`, false)}
+  ${fs("outline", "大綱", "寫好把狀態改「請生成」，Claude 會照這裡寫初稿",
+    `<div class="grid">${OUTLINE.map(([k, n, rows]) => `<label class="field${rows > 1 || k === "summary" || k === "player_summary" ? " wide" : ""}"><span>${n}</span>${rows > 1
+      ? `<textarea rows="${rows}" data-jo="${k}">${esc(j.outline[k])}</textarea>` : `<input type="text" data-jo="${k}" value="${esc(j.outline[k])}">`}</label>`).join("")}</div>`, early)}
+  ${fs("who", "玩家身分與本篇人物", `身分：${j.identity.mode === "disguise" ? "偽裝成" + esc(j.identity.label || "？") : "幾知觀弟子"}・人物 ${j.npcs.length} 位`,
+    `<div class="grid">
       <label class="field"><span>身分</span><select data-ji="mode">${sel({ disciple: "幾知觀弟子（預設）", disguise: "偽裝身分" }, j.identity.mode)}</select></label>
       ${j.identity.mode === "disguise" ? `<label class="field"><span>偽裝成</span><input type="text" data-ji="label" value="${esc(j.identity.label)}" placeholder="例：送藥的郎中"></label>
       <label class="field wide"><span>為什麼要偽裝</span><input type="text" data-ji="reason" value="${esc(j.identity.reason)}"></label>` : ""}
     </div>
-    <p class="note" style="margin:0;font-size:12px;color:var(--ink-faint)">名字：入場時玩家選本名或抽化名（左上「數值與化名設定」）。台詞裡寫 <code>{名}</code>。</p></section>
-  <section class="sec"><h2>本篇人物 <small>只屬於這一篇；可以死，玩家與三位不會</small></h2>
+    <p class="note" style="margin:0;font-size:12px;color:var(--ink-faint)">名字：入場時玩家選本名或抽化名（左上「數值與化名設定」）。台詞裡寫 <code>{名}</code>。本篇人物只屬於這一篇；可以死，玩家與三位不會。</p>
     <div class="evs">${j.npcs.map((n, i) => `<div class="evhead" data-npc="${i}" style="grid-template-columns:140px minmax(0,1fr) auto">
       <input type="text" data-nf2="name" value="${esc(n.name)}" placeholder="名字（例：姚幫主）"><input type="text" data-nf2="desc" value="${esc(n.desc)}" placeholder="一句設定：身分、性格、他要什麼">
       <span class="rowops"><button data-ja="npcDel" title="刪掉">✕</button></span></div>`).join("")}</div>
-    <div><button class="btn sm" data-ja="npcAdd">＋一個人物</button></div></section>
-  <section class="sec"><h2>開場 <small>入場的第一段</small></h2>
-    <div class="grid">
+    <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn sm" data-ja="npcAdd">＋新人物</button>
+      ${castPick(j)}</div>
+    <p class="fxnote" style="margin:0">沿用＝同一個人（同 id、同一張立繪 <code>char/&lt;id&gt;</code>）：之後圖鑑會把他在各卦的出場算成同一個人的完整度。能沿用就別新開。</p>`, early)}
+  ${fs("open", "開場", "入場的第一段",
+    `<div class="grid">
       <label class="field"><span>場景</span><select data-op="bg">${sel({ "": "（無）", ...BGS }, j.opening.bg || "")}</select></label>
       <label class="field"><span>入場時身上的盤纏（財）<em>（觀裡派的、自己帶的；0＝身無分文）</em></span><input type="number" min="0" data-jstart="s5" value="${(j.start || {}).s5 ?? 0}"></label>
       <label class="field wide"><span>開場</span><textarea rows="3" data-op="text" placeholder="例：雨下了三天，{名}被困在半山的莊子裡。">${esc(j.opening.text)}</textarea></label>
-    </div></section>
+    </div>`, true)}
   <section class="sec">
     <div class="tabs"><button class="tab${jview === "write" ? " on" : ""}" data-jview="write">六爻節點與結局</button><button class="tab${jview === "sim" ? " on" : ""}" data-jview="sim">試走一趟</button></div>
     <div id="jh-body"></div>
   </section>
   <section class="sec"><h2>給 Claude 的備註</h2><textarea rows="2" data-jk="note" placeholder="美術、音樂、還沒想好的地方">${esc(j.note)}</textarea></section>
-  <section class="sec"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
-  <section class="sec"><h2>整篇 JSON <small>交給 GPT 寫或改：複製出去、把它寫好的貼回來（格式：JIANGHU-WRITER-BRIEF.md）</small></h2>
-    <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn" data-ja="jsonCopy">複製整篇</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div>
-    <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製整篇」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
+  <section class="sec" id="jh-s-checks"><h2>檢查</h2><ul class="checks" id="jh-checks"></ul></section>
+  ${fs("gpt", "交給 GPT", "兩種：想故事（讀得懂的整理稿）、改稿（整篇 JSON，可以貼回來）",
+    `<div class="gptbox">
+      <div class="tcard"><h3>想故事用 <small>大綱、人物、每一爻的台詞與選項、結局條件，整理成讀得懂的文字；GPT 拿來提方向、改大綱，不是直接交 JSON</small></h3>
+        <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn primary" data-ja="gptIdea">複製・想故事用</button><button class="btn ghost" data-ja="gptPeek" data-k="idea">看一下內容</button></div></div>
+      <div class="tcard"><h3>改稿用 <small>開場白＋整篇 JSON（含前路銜接、稀有條件）；GPT 照交接包改完交回一整個 JSON，按「貼上整篇匯入」</small></h3>
+        <div class="addrow" style="justify-content:flex-start;gap:8px"><button class="btn primary" data-ja="jsonCopy">複製・改稿用</button><button class="btn ghost" data-ja="gptPeek" data-k="json">看一下內容</button><button class="btn" data-ja="jsonPaste">貼上整篇匯入…</button></div></div>
+      <p class="fxnote" style="margin:0">規則交接包：後端 <code>dev/design/journal/JIANGHU-WRITER-BRIEF.md</code>＋範本 <code>jianghu/gua_01.json</code>，第一次跟 GPT 開對話時一起給。</p>
+    </div>
+    <div id="jh-imp" hidden><textarea id="jh-imp-t" rows="10" placeholder="把 GPT 寫好的整篇 JSON 貼在這裡（{ ... }）。匯入會整篇覆蓋這一卦：先按上面「複製・改稿用」留一份比較保險。" style="width:100%;font-family:var(--f-mono);font-size:12px"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn primary" data-ja="jsonGo" id="jh-imp-go">匯入（覆蓋這一卦）</button><button class="btn ghost" data-ja="jsonX">取消</button><span id="jh-imp-e" style="color:var(--cinnabar);font-size:13px"></span></div></div>
-    <div id="jh-out"></div></section>`;
+    <div id="jh-out"></div>`, false)}`;
   jBody(); jChecks(); jOut();
+}
+function jLists(j) {   // 🎒／🚩 的「挑既有」清單
+  let dl = $("jh-dl"); if (!dl) { dl = document.createElement("div"); dl.id = "jh-dl"; dl.hidden = true; document.body.appendChild(dl); }
+  dl.innerHTML = `<datalist id="jh-dl-items">${itemsOfJ(j).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
+    <datalist id="jh-dl-flags">${flagsOfJ(j).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>`;
 }
 function jBody() { if (jview === "sim") simPaint(); else jWrite(); }
 
@@ -1143,6 +1290,7 @@ const scPeek = (s) => { const t = String(s.text || "").replace(/\s+/g, " ").trim
 function scFalls(list, k) {   // 上一幕演完，會不會順著走到這一幕
   if (k === 0) return true;
   const p = list[k - 1];
+  if ((p.after || []).length && scFalls(list, k - 1)) return true;   // 上一幕有前路條件：沒演到它時會順著落到這一幕
   if (p.end) return false;
   const cs = (p.choices || []).filter((c) => (c.label || "").trim());
   return cs.length ? cs.some((c) => !c.to) : true;
@@ -1168,6 +1316,7 @@ function sceneRow(j, ss, s, k, sl) {
     <select data-sf="who" aria-label="誰說">${sel(whoOptsJ(j), w)}</select>
     <select data-sf="portrait" aria-label="立繪">${sel(pOptsJ(), portraitOf(s))}</select>
     <span class="rowops"><button data-ja="scDel" title="刪掉這一幕">✕</button></span>
+    ${sl[0] === "c" ? afterBox(j, s, +sl.slice(1)) : ""}
     <div class="cell"><textarea data-sf="text" rows="2" placeholder="${w === "narr" ? "旁白" : "「台詞」；打 // 清掉框、從頭重寫"}">${esc(s.text)}</textarea>
       ${w === "other" ? `<input type="text" data-sf="speaker" value="${esc(s.speaker)}" placeholder="說話者的名字">` : ""}</div>
     ${(s.choices || []).length ? `<div class="chs"><div class="chs-h">玩家在這裡選：</div>${s.choices.map((ch, c) => `<div class="ec" data-c="${c}">
@@ -1178,61 +1327,142 @@ function sceneRow(j, ss, s, k, sl) {
       <div class="ec-r2"><label>選了之後 <select data-cf="to" aria-label="選了之後">${toOpts(ch.to)}</select></label>
         <span class="fx">數值 ${cfg.stats.map((st) => `${esc(st.name)}<input type="number" data-fx="${st.k}" value="${(ch.fx || {})[st.k] ?? ""}" placeholder="0" aria-label="${esc(st.name)} 加減">`).join("")}</span></div>
       <div class="ec-r3">
-        <label class="pill get">🎒 選了得到道具 <input type="text" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）"></label>
-        <label class="pill req">🔒 身上帶著這道具才會出現 <input type="text" data-cf="req" value="${esc(ch.req)}" placeholder="（人人都看得到）"></label>
-        <label class="pill flag">🚩 暗旗標 <input type="text" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）"></label>
+        <label class="pill get">🎒 選了得到道具 <input type="text" list="jh-dl-items" data-cf="get" value="${esc(ch.get)}" placeholder="（沒有）" title="點一下挑既有的，或打新的名字"></label>
+        <details class="pill req reqpick"><summary>🔒 身上帶著${reqs(ch).length > 1 ? "其中任一樣" : "這道具"}才會出現：<b>${reqs(ch).length ? reqs(ch).map(esc).join(" 或 ") : "（人人都看得到）"}</b></summary><div class="gua">${reqOpts(j, ch)}</div></details>
+        <label class="pill flag">🚩 暗旗標 <input type="text" list="jh-dl-flags" data-cf="set" value="${esc(ch.set)}" placeholder="（沒有）" title="點一下挑既有的，或打新的名字"></label>
         <label class="pill cost">💰 要花 <input type="number" min="0" data-cf="cost" value="${ch.cost || ""}" placeholder="0" style="width:56px"> 財（不夠就反灰選不了）</label></div>
-      ${ch.req ? `<div class="ec-note">🔒 沒帶著「${esc(ch.req)}」的玩家，看不到這個選項（${esc(itemFrom(j, ch.req) || "⚠ 沒有任何選項給這個道具")}）</div>` : ""}
+      ${reqs(ch).length ? `<div class="ec-note">🔒 ${reqs(ch).length > 1 ? `「${reqs(ch).map(esc).join("」「")}」一樣都沒帶` : `沒帶著「${esc(reqs(ch)[0])}」`}的玩家，看不到這個選項（${reqs(ch).map((x) => esc(itemFrom(j, x) || `⚠「${x}」沒有任何選項給`)).join("；")}）</div>` : ""}
+      ${reqs(ch).length && reqLate(j, ch) ? `<div class="ec-note bad">⚠ ${reqs(ch).map(esc).join("、")}拿到的地方都在這個選項後面：這一趟走到這裡時不可能已經帶著</div>` : ""}
     </div>`).join("")}</div>` : ""}
     <div class="er-foot"><button class="btn sm" data-ja="chAdd">＋選項</button>
       <label class="ck"><input type="checkbox" data-sf="end"${s.end ? " checked" : ""}> 演完這幕，這一節就結束</label></div>
     ${s.end ? `<div class="scend">■ 這一節到此結束${sl[0] === "n" ? "（動爻的話接著演變數，不然往下一爻）" : "（往下一爻）"}</div>` : ""}
   </div>`;
 }
+/* ── 道具、旗標、前路：選單與前後檢查（六六 2026-10-24）──
+   道具與旗標不另外存一張表：劇本裡哪個選項給了、哪個結局看了，就自動出現在選單與下面那張表。
+   打新的名字＝新增；🔒 只能從已經有人給的道具裡挑（打錯字的道具永遠拿不到）。 */
+const ORDER = (i, part, k) => i * 1000 + (part === "change" ? 500 : 0) + k;   // 一趟裡的先後：爻 → 主線先、變數後 → 第幾幕
+function choiceSpots(j) {   // 每個選項在一趟裡的位置
+  const out = [];
+  j.nodes.forEach((n, i) => [["main", n.scenes], ["change", n.change.scenes]].forEach(([part, list]) => list.forEach((s, k) =>
+    (s.choices || []).forEach((c) => { if ((c.label || "").trim()) out.push({ c, i, part, k, o: ORDER(i, part, k) }); }))));
+  return out;
+}
+const flagsOfJ = (j) => [...new Set([...allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)),
+  ...j.endings.flatMap((en) => [...(en.flags || []), ...(en.not_flags || [])])])];
+/* req 可以是一樣道具（字串）或幾樣裡帶著任一樣（陣列，六六 2026-10-24），同後端 jianghu.ts reqOk */
+const reqs = (c) => (Array.isArray(c.req) ? c.req : c.req ? [c.req] : []).filter(Boolean);
+const reqOk = (c, items) => { const r = reqs(c); return !r.length || r.some((x) => items.includes(x)); };
+function reqOpts(j, ch) {   // 勾幾樣＝帶著其中任一樣就看得到；都不勾＝人人都看得到
+  const its = itemsOfJ(j), cur = reqs(ch), list = [...its, ...cur.filter((x) => !its.includes(x))];
+  return list.map((x) => `<label><input type="checkbox" data-creq="${esc(x)}"${cur.includes(x) ? " checked" : ""}>${its.includes(x) ? "" : "⚠ "}${esc(x)}</label>`).join("")
+    || `<span class="fxnote">還沒有道具：先在某個選項的 🎒 打一個名字。</span>`;
+}
+function reqLate(j, ch) {   // 要的道具（任一樣），拿到的地方全在這個選項之後
+  const sp = choiceSpots(j), me = sp.find((x) => x.c === ch), r = reqs(ch); if (!me || !r.length) return false;
+  const gets = sp.filter((x) => r.includes(x.c.get));
+  return gets.length > 0 && gets.every((x) => x.o >= me.o);
+}
+function earlierChoices(j, i) {   // 第 i 爻的變數之前，一趟裡可能選過的選項
+  return choiceSpots(j).filter((x) => x.i < i || (x.i === i && x.part === "main"));
+}
+function afterBox(j, s, i) {
+  const opts = earlierChoices(j, i), on = s.after || [];
+  const lbl = (x) => `${YAO[x.i].slice(0, 2)}${x.part === "change" ? "變" : ""}「${esc(x.c.label)}」`;
+  const chosen = opts.filter((x) => on.includes(x.c.key));
+  const lost = on.filter((k) => !opts.some((x) => x.c.key === k));
+  return `<details class="after"><summary>🔗 前路銜接：${on.length ? `前面選過 ${chosen.map(lbl).join(" 或 ") || "？"} 才演這一幕` : "人人都演（不分前面怎麼選）"}${lost.length ? `　<b class="bad">⚠ 勾的選項有 ${lost.length} 個已經不在前面了</b>` : ""}</summary>
+    <div class="after-l">${opts.length ? [0, 1, 2, 3, 4, 5].filter((n) => n <= i).map((n) => {
+      const g = opts.filter((x) => x.i === n); if (!g.length) return "";
+      return `<div class="after-g"><b>${YAO[n]}</b>${g.map((x) => `<label><input type="checkbox" data-after="${esc(x.c.key)}"${on.includes(x.c.key) ? " checked" : ""}>${x.part === "change" ? "變・" : ""}${esc(x.c.label)}</label>`).join("")}</div>`; }).join("")
+      : `<span class="fxnote">前面還沒有任何選項。</span>`}
+    <p class="fxnote" style="margin:4px 0 0">勾幾個＝前面選過其中任一個才演；都不勾＝人人都演。同一段變數可以寫好幾幕開頭、各勾不同的前路，後面再接共同的幕。</p></div></details>`;
+}
 /* 道具與旗標：在哪裡拿到、在哪裡用到 */
 function jItemsWhere(j) {
   const out = {};
   j.nodes.forEach((n, i) => [["n", n.scenes], ["c", n.change.scenes]].forEach(([p, list]) => list.forEach((s, k) => (s.choices || []).forEach((c) => {
     const at = `${YAO[i]}${p === "c" ? "變數" : ""}・${scTag(p + i, k)}「${c.label || "？"}」`;
-    for (const [f, kind] of [["get", "get"], ["req", "req"], ["set", "set"]]) if (c[f]) { const o = (out[(f === "set" ? "🚩" : "🎒") + c[f]] = out[(f === "set" ? "🚩" : "🎒") + c[f]] || { get: [], req: [], set: [] }); o[kind].push(at); }
+    const add = (pre, name, kind) => { const o = (out[pre + name] = out[pre + name] || { get: [], req: [], set: [] }); o[kind].push(at); };
+    if (c.get) add("🎒", c.get, "get"); reqs(c).forEach((x) => add("🎒", x, "req")); if (c.set) add("🚩", c.set, "set");
   }))));
   return out;
 }
 function itemFrom(j, name) { const o = jItemsWhere(j)["🎒" + name]; return o && o.get.length ? "拿到的地方：" + o.get.join("、") : ""; }
 function itemsCard(j) {
-  const all = jItemsWhere(j), its = Object.entries(all).filter(([k]) => k[0] === "🎒" || k.startsWith("🎒")), fls = Object.entries(all).filter(([k]) => k.startsWith("🚩"));
+  const all = jItemsWhere(j);
+  for (const f of flagsOfJ(j)) all["🚩" + f] = all["🚩" + f] || { get: [], req: [], set: [] };   // 結局看了、卻沒有人設的旗標也列出來
+  const its = Object.entries(all).filter(([k]) => k.startsWith("🎒")), fls = Object.entries(all).filter(([k]) => k.startsWith("🚩"));
+  const late = new Set(choiceSpots(j).filter((x) => reqs(x.c).length && reqLate(j, x.c)).flatMap((x) => reqs(x.c)));
   const ends = (f) => j.endings.filter((en) => (en.flags || []).includes(f) || (en.not_flags || []).includes(f)).map((en) => `結局「${esc(en.title)}」${(en.flags || []).includes(f) ? "要有" : "不能有"}`).join("、") || "⚠ 沒有結局看它";
   return `<div class="tcard itemscard"><h3>道具與旗標怎麼運作</h3>
     <p class="fxnote" style="margin:0 0 8px">某個選項填 🎒「選了得到道具」→ 玩家選了，那樣東西就帶在身上一整趟。<br>
       另一個選項填 🔒「身上帶著這道具才會出現」（同一個名字）→ 只有帶著的人看得到那個選項；沒帶的人那一格直接不出現。<br>
       🚩 暗旗標玩家看不到，只給結局判斷「他做過哪件事」。</p>
     ${its.length ? `<table class="itab"><tr><th>道具</th><th>在哪裡拿到</th><th>在哪裡用到</th></tr>${its.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td>
-      <td>${o.get.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有地方給</span>"}</td><td>${o.req.map(esc).join("<br>") || "<span class='fxnote'>（拿了沒用到：只算成就「帶齊道具」）</span>"}</td></tr>`).join("")}</table>` : `<p class="fxnote">這一篇還沒有道具。</p>`}
-    ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>")}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
+      <td>${o.get.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有地方給</span>"}</td><td>${o.req.map(esc).join("<br>") || "<span class='fxnote'>（拿了沒用到：只算成就「帶齊道具」）</span>"}${late.has(k.slice(2)) ? "<br><span class='bad'>⚠ 有要它的選項排在拿到之前</span>" : ""}</td></tr>`).join("")}</table>` : `<p class="fxnote">這一篇還沒有道具。</p>`}
+    ${fls.length ? `<table class="itab"><tr><th>旗標</th><th>在哪裡設</th><th>哪個結局看它</th></tr>${fls.map(([k, o]) => `<tr><td><b>${esc(k.slice(2))}</b></td><td>${o.set.map(esc).join("<br>") || "<span class='bad'>⚠ 沒有選項設它</span>"}</td><td>${ends(k.slice(2))}</td></tr>`).join("")}</table>` : ""}
   </div>`;
+}
+/* 共用人物：別卦已經有的江湖人物（同 id＝同一個人，跨卦出場。六六 2026-10-24） */
+function castOf(j) {
+  const m = new Map();
+  for (const d of Object.values(jh)) if (d && d.id !== j.id && Array.isArray(d.npcs)) for (const n of d.npcs) {
+    if (!n.id || !(n.name || "").trim()) continue;
+    const o = m.get(n.id) || { id: n.id, name: n.name, desc: n.desc || "", gua: [] };
+    o.gua.push(`${d.gua}「${d.title || ""}」`); if (!o.desc && n.desc) o.desc = n.desc; m.set(n.id, o);
+  }
+  return [...m.values()];
+}
+function castPick(j) {
+  const mine = new Set(j.npcs.map((n) => n.id)), list = castOf(j).filter((n) => !mine.has(n.id));
+  return list.length ? `<select data-npcpick aria-label="從別卦沿用人物"><option value="">＋從別卦沿用人物…</option>${list.map((n) => `<option value="${esc(n.id)}">${esc(n.name)}（${esc(n.gua.join("、"))}）</option>`).join("")}</select>` : "";
+}
+function flagChecks(j, en, f) {
+  const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
+  const list = flagsOfJ(j);
+  return list.map((x) => `<label><input type="checkbox" data-nflag="${f}" data-flag="${esc(x)}"${(en[f] || []).includes(x) ? " checked" : ""}>${sets.has(x) ? "" : "⚠ "}${esc(x)}</label>`).join("")
+    || `<span class="fxnote">還沒有旗標：在選項的 🚩 打一個名字就會出現在這裡。</span>`;
 }
 function jWrite() {
   const j = jh[jcur], yj = YJ[j.gua] || [];
+  jLists(j);
   const nodes = j.nodes.map((n, i) => {
-    const open = jopen[jcur + i] !== false, chOpen = !!jopen[jcur + "c" + i] || n.change.scenes.length > 0;
-    return `<div class="ev" data-node="${i}">
-      <div class="evhead"><b>${YAO[i]}</b><input type="text" data-nt="${i}" value="${esc(n.title)}" placeholder="這一節的名字" aria-label="節點名">
-        <span class="meta">${esc((yj[i + 2] || "").slice(0, 20))}</span>
-        <span class="rowops"><button data-ja="nodeToggle" title="${open ? "收起" : "展開"}">${open ? "▴" : "▾"}</button></span></div>
-      ${open ? `<div class="fxnote">${esc(yj[i + 2] || "")}</div>${sceneList(j, n.scenes, "n" + i)}
-      <div class="tcard" style="background:var(--paper)"><h3>動爻時多演（變數）<small>玩家的日運卦這一爻是動爻，演完上面再演這幾幕；空著＝這一節不出變數</small></h3>
-        ${chOpen ? sceneList(j, n.change.scenes, "c" + i) : `<div><button class="btn sm" data-ja="chOpen">寫變數</button></div>`}</div>` : ""}
+    const main = n.scenes.filter((x) => (x.text || "").trim()), chg = n.change.scenes.filter((x) => (x.text || "").trim());
+    const nch = (list) => list.filter((x) => (x.choices || []).some((c) => (c.label || "").trim())).length;
+    const its = [...n.scenes, ...n.change.scenes].flatMap((x) => (x.choices || []).flatMap((c) => [c.get && "🎒" + c.get, c.set && "🚩" + c.set].filter(Boolean)));
+    const ways = new Set(n.change.scenes.filter((x) => (x.after || []).length).map((x) => x.after.join())).size;
+    const chOpen = !!jopen[jcur + "c" + i] || n.change.scenes.length > 0;
+    return `<div class="ev ${foldCls("n:" + i, false)}" data-node="${i}">
+      <div class="evhead fold-h">${foldBtn()}<b>${YAO[i]}</b><input type="text" data-nt="${i}" value="${esc(n.title)}" placeholder="這一節的名字" aria-label="節點名">
+        <span class="meta sum">主線 ${main.length} 幕・${nch(n.scenes)} 選擇${chg.length ? `<i class="chip chg">變 ${chg.length} 幕${ways ? `・前路 ${ways} 種` : ""}</i>` : `<i class="chip off">無變數</i>`}${its.length ? `<i class="chip">${esc([...new Set(its)].join(" "))}</i>` : ""}</span></div>
+      <div class="fold-b">
+      <div class="fxnote">${esc(yj[i + 2] || "")}</div>
+      <div class="part main ${foldCls("m:" + i, true)}"><div class="part-h fold-h">${foldBtn()}<b>主線</b><span>${main.length} 幕・${nch(n.scenes)} 處選擇；每一趟都演</span></div>
+        <div class="fold-b">${sceneList(j, n.scenes, "n" + i)}</div></div>
+      <div class="part chg ${foldCls("c:" + i, true)}"><div class="part-h fold-h">${foldBtn()}<b>變</b><span>${YAO[i]}動時，演完主線再演這幾幕（每趟約四分之一機會）；${chg.length ? `${chg.length} 幕${ways ? `，依前面選項分 ${ways} 種接法` : ""}` : "空著＝這一節不出變數"}</span></div>
+        <div class="fold-b">${chOpen ? sceneList(j, n.change.scenes, "c" + i) : `<div><button class="btn sm" data-ja="chOpen">寫變數</button></div>`}</div></div>
+      </div>
     </div>`; }).join("");
-  const ens = j.endings.map((en, i) => `<div class="en" data-n="${i}">
-      <div class="evhead"><b>${i + 1}</b><input type="text" data-nf="title" value="${esc(en.title)}" placeholder="結局名" aria-label="結局名">
-        <label class="meta"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有</label>
+  const stName = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
+  const condSum = (en) => [
+    ...Object.entries(en.need || {}).map(([k, [lo, hi]]) => `${stName(k)}${lo != null ? "≥" + lo : ""}${hi != null ? "≤" + hi : ""}`),
+    ...(en.flags || []).map((f) => "🚩" + f), ...(en.not_flags || []).map((f) => "🚫" + f),
+    ...(en.moves || []).map((k) => YAO[k].slice(0, 1) + "變")].join(" ");
+  const ens = j.endings.map((en, i) => `<div class="en${en.rare ? " rare" : ""} ${foldCls("e:" + en.id, false)}" data-n="${i}">
+      <div class="evhead fold-h">${foldBtn()}<b>${i + 1}</b><input type="text" data-nf="title" value="${esc(en.title)}" placeholder="結局名" aria-label="結局名">
+        <span class="meta sum">${en.rare ? `<i class="chip rare">稀有</i>` : ""}<i class="chip">${esc(condSum(en) || (i === j.endings.length - 1 ? "保底：不設條件" : "⚠ 沒有條件"))}</i>${+en.reward_lingshi ? `<i class="chip">💎${+en.reward_lingshi}</i>` : ""}${en.player_title.label ? `<i class="chip">稱號 ${esc(en.player_title.label)}</i>` : ""}</span>
         <span class="rowops"><button data-ja="enUp" title="上移">▲</button><button data-ja="enDown" title="下移">▼</button><button data-ja="enDel" title="刪掉">✕</button></span></div>
+      <div class="fold-b">
+      <label class="ck"><input type="checkbox" data-nf="rare"${en.rare ? " checked" : ""}> 稀有（成就榜上標金色）</label>
       <div class="field"><span>條件 <em>${i === j.endings.length - 1 ? "（最後一個：請全部留空，當保底）" : "（全部符合才算；留空＝不限）"}</em></span>${needHtml(en.need, 'data-nneed')}</div>
       <div class="grid">
-        <label class="field"><span>要有旗標 <em>（逗號分隔）</em></span><input type="text" data-nfl="flags" value="${esc((en.flags || []).join("、"))}"></label>
-        <label class="field"><span>不能有旗標</span><input type="text" data-nfl="not_flags" value="${esc((en.not_flags || []).join("、"))}"></label>
+        <div class="field"><span>要有旗標 <em>（勾的都要有）</em></span><div class="gua">${flagChecks(j, en, "flags")}</div></div>
+        <div class="field"><span>不能有旗標 <em>（勾的一個都不能有）</em></span><div class="gua">${flagChecks(j, en, "not_flags")}</div></div>
+        <div class="field wide"><span>要演過這幾爻的變數 <em>（那一爻動了、變數演到了才算；每爻約四分之一機會，勾越多越稀有）</em></span><div class="gua">${YAO.map((y, k) => `<label><input type="checkbox" data-nmove="${k}"${(en.moves || []).includes(k) ? " checked" : ""}>${y}</label>`).join("")}</div></div>
       </div>
-      <label class="field"><span>結語</span><textarea rows="2" data-nf="text">${esc(en.text)}</textarea></label>
+      <label class="field"><span>結語</span><textarea rows="3" data-nf="text">${esc(en.text)}</textarea></label>
       <div class="grid">
         <label class="field wide"><span>一句領悟</span><input type="text" data-nf="insight" value="${esc(en.insight)}"></label>
         <label class="field wide"><span>本篇人物的下場 <em>（例：姚幫主死／活下來；給試走與檢查看）</em></span><input type="text" data-nf="npc_fate" value="${esc(en.npc_fate)}"></label>
@@ -1245,14 +1475,19 @@ function jWrite() {
         <label class="field wide"><span>玩家帶去問的那句</span><input type="text" data-hk="ask" value="${esc((en.hook || {}).ask)}"></label>
         <label class="field wide"><span>寫進那位記憶的事</span><input type="text" data-hk="memory" value="${esc((en.hook || {}).memory)}"></label>
       </div>
+      </div>
     </div>`).join("");
   const achs = achList(j), enOpts = { "": "（還沒指定）", ...Object.fromEntries(j.endings.map((en) => [en.id, en.title || "（未命名結局）"])) };
+  const shd = (k, title, small, body) => `<div class="jsec ${foldCls("w:" + k, true)}" id="jh-s-${k}"><h3 class="fold-h">${foldBtn()}${title} <small>${small}</small></h3><div class="fold-b">${body}</div></div>`;
   $("jh-body").innerHTML = `
-    <h3 style="font-size:15px;margin:6px 0">六爻節點</h3>${itemsCard(j)}<div class="evs">${nodes}</div>
-    <h3 style="font-size:15px;margin:18px 0 6px">結局表 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">由上往下比，第一個符合的就是它</small></h3>
-    <div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>
-    <h3 style="font-size:15px;margin:18px 0 6px">這一卦的成就 <small style="font-family:var(--f-body);font-weight:400;color:var(--ink-faint);font-size:12px">亮了之後玩家在 App「道籍 › 成就」自己點領取靈石</small></h3>
-    <div class="evs">${achs.map((a, i) => `<div class="tcard" data-ach="${i}">
+    <div class="jsec ${foldCls("w:items", false)}" id="jh-s-items"><h3 class="fold-h">${foldBtn()}道具與旗標 <small>${itemsOfJ(j).length} 樣道具・${flagsOfJ(j).length} 個旗標；在選項裡打新名字就會進來</small></h3><div class="fold-b">${itemsCard(j)}</div></div>
+    ${shd("nodes", "六爻節點", "初爻→上爻依序演；底色：主線＝紙色、<b class='lg chg'>變數＝金</b>", `<div class="evs">${nodes}</div>`)}
+    ${shd("ends", "結局表", "由上往下比，第一個符合的就是它；<b class='lg end'>底色＝硃</b>",
+      `<div class="evs">${ens}</div><div class="addrow"><button class="btn" data-ja="enAdd">＋一個結局</button></div>`)}
+    ${shd("ach", "這一卦的成就", "亮了之後玩家在 App「道籍 › 成就」自己點領取靈石；<b class='lg ach'>底色＝青</b>",
+    `<div class="evs">${achs.map((a, i) => `<div class="tcard ach ${foldCls("a:" + (a.id || i), false)}" data-ach="${i}">
+      <div class="evhead fold-h" style="grid-template-columns:auto auto minmax(0,1fr)">${foldBtn()}<b>${esc(a.name || "（未命名）")}</b><span class="meta sum"><i class="chip">${esc(ACH_KIND[a.kind] || a.kind)}</i>${+a.reward_lingshi ? `<i class="chip">💎${+a.reward_lingshi}</i>` : ""}${a.desc ? `<i class="chip off">${esc(a.desc)}</i>` : ""}</span></div>
+      <div class="fold-b">
       <div class="grid">
         <label class="field"><span>成就名</span><input type="text" data-acf="name" value="${esc(a.name)}" placeholder="例：待時而動"></label>
         <label class="field"><span>怎麼亮</span><select data-acf="kind">${sel(ACH_KIND, a.kind)}</select></label>
@@ -1263,8 +1498,113 @@ function jWrite() {
       </div>
       ${a.kind === "run" ? `<div class="field"><span>要帶著的道具 <em>（勾的都要在同一趟拿到）</em></span><div class="gua">${itemsOfJ(j).map((x) => `<label><input type="checkbox" data-acitem="${esc(x)}"${(a.items || []).includes(x) ? " checked" : ""}>${esc(x)}</label>`).join("") || `<span class="fxnote">這一卦還沒有選項給道具。</span>`}</div></div>
       <div class="field"><span>走完時的數值 <em>（留空＝不限）</em></span>${needHtml(a.need || {}, "data-aneed")}</div>` : ""}
-      <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div>`).join("")}</div>
-    <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`;
+      <div><button class="btn sm ghost" data-ja="achDel">刪掉這個成就</button></div></div></div>`).join("")}</div>
+    <div class="addrow"><button class="btn" data-ja="achAdd">＋一個成就</button></div>`)}`;
+}
+
+/* ── 摺疊（六六 2026-10-24：拉太長了）──
+   每一塊記自己開著沒（這台瀏覽器記住）；摺起來只是藏，不重畫，打到一半的字不會掉。 */
+const FOLD_LS = "script-sheet-fold";
+let jfold = (() => { try { return JSON.parse(localStorage.getItem(FOLD_LS) || "{}"); } catch (e) { return {}; } })();
+const foldOn = (k, def) => { const v = jfold[jcur + ":" + k]; return v == null ? def : v; };
+const foldCls = (k, def) => `fold${foldOn(k, def) ? "" : " shut"}" data-fk="${k}`;
+const foldBtn = () => `<button type="button" class="fold-t" data-fold aria-label="展開或收起"></button>`;
+function foldSet(el, open) {
+  el.classList.toggle("shut", !open); jfold[jcur + ":" + el.dataset.fk] = open;
+  try { localStorage.setItem(FOLD_LS, JSON.stringify(jfold)); } catch (e) {}
+}
+document.addEventListener("click", (e) => {
+  const root = e.target.closest("#jh-main"); if (!root) return;
+  const all = e.target.closest("[data-foldall]");
+  if (all) { const open = all.dataset.foldall === "1"; root.querySelectorAll(".fold[data-fk]").forEach((x) => { if (!x.dataset.fk.startsWith("w:") || open) foldSet(x, open); }); return; }
+  const go = e.target.closest("[data-jgo]");
+  if (go) {
+    const el = $("jh-s-" + go.dataset.jgo); if (!el) { if (jview !== "write") { jview = "write"; sim = null; jMain(); setTimeout(() => go && $("jh-s-" + go.dataset.jgo)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); } return; }
+    if (el.classList.contains("shut")) foldSet(el, true);
+    el.scrollIntoView({ behavior: "smooth", block: "start" }); return;
+  }
+  const h = e.target.closest(".fold-h"); if (!h) return;
+  // 標題列上的輸入框、選單、其他按鈕照常用；點空白或三角形才摺
+  if (!e.target.closest("[data-fold]") && e.target.closest("input,select,textarea,button,label,a")) return;
+  const f = h.closest(".fold[data-fk]"); if (f) foldSet(f, f.classList.contains("shut"));
+});
+
+/* ── 交給 GPT（六六 2026-10-24：輸出格式整理）──
+   想故事用：讀得懂的整理稿（台詞、選項的效果、結局條件寫成字）；改稿用：開場白＋可以貼回來的整篇 JSON。 */
+function gptDoc(j) {   // 貼回來 jFromPaste 認得的格式；只放寫故事要的欄位
+  const en = jClean(j).endings;
+  return { title: j.title, status: j.status, tone: j.tone, outline: j.outline, identity: j.identity, start: j.start || {},
+    npcs: j.npcs.map((n) => ({ id: n.id, name: n.name, desc: n.desc })), opening: j.opening,
+    nodes: j.nodes.map((n) => ({ title: n.title, scenes: jScenes(n.scenes), change: { scenes: jScenes(n.change.scenes) } })),
+    endings: en, achievements: achList(j) };
+}
+function castNote(j) {   // 給 GPT：別卦已經有的人物，能沿用就沿用（id 照抄）
+  const list = castOf(j); if (!list.length) return "";
+  return `能沿用的共用人物（別卦已經出場、立繪已經有了；要用就把 npcs 那一列照抄、id 不改，性格與底細要一致，不能寫死）：\n${list.map((n) => `- ${n.id} ${n.name}：${n.desc}（出場：${n.gua.join("、")}）`).join("\n")}\n`;
+}
+function gptJson(j) {
+  return `你是「幾知觀・江湖事件」的編劇。下面是第 ${j.gua_no} 卦《${j.gua}》「${j.title || "未命名"}」目前的整篇稿（JSON）。
+規則照編劇交接包（JIANGHU-WRITER-BRIEF.md）；範本是乾為天 gua_01.json。請照交接包第一節交出三樣東西：
+①整篇 JSON（一個 code block，可以直接貼回稿紙；欄位名、選項 key、幕 id、結局 id 沒要改的就照舊）②美術需求表 ③自檢報告。
+${castNote(j)}這一版多兩個欄位：幕的 "after"（前面選過這些選項 key 其中一個才演這一幕，空＝人人都演）、結局的 "moves"（要演過哪幾爻的變數，0＝初爻）。
+
+\`\`\`json
+${JSON.stringify(gptDoc(j), null, 1)}
+\`\`\``;
+}
+function gptIdea(j) {
+  const yj = YJ[j.gua] || [], who = (s) => s.me ? "你" : CHARS[s.who] || s.speaker || (s.npc && (j.npcs.find((n) => n.id === s.npc) || {}).name) || "";
+  const stName = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
+  const keyName = {}; choiceSpots(j).forEach((x) => { keyName[x.c.key] = `${YAO[x.i].slice(0, 2)}${x.part === "change" ? "變" : ""}「${x.c.label}」`; });
+  const fx = (c) => [...Object.entries(c.fx || {}).map(([k, v]) => `${stName(k)}${v > 0 ? "+" : ""}${v}`), c.cost && `花 ${c.cost} 財`, reqs(c).length && `要帶著「${reqs(c).join("」或「")}」才出現`, c.get && `得到「${c.get}」`, c.set && `記下「${c.set}」`].filter(Boolean).join("，");
+  const lines = (list) => list.map((s, k) => {
+    const t = String(s.text || "").trim(); if (!t && !(s.choices || []).length) return "";
+    const head = `${k + 1}. ${(s.after || []).length ? `〔前面選過 ${s.after.map((x) => keyName[x] || x).join(" 或 ")} 才演〕` : ""}${s.place ? `〔換場：${s.place}〕` : ""}${who(s) ? `${who(s)}：` : "（旁白）"}`;
+    const body = t.split("\n").map((p, m) => (m ? "   " : "") + p).join("\n");
+    const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => `   ▶ ${c.key}「${c.label}」${c.hint ? `（${c.hint}）` : ""}${fx(c) ? `　→ ${fx(c)}` : ""}${c.to === "end" ? "　→ 這一節結束" : c.to ? `　→ 跳到第 ${list.findIndex((x) => x.id === c.to) + 1} 幕` : ""}`).join("\n");
+    return `${head}${body}${s.end ? "　■這一節結束" : ""}${cs ? "\n" + cs : ""}`;
+  }).filter(Boolean).join("\n");
+  const ol = OUTLINE.map(([k, n]) => (j.outline[k] || "").trim() ? `- ${n}：${j.outline[k].trim()}` : "").filter(Boolean).join("\n");
+  const cond = (en, i) => [...Object.entries(en.need || {}).map(([k, [lo, hi]]) => `${stName(k)}${lo != null ? " ≥ " + lo : ""}${hi != null ? " ≤ " + hi : ""}`),
+    ...(en.flags || []).map((f) => `記下了「${f}」`), ...(en.not_flags || []).map((f) => `沒有「${f}」`), ...(en.moves || []).map((k) => `${YAO[k]}的變數演到`)].join("、") || (i === j.endings.length - 1 ? "保底（沒有條件）" : "（沒有條件）");
+  const its = jItemsWhere(j);
+  return `你是「幾知觀・江湖事件」的編劇夥伴。下面是第 ${j.gua_no} 卦《${j.gua}》「${j.title || "未命名"}」目前的稿，整理成文字給你讀。
+先讀完，再照我接下來的要求想故事（提方向、補動機、檢查前後邏輯）；這一步不用交 JSON。
+遊戲規則：六爻＝六節依序演；玩家日運卦的動爻那一節多演「變數」（每爻每趟約 1/4）；選了之後數值才跳；六節演完由上往下比結局表。
+
+# 卦辭與爻辭
+${yj.slice(1).join("\n")}
+
+# 大綱
+${ol || "（還沒寫）"}
+
+# 玩家
+${j.identity.mode === "disguise" ? `偽裝成${j.identity.label}（${j.identity.reason}）` : "幾知觀下山的弟子"}；入場盤纏 ${(j.start || {}).s5 ?? 0} 財
+
+# 本篇人物
+${j.npcs.map((n) => `- ${n.name}：${n.desc}`).join("\n") || "（沒有）"}
+
+${castNote(j) ? "# 可以沿用的共用人物（別卦已經出場、已經有立繪）\n" + castNote(j).replace(/^.*\n/, "") + "\n" : ""}# 開場
+${(j.opening.text || "").trim() || "（沒寫）"}
+
+${j.nodes.map((n, i) => `# ${YAO[i]}・${n.title || "（沒名字）"}
+爻辭：${yj[i + 2] || ""}
+## 主線
+${lines(n.scenes) || "（還沒寫）"}${n.change.scenes.some((x) => (x.text || "").trim()) ? `
+## 變數（${YAO[i]}動時，主線演完接著演）
+${lines(n.change.scenes)}` : ""}`).join("\n\n")}
+
+# 結局表（由上往下比，第一個符合的就是它）
+${j.endings.map((en, i) => `${i + 1}. ${en.title || "（沒名字）"}${en.rare ? "【稀有】" : ""}
+   條件：${cond(en, i)}
+   結語：${String(en.text || "").replace(/\n/g, " ")}
+   領悟：${en.insight || ""}；人物下場：${en.npc_fate || ""}${en.player_title.label ? `；稱號：${en.player_title.label}` : ""}`).join("\n")}
+
+# 道具與旗標
+${Object.entries(its).map(([k, o]) => `- ${k.slice(0, 2) === "🎒" ? "道具" : "旗標"}「${k.slice(2)}」：${o.get.length ? "拿到：" + o.get.join("、") : ""}${o.set.length ? "記下：" + o.set.join("、") : ""}${o.req.length ? "；要它：" + o.req.join("、") : ""}`).join("\n") || "（沒有）"}
+
+# 成就
+${achList(j).map((a) => `- ${a.name}（${ACH_KIND[a.kind] || a.kind}）：${a.desc || ""}`).join("\n") || "（沒有）"}`;
 }
 
 /* ── 編輯 ── */
@@ -1312,10 +1652,23 @@ function onEdit(e, structural) {
     if (f === "ending" && !a.ending) delete a.ending;
     achSync(j); jtouch(jcur); if (f === "kind") jWrite(); return;
   }
+  if (t.dataset.after != null && w.s) {
+    if (!structural) return;
+    const set = new Set(w.s.after || []); if (t.checked) set.add(t.dataset.after); else set.delete(t.dataset.after);
+    w.s.after = [...set]; if (!w.s.after.length) delete w.s.after;
+    jtouch(jcur); jWrite(); return;
+  }
+  if (t.dataset.creq != null && w.ch) {
+    if (!structural) return;
+    const set = new Set(reqs(w.ch)); if (t.checked) set.add(t.dataset.creq); else set.delete(t.dataset.creq);
+    const v = [...set]; if (!v.length) delete w.ch.req; else w.ch.req = v.length === 1 ? v[0] : v;
+    jtouch(jcur); jWrite(); return;
+  }
   if (w.ch) {
     if (t.dataset.cf === "to") { if (!structural) return; if (t.value === "end") w.ch.to = "end"; else if (t.value === "") delete w.ch.to; else { const x = w.list[+t.value]; if (!x.id) x.id = newId(); w.ch.to = x.id; } }
     else if (t.dataset.cf === "cost") { const v = Math.max(0, +t.value || 0); if (v) w.ch.cost = v; else delete w.ch.cost; }
-    else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value; if (!t.value) delete w.ch[t.dataset.cf]; }
+    else if (t.dataset.cf) { w.ch[t.dataset.cf] = t.value.trim(); if (!w.ch[t.dataset.cf]) delete w.ch[t.dataset.cf];
+      if (structural && /^(get|req|set)$/.test(t.dataset.cf)) { jtouch(jcur); jWrite(); return; } }   // 新名字一打完：選單與表跟著更新
     else if (t.dataset.fx) { w.ch.fx = w.ch.fx || {}; const v = numOrNull(t.value); if (v) w.ch.fx[t.dataset.fx] = v; else delete w.ch.fx[t.dataset.fx]; if (!Object.keys(w.ch.fx).length) delete w.ch.fx; }
     jtouch(jcur); return;
   }
@@ -1341,11 +1694,18 @@ function onEdit(e, structural) {
     else if (t.dataset.hk) { if (t.dataset.hk === "who" && !structural) return; en.hook[t.dataset.hk] = t.value; }
     else if (t.hasAttribute("data-nneed")) setNeed(en.need, t.dataset.nk, t.dataset.nb, t.value);
     else if (t.dataset.nfl) en[t.dataset.nfl] = items(t.value);
+    else if (t.dataset.nflag) { if (!structural) return; const f = t.dataset.nflag, set = new Set(en[f] || []); if (t.checked) set.add(t.dataset.flag); else set.delete(t.dataset.flag); en[f] = [...set]; }
+    else if (t.dataset.nmove != null) { if (!structural) return; const set = new Set(en.moves || []); if (t.checked) set.add(+t.dataset.nmove); else set.delete(+t.dataset.nmove); en.moves = [...set].sort(); if (!en.moves.length) delete en.moves; }
     jtouch(jcur);
   }
 }
 $("jh-main").addEventListener("input", (e) => onEdit(e, false));
 $("jh-main").addEventListener("change", (e) => {
+  if (e.target.matches("[data-npcpick]")) {
+    const j = jh[jcur], n = castOf(j).find((x) => x.id === e.target.value);
+    if (n && !j.npcs.some((x) => x.id === n.id)) { j.npcs.push({ id: n.id, name: n.name, desc: n.desc }); jtouch(jcur); jMain(); }
+    return;
+  }
   onEdit(e, true);
   // 改了人物名字：說話者跟著換、結局選單跟著換
   const t = e.target; if (jcur === "__cfg" || !jh[jcur]) return;
@@ -1361,10 +1721,11 @@ $("jh-main").addEventListener("click", (e) => {
   const a = b.dataset.ja; if (!a) return;
   const w = where(b), mv = (arr, i, d) => { const k = i + d; if (k < 0 || k >= arr.length) return false; [arr[i], arr[k]] = [arr[k], arr[i]]; return true; };
   // 註：claude.ai 把稿紙放在受限的框架裡，confirm／alert／prompt 會被直接擋掉（等於按了取消）——一律在頁面上問（2026-10-22 匯入「沒反應」就是這個）
-  if (a === "jsonCopy") {
-    const t = JSON.stringify({ ...j, updated_at: undefined }, null, 1);
+  if (a === "gptPeek") { jOut(b.dataset.k); return; }
+  if (a === "jsonCopy" || a === "gptIdea") {
+    const t = a === "gptIdea" ? gptIdea(j) : gptJson(j), lbl = b.textContent;
     const fallback = () => { $("jh-imp").hidden = false; const ta = $("jh-imp-t"); ta.value = t; ta.focus(); ta.select(); $("jh-imp-e").textContent = "瀏覽器不讓自動複製：已經全選，請按 Ctrl／⌘＋C。"; };
-    try { navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = "複製整篇"), 1500); }, fallback); } catch (e) { fallback(); }
+    try { navigator.clipboard.writeText(t).then(() => { b.textContent = "已複製"; setTimeout(() => (b.textContent = lbl), 1500); }, fallback); } catch (e) { fallback(); }
     return;
   }
   if (a === "jsonPaste") { $("jh-imp").hidden = false; jPending = null; $("jh-imp-go").textContent = "匯入（覆蓋這一卦）"; $("jh-imp-e").textContent = ""; $("jh-imp-t").focus(); return; }
@@ -1448,12 +1809,14 @@ $("jh-main").addEventListener("pointerdown", (e) => {
 /* ── 試走一趟：六爻依序演，動爻那一節多演變數，最後比結局表 ── */
 const needOk = (need, st) => Object.entries(need || {}).every(([k, [lo, hi]]) => (lo == null || (st[k] || 0) >= lo) && (hi == null || (st[k] || 0) <= hi));
 const flagsOk = (en, fl) => (en.flags || []).every((f) => fl.includes(f)) && !(en.not_flags || []).some((f) => fl.includes(f));
-const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st) && flagsOk(en, sim ? sim.flags : [])) || null;
+const movesOk = (en, ch) => (en.moves || []).every((i) => ch.includes(i));
+const endingOf = (j, st) => j.endings.find((en) => needOk(en.need, st) && flagsOk(en, sim ? sim.flags : []) && movesOk(en, sim ? sim.changes : [])) || null;
+const sceneOn = (s, picked) => !(s.after || []).length || s.after.some((k) => picked.includes(k));   // 同後端 jianghu.ts
 const nameIn = (t) => String(t || "").replace(/\{名\}/g, sim ? sim.name : "{名}");
 function simLine(j, s) {
   const w = whoOfJ(s), npc = s.npc && j.npcs.find((n) => n.id === s.npc);
   const name = w === "me" ? sim.name : CHARS[w] || (npc && npc.name) || s.speaker || "";
-  return w === "narr" ? `<div class="line narr">${escLine(nameIn(s.text))}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${escLine(nameIn(s.text))}</div>`;
+  return w === "narr" ? `<div class="line narr">${appText(nameIn(s.text), true)}</div>` : `<div class="line${w === "me" ? " me" : ""}"><span class="sp">${esc(name)}</span>${appText(nameIn(s.text), false)}</div>`;
 }
 function simPaint() {
   const j = jh[jcur];
@@ -1476,7 +1839,8 @@ function simPaint() {
     tail = en ? `<div class="endcard"><h3>${esc(en.title || "（結局沒有名字）")}${en.rare ? "・稀有" : ""}</h3><div class="line">${esc(nameIn(en.text))}</div>
       ${en.insight ? `<div class="line" style="margin-top:8px;color:var(--gold)">「${esc(en.insight)}」</div>` : ""}
       ${en.npc_fate ? `<p class="fxnote" style="margin:6px 0 0">人物下場：${esc(en.npc_fate)}</p>` : ""}
-      <p style="margin:8px 0 0;font-size:13px">${en.player_title.label ? `拿到稱號「<b>${esc(en.player_title.label)}</b>」` : "這個結局不發稱號。"}${+en.reward_lingshi ? `　第一次達成 💎${+en.reward_lingshi}` : ""}${ach ? `<br>成就亮起：<b>${esc(ach)}</b>` : ""}</p>
+      ${(() => { const got = [en.player_title.label && `拿到稱號「<b>${esc(en.player_title.label)}</b>」`, +en.reward_lingshi && `第一次達成 💎${+en.reward_lingshi}`].filter(Boolean).join("　");
+        return got || ach ? `<p style="margin:8px 0 0;font-size:13px">${got}${got && ach ? "<br>" : ""}${ach ? `成就亮起：<b>${esc(ach)}</b>` : ""}</p>` : ""; })()}
       ${en.hook && en.hook.who ? `<p style="margin:8px 0 0;font-size:13px">談心多一顆：<b>去問${esc(CHARS[en.hook.who])}</b>「${esc(nameIn(en.hook.ask))}」</p>` : ""}</div>`
       : `<div class="endcard"><h3>沒有任何結局符合</h3><div class="line">結局表最後一個要留空條件當保底。</div></div>`;
     tail += `<div><button class="btn" data-sim="again">同一卦再走一趟</button> <button class="btn ghost" data-sim="reset">重設</button></div>`;
@@ -1487,9 +1851,10 @@ function simRun() {
   const j = jh[jcur];
   while (sim.si >= 0 && sim.si < sim.list.length) {
     const s = sim.list[sim.si];
+    if (!sceneOn(s, sim.picked)) { sim.si++; continue; }   // 前路不合：這一幕不演
     if ((s.text || "").trim()) sim.log.push(simLine(j, s));
     // 看得到（道具帶著）的都列出來；錢不夠的反灰選不了。一個都選不了就當沒有選項（同後端 jianghu.ts）
-    const cs = (s.choices || []).filter((ch) => !ch.req || sim.items.includes(ch.req)).map((ch) => ({ ...ch, poor: !!ch.cost && (sim.st.s5 || 0) < ch.cost }));
+    const cs = (s.choices || []).filter((ch) => reqOk(ch, sim.items)).map((ch) => ({ ...ch, poor: !!ch.cost && (sim.st.s5 || 0) < ch.cost }));
     if (cs.length && cs.every((c) => c.poor)) { sim.log.push(`<div class="fxnote">（這裡的選項都要花錢、你的錢不夠：照後端規則直接往下演）</div>`); }
     else
     if (cs.length) { sim.choices = cs; return; }
@@ -1503,6 +1868,7 @@ function simStep() {   // 這一節演完：有變數就演變數，否則往下
   if (sim.pendingChange) {
     sim.pendingChange = false;
     sim.log.push(`<div class="evmark">${YAO[sim.node]}動・變數</div>`);
+    sim.changes.push(sim.node);
     sim.list = j.nodes[sim.node].change.scenes; sim.si = 0; simRun(); return;
   }
   if (sim.node >= 5) { sim.ending = endingOf(j, sim.st); return; }
@@ -1522,7 +1888,7 @@ function simAct(b) {
       moving = act === "rand" ? YAO.map((_, i) => i).filter(() => Math.random() < 0.3) : [...$("jh-body").querySelectorAll("[data-mv]:checked")].map((x) => +x.dataset.mv);
       name = $("sim-nm").value === "alias" ? alias(Date.now()) : ($("sim-own").value.trim() || "無名");
     }
-    sim = { name, moving, st: { ...(j.start || {}) }, items: [], flags: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
+    sim = { name, moving, st: { ...(j.start || {}) }, items: [], flags: [], picked: [], changes: [], node: -1, pendingChange: false, list: null, si: 0, log: [], choices: null, ending: undefined };
     if ((j.opening.text || "").trim()) sim.log.push(`${j.opening.bg ? `<div class="place">${esc(BGS[j.opening.bg] || "")}</div>` : ""}<div class="line narr">${esc(nameIn(j.opening.text))}</div>`);
     simStep();
   } else if (act === "next") simStep();
@@ -1532,6 +1898,7 @@ function simAct(b) {
     fx.forEach(([k, v]) => { sim.st[k] = (sim.st[k] || 0) + v; });
     if (ch.get && !sim.items.includes(ch.get)) sim.items.push(ch.get);
     if (ch.set && !sim.flags.includes(ch.set)) sim.flags.push(ch.set);
+    sim.picked.push(ch.key);
     const nm = (k) => (cfg.stats.find((x) => x.k === k) || {}).name || k;
     sim.log.push(`<div class="line me"><span class="sp">你選</span>${esc(nameIn(ch.label))}${ch.get ? ` <span class="fxnote">（得到 ${esc(ch.get)}）</span>` : ""}${fx.length ? ` <span class="fxnote">（${fx.map(([k, v]) => nm(k) + (v > 0 ? "+" : "") + v).join("、")}）</span>` : ""}</div>`);
     sim.choices = null;
@@ -1551,22 +1918,35 @@ function jChecksOf(j) {
   if (j.identity.mode === "disguise" && !(j.identity.label || "").trim()) W("選了偽裝身分，但沒寫偽裝成什麼。");
   j.nodes.forEach((n, i) => { if (!n.scenes.some((s) => (s.text || "").trim())) W(`${YAO[i]}這一節還沒寫。`); });
   const gets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.get).filter(Boolean)));
+  // 選項 key 全篇不能重複：前路銜接、試走、後端判結局都靠它認人（10-24 Claude 手改上爻撞了三爻的 c39／c40）
+  const kc = {}; allScenes(j).forEach(([s, i, part]) => (s.choices || []).forEach((c) => { (kc[c.key] = kc[c.key] || []).push(`${YAO[i]}${part === "change" ? "變" : ""}「${c.label || "？"}」`); }));
+  Object.entries(kc).forEach(([k, at]) => { if (at.length > 1) E(`選項代號 ${k} 重複了：${at.join("、")}。刪掉其中一個重新按「＋選項」，或請 Claude 改。`); });
   allScenes(j).forEach(([s, i, part, list]) => {
     const at = `${YAO[i]}${part === "change" ? "的變數" : ""}`;
     (s.choices || []).forEach((ch) => {
       if (!(ch.label || "").trim()) E(`${at}有選項沒有字。`);
       if (ch.to && ch.to !== "end" && !list.some((x) => x.id === ch.to)) E(`${at}有選項跳到找不到的幕。`);
-      if (ch.req && !gets.has(ch.req)) E(`${at}有選項要「${ch.req}」，但沒有任何選項會給這個道具。`);
+      reqs(ch).forEach((x) => { if (!gets.has(x)) E(`${at}有選項要「${x}」，但沒有任何選項會給這個道具。`); });
+      if (reqs(ch).length && reqLate(j, ch)) E(`${at}「${ch.label}」要「${reqs(ch).join("」或「")}」，但拿到它的地方都在後面：走到這裡時不可能帶著。`);
     });
     if (s.npc && !j.npcs.some((n) => n.id === s.npc)) E(`${at}有一幕的說話者是已刪掉的人物。`);
+    if ((s.after || []).length) {
+      const early = earlierChoices(j, i).filter((x) => part === "change" || x.o < ORDER(i, part, list.indexOf(s))).map((x) => x.c.key);
+      const bad = s.after.filter((k) => !early.includes(k));
+      if (bad.length) E(`${at}有一幕的前路銜接勾了已經不在前面的選項（${bad.join("、")}）：那幾個條件永遠不會成立。`);
+    }
   });
   j.npcs.forEach((n) => { if (!(n.name || "").trim()) E("本篇人物有一位沒有名字。"); else if (!allScenes(j).some(([s]) => s.npc === n.id) && !allScenes(j).some(([s]) => (s.text || "").includes(n.name))) W(`人物「${n.name}」沒有出場。`); });
   const ens = j.endings;
-  const hasCond = (en) => Object.keys(en.need).length || (en.flags || []).length || (en.not_flags || []).length;
+  const hasCond = (en) => Object.keys(en.need).length || (en.flags || []).length || (en.not_flags || []).length || (en.moves || []).length;
   if (hasCond(ens[ens.length - 1])) E("最後一個結局有條件：請留空當保底。");
   ens.slice(0, -1).forEach((en, i) => { if (!hasCond(en)) E(`結局 ${i + 1} 沒有條件卻不是最後一個：它會擋住下面所有結局。`); });
   const sets = new Set(allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean)));
   ens.forEach((en, i) => [...(en.flags || []), ...(en.not_flags || [])].forEach((f) => { if (!sets.has(f)) E(`結局 ${i + 1} 看旗標「${f}」，但沒有任何選項會設它。`); }));
+  ens.forEach((en, i) => (en.moves || []).forEach((k) => { if (!j.nodes[k].change.scenes.some((x) => (x.text || "").trim())) E(`結局 ${i + 1} 要演過${YAO[k]}的變數，但那一爻沒寫變數：永遠走不到。`); }));
+  ens.forEach((en, i) => { if ((en.moves || []).length) O(`結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""}要${en.moves.map((k) => YAO[k]).join("、")}動：一趟大約 ${Math.round(100 * Math.pow(0.25, en.moves.length))}% 的機會（再走一趟重搖）。`); });
+  const setsAll = allScenes(j).flatMap(([s]) => (s.choices || []).map((c) => c.set).filter(Boolean));
+  [...new Set(setsAll)].forEach((f) => { if (!ens.some((en) => (en.flags || []).includes(f) || (en.not_flags || []).includes(f))) W(`旗標「${f}」有選項會設，但沒有結局看它。`); });
   ens.forEach((en, i) => {
     const n = `結局 ${i + 1}${en.title ? "「" + en.title + "」" : ""}`;
     if (!(en.title || "").trim()) E(`結局 ${i + 1} 沒有名字。`);
@@ -1616,6 +1996,7 @@ function jChecks() {
 function jScenes(ss) {
   return ss.filter((s) => (s.text || "").trim()).map((s) => {
     const o = {}; for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (k in s && s[k] !== undefined && s[k] !== "") o[k] = s[k];
+    if ((s.after || []).length) o.after = s.after;
     const cs = (s.choices || []).filter((c) => (c.label || "").trim()).map((c) => { const x = { key: c.key, label: c.label }; for (const k of ["hint", "to", "fx", "get", "req", "set", "cost"]) if (c[k]) x[k] = c[k]; return x; });
     if (cs.length) o.choices = cs; return o;
   });
@@ -1624,7 +2005,7 @@ function jClean(j) {
   return { id: j.id, gua_no: j.gua_no, gua: j.gua, title: j.title, tone: j.tone, player_summary: j.outline.player_summary,
     identity: j.identity, npcs: j.npcs, opening: j.opening, start: j.start || {},
     nodes: j.nodes.map((n, i) => ({ yao: i + 1, title: n.title, scenes: jScenes(n.scenes), change: jScenes(n.change.scenes) })),
-    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], text: en.text, insight: en.insight, npc_fate: en.npc_fate,
+    endings: j.endings.map((en) => ({ id: en.id, title: en.title, rare: !!en.rare, need: en.need, flags: en.flags || [], not_flags: en.not_flags || [], ...((en.moves || []).length ? { moves: en.moves } : {}), text: en.text, insight: en.insight, npc_fate: en.npc_fate,
       reward_lingshi: +en.reward_lingshi || 0, player_title: en.player_title, hook: en.hook && en.hook.who ? en.hook : null })),
     achievement: j.achievement, achievements: achList(j), stats: cfg.stats.map((s) => s.k) };
 }
@@ -1650,9 +2031,10 @@ function jFromPaste(raw, cur) {
   delete j.stats; delete j.achievement; achSync(j);
   return [j, ""];
 }
-function jOut() {
+function jOut(kind) {
   const el = $("jh-out"); if (!el) return;
-  el.innerHTML = `<div class="outhead"><b>這一篇（JSON）</b><button class="btn sm" data-copy="jh-o">複製</button></div><pre class="out" id="jh-o">${esc(JSON.stringify(jClean(jh[jcur]), null, 2))}</pre>`;
+  if (!kind) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="outhead"><b>${kind === "idea" ? "想故事用（文字）" : "改稿用（開場白＋JSON）"}</b><button class="btn sm" data-copy="jh-o">複製</button></div><pre class="out" id="jh-o">${esc(kind === "idea" ? gptIdea(jh[jcur]) : gptJson(jh[jcur]))}</pre>`;
 }
 
 /* ── 開場 ── */
@@ -1662,7 +2044,7 @@ function jApply(list) {
   if (jcur && jcur !== "__cfg" && jh[jcur] && !jdirty.has(jcur) && !document.activeElement?.closest?.("#jh-main") && jview === "write") jMain();
 }
 function jhInit() {
-  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art" || m === "plan") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
+  try { const m = localStorage.getItem("script-sheet-mode"); if (m === "jh" || m === "art" || m === "plan" || m === "letter") $("modes").querySelector(`[data-mode="${m}"]`).click(); } catch (e) {}
   if (!db) {
     try { jh = JSON.parse(localStorage.getItem(JLS) || "{}"); Object.assign(cfg, JSON.parse(localStorage.getItem(JLS + "-cfg") || "{}")); } catch (e) {}
     jRail(); return;
@@ -1687,7 +2069,7 @@ function jhInit() {
 const ART_CHARS = { daoshi_m: "大師兄", daoshi_f: "師妹", lingshou: "觀貓" };
 // 左欄分組的順序；列在這裡的組就算還沒有任何一列也照樣出現（頭像框：之後要做，先佔位）
 const ART_GROUP_ORDER = ["主要角色", "玩家頭像", "其他頭像", "頭像框", "場景", "頁面底圖", "江湖・乾為天"];
-const ART_GROUP_NOTE = { 頭像框: "還沒有任何一個頭像框。要做的時候按左邊「＋一列」，類型選「頭像框」。" };
+const ART_GROUP_NOTE = { 頭像框: "自己畫的框與粒子圖放這組：按「＋新增」，類型選「頭像框」（512×512）或「粒子圖」（128×128）。上傳後到任一張頭像的「框與粒子」選它。CSS 色框不用圖，直接在頭像那裡選。" };
 // App 現在用的線上那張（Supabase 雲端）：列上 origin_url，舊資料從 temp「雲端 資料夾/檔名」推出來
 const ART_CLOUD = "https://ajogafvzlhqwlxwkfcpn.supabase.co/storage/v1/object/public/";
 const artOrigin = (a) => a.origin_url || ((/^雲端 (\S+\.(?:png|jpe?g|webp|mp4|webm))$/i.exec(a.temp || "") || [])[1] ? ART_CLOUD + /^雲端 (\S+)/.exec(a.temp)[1] : "");
@@ -1701,7 +2083,8 @@ const ART_SPEC = {
   場景: "1280×1920 直式 JPG／WebP，焦點在中央 70%，下方 45% 會被對話框蓋住（畫地板、桌面這類低對比的東西），不畫人物、不放字。",
   頭像: "正方形 ≥512px，臉在中央；畫面上一律裁成圓形。主要角色的頭像也拿來做手機通知的圓形大圖。",
   動態頭像: "正方形 512×512、2～4 秒無縫循環；交 MP4／MOV／動態 WebP 都可以；進 App 一律轉成動態 WebP（384×384、15fps、600 KB 內，另出一張靜止首格給列表用）。",
-  頭像框: "512×512 透明 PNG／WebP；頭像圓形在正中央、直徑約 80%，框畫在外圈（格式待定）。" };
+  頭像框: "512×512 透明 PNG／WebP。正中央直徑 384px 的圓＝頭像（跟動態頭像 384×384 同尺寸，1:1 疊上去）；框可以往內壓到直徑 352px，往外畫到畫布邊。中間不用挖空：App 會把直徑 352px 以內切掉。按下面「下載框的模板」拿參考線。",
+  粒子圖: "128×128 透明 PNG／WebP，一片粒子（葉、瓣、光點）置中、尖端朝上；白色或原色都可以。在「框與粒子」把粒子形狀選成這張。" };
 let arts = {}, assetsNs = null, artSel = "";
 const artTimers = {};
 try { artSel = localStorage.getItem("script-sheet-art-sel") || ""; } catch (e) {}
@@ -1787,6 +2170,7 @@ function artItemHtml(a) {
         <label class="aeimg${a.asset_url || orig ? " has" : ""}" data-kind="${esc(a.kind || "")}" title="點一下選圖，或把圖拖進來">${a.asset_url ? artMedia(a.asset_url, a.asset_type) : orig ? `${artMedia(orig)}<span class="orig">App 現用・線上</span>` : assetsNs ? "點這裡選圖<br>或把圖拖進來、直接貼上" : "這個畫面不能放圖：<br>請從 claude.ai 打開稿紙"}<input type="file" accept="${artVideoOk(a) ? "image/*,video/*" : "image/*"}" data-artfile></label>
         ${assetsNs ? `<div class="aebtns"><button class="btn sm" data-apick>${a.asset_id ? "換一張" : "選圖"}</button>${!a.asset_id && orig ? `<button class="btn sm" data-agrab>把線上這張抓進來</button>` : ""}${a.asset_id ? `<button class="btn sm danger" data-aundo="${esc(a.id)}">撤回這次上傳${h.length > 1 ? "（回到上一張）" : ""}</button>` : ""}</div>` : ""}
         <p class="aehint">${esc(ART_SPEC[a.kind] || "")}</p>
+        ${typeof banPanel === "function" ? banPanel(a, a.asset_url || orig) : ""}
       </div>
       <div class="aeside">
         <label class="shipbox${st === "in" ? " in" : ship && a.asset_id ? " on" : ""}${!a.asset_id || st === "in" || isOrig ? " off" : ""}"><input type="checkbox" data-ship${(ship && a.asset_id) || st === "in" ? " checked" : ""}${!a.asset_id || st === "in" || isOrig ? " disabled" : ""}><b>${st === "in" ? "已在 App 裡" : "下次更新放進 App"}</b><small>${shipNote}</small></label>
@@ -1927,9 +2311,9 @@ function artInit() {
   // 新增一張（六六 2026-10-23）：在哪一組（哪位角色）按的，就加在那裡；類型決定 App 代號。
   // 怎麼獲得、用在哪寫在備註，Claude 抓圖時照備註接進 App。表單在頁面上（claude.ai 的框架會擋 prompt）
   let artNewAt = null;
-  const ART_NEW_KINDS = { 主要角色: ["立繪", "頭像", "動態頭像"], 玩家頭像: ["頭像", "動態頭像"], 其他頭像: ["頭像", "動態頭像"], 頭像框: ["頭像框"], 場景: ["場景"], 頁面底圖: ["場景"] };
+  const ART_NEW_KINDS = { 主要角色: ["立繪", "頭像", "動態頭像"], 玩家頭像: ["頭像", "動態頭像"], 其他頭像: ["頭像", "動態頭像"], 頭像框: ["頭像框", "粒子圖"], 場景: ["場景"], 頁面底圖: ["場景"] };
   const artNewKey = (at, kind, code) => !code ? "" : at.cid ? (kind === "立繪" ? `char/${at.cid}/` : `av/${at.cid}/`) + code
-    : at.g === "玩家頭像" ? "av/player/" + code : kind === "頭像框" ? "frame/" + code : kind === "場景" ? "scene/" + code
+    : at.g === "玩家頭像" ? "av/player/" + code : kind === "頭像框" ? "frame/" + code : kind === "粒子圖" ? "fx/" + code : kind === "場景" ? "scene/" + code
     : kind === "頭像" || kind === "動態頭像" ? "av/" + code : "char/n_" + code;
   const artNewHint = () => {
     const code = $("art-new-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ""), k = artNewKey(artNewAt, $("art-new-kind").value, code);
@@ -2084,4 +2468,806 @@ function planInit() {
   }, () => setSave("雲端存檔斷線，重新整理頁面", true));
 }
 </script>
+<script>
+/* ══ 見聞設定（六六 2026-10-24）══
+   道籍 › 見聞的地點、場景、人物說明，存在雲端 jianghu_cfg/world。App 端讀的是後端 jianghu_config.world：
+   這裡存好跟 Claude 說一聲，Claude 存成 dev/design/journal/jianwen.json → node dev/jianwen-seed.mjs 出 migration。
+   橫幅框（見聞首頁地點卡的那一條）在「美術資產」的場景那一列拉，存在同一份 world.scenes[key].banner。 */
+const WORLD_DEF = {"places": [{"id": "yundu", "name": "雲渡鎮", "desc": "河上的小鎮，靠渡口吃飯。一年一度的擂龍台，魁首的名字刻在鎮口的龍柱上。"}], "scenes": {"dukou": {"name": "雲渡口", "place": "yundu", "desc": "擠在一起的渡船、跳板、木樁上的告示。渡錢從這裡收，也從這裡吵起來。"}, "kezhan": {"name": "客棧", "place": "yundu", "desc": "渡口邊的小客棧，窗子正對河對岸萬金號的後門。"}, "wanjin": {"name": "萬金號", "place": "yundu", "desc": "褚掌櫃的鋪子。前頭擺酒，後頭有一間帳房，燈總是最晚熄。"}, "leitai": {"name": "擂龍台", "place": "yundu", "desc": "四根木樁打進河裡搭起的台子，底下是深潭。站上去的人，兩岸都看得見。"}, "longzhu": {"name": "龍柱", "place": "yundu", "desc": "九丈高的柱子，刻滿往年魁首的名字。最底下那一圈，一直空著。"}}, "people": {"n_aqin": {"role": "雲渡口的擺船人"}, "n_lingxiao": {"role": "擂龍台三年魁首"}, "n_chu": {"role": "萬金號掌櫃"}, "n_zhou": {"role": "外地來的拳師"}, "n_shen": {"role": "縣裡巡河的捕頭"}}};
+let world = JSON.parse(JSON.stringify(WORLD_DEF)), worldDirty = false, worldTimer = 0;
+function worldTouch() {
+  worldDirty = true; setSave("有未存的修改…"); clearTimeout(worldTimer);
+  worldTimer = setTimeout(async () => {
+    if (!db) { try { localStorage.setItem("script-sheet-world", JSON.stringify(world)); } catch (e) {} worldDirty = false; setSave("已存在這台瀏覽器"); return; }
+    try { await db.collection("jianghu_cfg").doc("world").set(JSON.parse(JSON.stringify(world))); worldDirty = false; setSave("已存檔"); }
+    catch (e) { setSave("見聞設定存檔失敗", true); }
+  }, 800);
+}
+function jwScenes() {   // 劇本裡用到的場景＋已經設定過的
+  const ks = new Set(Object.keys(world.scenes || {}));
+  for (const d of Object.values(jh)) if (d && d.nodes) { if (d.opening && d.opening.bg) ks.add(d.opening.bg); for (const n of d.nodes) for (const x of [...n.scenes, ...n.change.scenes]) if (x.bg) ks.add(x.bg); }
+  return [...ks];
+}
+function jwPeople() {
+  const m = new Map();
+  for (const d of Object.values(jh)) if (d && d.npcs) for (const n of d.npcs) if (n.id && (n.name || "").trim() && !m.has(n.id)) m.set(n.id, { ...n, gua: d.gua });
+  return [...m.values()];
+}
+const artOfKey = (key) => { const a = Object.values(typeof arts !== "undefined" ? arts : {}).find((x) => x && x.key === key); return a ? (a.asset_url || (typeof artOrigin === "function" ? artOrigin(a) : "")) : ""; };
+function worldMain() {
+  const places = world.places || [], plOpts = (cur) => `<option value="">（不收進見聞）</option>` + places.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? " selected" : ""}>${esc(p.name || p.id)}</option>`).join("");
+  const sc = jwScenes().sort((a, b) => ((world.scenes[b] || {}).place ? 1 : 0) - ((world.scenes[a] || {}).place ? 1 : 0));
+  $("jh-main").innerHTML = `
+  <section class="sec"><h2>見聞設定 <small>道籍 › 見聞：地點名公開，場景去過才亮、人物見過才亮；三位主角不收</small></h2>
+    <p class="note" style="margin:0;font-size:12.5px;color:var(--ink-faint)">存好跟 Claude 說「見聞上線」：Claude 照這裡出 migration。場景的橫幅框到「美術資產」那一張場景下面拉。</p></section>
+  <section class="sec"><h2>地點</h2>
+    <table class="wtab"><tr><th>名字</th><th>說明（去過之後才顯示）</th><th></th></tr>${places.map((p, i) => `<tr data-wpi="${i}">
+      <td style="width:150px"><input type="text" data-wp="name" value="${esc(p.name)}" placeholder="例：雲渡鎮"><div class="fxnote">${esc(p.id)}</div></td>
+      <td><textarea data-wp="desc" rows="2">${esc(p.desc || "")}</textarea></td>
+      <td><button class="btn sm ghost" data-wact="pDel">✕</button></td></tr>`).join("")}</table>
+    <div><button class="btn sm" data-wact="pAdd">＋一個地點</button></div></section>
+  <section class="sec"><h2>場景 <small>劇本裡用到的場景都列在這；選地點＝收進那個地點</small></h2>
+    <table class="wtab"><tr><th></th><th>場景</th><th>屬於</th><th>說明</th></tr>${sc.map((k) => { const v = world.scenes[k] || {}, u = artOfKey("scene/" + k);
+      return `<tr data-wsk="${esc(k)}"><td><div class="th" style="${u ? `background-image:url('${esc(u)}')` : ""}"></div></td>
+      <td style="width:150px"><input type="text" data-ws="name" value="${esc(v.name || "")}" placeholder="${esc(BGS[k] || k)}"><div class="fxnote">scene/${esc(k)}${v.banner ? "・橫幅已調" : ""}</div></td>
+      <td style="width:130px"><select data-ws="place">${plOpts(v.place || "")}</select></td>
+      <td><textarea data-ws="desc" rows="2" placeholder="去過之後看到的一段說明">${esc(v.desc || "")}</textarea></td></tr>`; }).join("")}</table></section>
+  <section class="sec"><h2>人物 <small>江湖劇本裡的人（同 id＝同一個人）；說明沒寫就用劇本那一句設定</small></h2>
+    <table class="wtab"><tr><th></th><th>人物</th><th>身分（名字旁小字）</th><th>見聞說明</th></tr>${jwPeople().map((n) => { const v = (world.people || {})[n.id] || {}, u = artOfKey("char/" + n.id);
+      return `<tr data-wnk="${esc(n.id)}"><td><div class="th" style="width:48px;height:64px;background-position:top;${u ? `background-image:url('${esc(u)}')` : ""}"></div></td>
+      <td style="width:110px"><b>${esc(n.name)}</b><div class="fxnote">${esc(n.id)}・${esc(n.gua)}</div></td>
+      <td style="width:150px"><input type="text" data-wn="role" value="${esc(v.role || "")}" placeholder="例：縣裡巡河的捕頭"></td>
+      <td><textarea data-wn="desc" rows="2" placeholder="${esc(n.desc || "")}">${esc(v.desc || "")}</textarea></td></tr>`; }).join("")}</table></section>`;
+}
+function jwInit() {
+  $("jh-world").addEventListener("click", () => { jcur = "__world"; jRail(); worldMain(); });
+  const main = $("jh-main");
+  main.addEventListener("input", (e) => {
+    if (jcur !== "__world") return; const t = e.target;
+    world.scenes = world.scenes || {}; world.people = world.people || {};
+    if (t.dataset.wp) { world.places[+t.closest("[data-wpi]").dataset.wpi][t.dataset.wp] = t.value; }
+    else if (t.dataset.ws) { const k = t.closest("[data-wsk]").dataset.wsk, v = (world.scenes[k] = world.scenes[k] || {}); v[t.dataset.ws] = t.value; if (!v[t.dataset.ws]) delete v[t.dataset.ws]; }
+    else if (t.dataset.wn) { const k = t.closest("[data-wnk]").dataset.wnk, v = (world.people[k] = world.people[k] || {}); v[t.dataset.wn] = t.value; if (!v[t.dataset.wn]) delete v[t.dataset.wn]; }
+    else return;
+    worldTouch();
+  });
+  main.addEventListener("click", (e) => {
+    if (jcur !== "__world") return; const b = e.target.closest("[data-wact]"); if (!b) return;
+    if (b.dataset.wact === "pAdd") world.places.push({ id: "p" + Date.now().toString(36), name: "", desc: "" });
+    else if (b.dataset.wact === "pDel") {
+      if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "再按一次"; return; }
+      const [pl] = world.places.splice(+b.closest("[data-wpi]").dataset.wpi, 1);
+      for (const v of Object.values(world.scenes || {})) if (v.place === pl.id) delete v.place;
+    }
+    worldTouch(); worldMain();
+  });
+  if (!db) { try { const v = JSON.parse(localStorage.getItem("script-sheet-world") || "null"); if (v) world = v; } catch (e) {} return; }
+  db.collection("jianghu_cfg").onSnapshot((snap) => {
+    const d = snap.docs.find((x) => x.exists && x.id === "world");
+    if (d && !worldDirty) { world = JSON.parse(JSON.stringify(d.data())); world.places = world.places || []; world.scenes = world.scenes || {}; world.people = world.people || {};
+      if (jcur === "__world" && !document.activeElement?.closest?.("#jh-main")) worldMain(); }
+  }, () => {});
+}
 
+/* ── 橫幅框：美術資產的場景那一列，在原圖上拖一個框＝見聞地點卡那一條露出的範圍 ──
+   框的比例固定（340:104，手機上地點卡的橫幅）；拖框移位置，滑桿改大小。存成 banner {x,y,w}（佔原圖的比例）
+   ＋算好的 CSS {bs,bx,by}（background-size 與 position 的 %），App 照 CSS 畫，跟這裡的預覽一樣。 */
+const BAN_A = 340 / 104;
+function banPanel(a, url) {
+  const m = /^scene\/(.+)$/.exec(a.key || ""); if (!m || !url) return "";
+  const k = m[1].replace(/-night$/, ""); if (k !== m[1]) return "";   // 夜景不用調：見聞用日景
+  return `<div class="bancrop" data-bk="${esc(k)}"><h4>見聞橫幅 <small class="fxnote">拖白框選露出的範圍</small></h4>
+    <div class="bc-stage"><img src="${esc(url)}" alt="" draggable="false"><div class="bc-rect"></div></div>
+    <div class="bc-row">大小 <input type="range" min="0.25" max="1" step="0.01" data-bw> <button class="btn sm ghost" data-breset>置中</button></div>
+    <div class="bc-prev"></div><p class="fxnote" style="margin:0">↑ 見聞首頁「${esc(((world.scenes || {})[k] || {}).name || BGS[k] || k)}」所在地點卡的樣子</p></div>`;
+}
+function banGeom(el) {
+  const img = el.querySelector("img"), nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+  const maxW = Math.min(1, BAN_A * nh / nw);
+  return { img, nw, nh, maxW };
+}
+function banApply(el, b, save) {
+  const g = banGeom(el), w = Math.min(Math.max(b.w, 0.25), g.maxW), hf = (w * g.nw / BAN_A) / g.nh;
+  const x = Math.min(Math.max(b.x, 0), 1 - w), y = Math.min(Math.max(b.y, 0), 1 - hf);
+  const css = { bs: +(100 / w).toFixed(2), bx: w < 1 ? +(100 * x / (1 - w)).toFixed(2) : 50, by: hf < 1 ? +(100 * y / (1 - hf)).toFixed(2) : 50 };
+  const r = el.querySelector(".bc-rect"), W = g.img.clientWidth, H = g.img.clientHeight;
+  Object.assign(r.style, { left: x * W + "px", top: y * H + "px", width: w * W + "px", height: hf * H + "px", backgroundImage: `url('${g.img.src}')`, backgroundSize: `${W}px ${H}px`, backgroundPosition: `${-x * W - 2}px ${-y * H - 2}px` });
+  const pv = el.querySelector(".bc-prev"); Object.assign(pv.style, { backgroundImage: `url('${g.img.src}')`, backgroundSize: css.bs + "% auto", backgroundPosition: `${css.bx}% ${css.by}%` });
+  el.querySelector("[data-bw]").max = g.maxW.toFixed(2); el.querySelector("[data-bw]").value = w;
+  el._b = { x, y, w };
+  if (save) { const k = el.dataset.bk; world.scenes = world.scenes || {}; const v = (world.scenes[k] = world.scenes[k] || {}); v.banner = { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), ...css }; worldTouch(); }
+}
+function banInit() {
+  document.querySelectorAll(".bancrop").forEach((el) => {
+    const img = el.querySelector("img");
+    const go = () => { const v = ((world.scenes || {})[el.dataset.bk] || {}).banner, g = banGeom(el);
+      const w = v ? v.w : g.maxW, hf = (w * g.nw / BAN_A) / g.nh; banApply(el, v || { x: (1 - w) / 2, y: (1 - hf) / 2, w }, false); };
+    if (img.complete && img.naturalWidth) go(); else img.addEventListener("load", go, { once: true });
+  });
+}
+document.addEventListener("pointerdown", (e) => {
+  const r = e.target.closest(".bc-rect"); if (!r) return;
+  const el = r.closest(".bancrop"), img = el.querySelector("img"), W = img.clientWidth, H = img.clientHeight;
+  const sx = e.clientX, sy = e.clientY, b0 = { ...el._b }; r.setPointerCapture(e.pointerId); e.preventDefault();
+  const mv = (ev) => banApply(el, { ...b0, x: b0.x + (ev.clientX - sx) / W, y: b0.y + (ev.clientY - sy) / H }, false);
+  const up = () => { r.removeEventListener("pointermove", mv); r.removeEventListener("pointerup", up); banApply(el, el._b, true); };
+  r.addEventListener("pointermove", mv); r.addEventListener("pointerup", up);
+});
+document.addEventListener("input", (e) => {
+  const t = e.target; if (!t.matches(".bancrop [data-bw]")) return;
+  const el = t.closest(".bancrop"), b = el._b, w = +t.value, g = banGeom(el), hf0 = (b.w * g.nw / BAN_A) / g.nh, hf = (w * g.nw / BAN_A) / g.nh;
+  banApply(el, { x: b.x + (b.w - w) / 2, y: b.y + (hf0 - hf) / 2, w }, false);
+});
+document.addEventListener("change", (e) => { if (e.target.matches(".bancrop [data-bw]")) { const el = e.target.closest(".bancrop"); banApply(el, el._b, true); } });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".bancrop [data-breset]"); if (!b) return;
+  const el = b.closest(".bancrop"), g = banGeom(el), w = g.maxW, hf = (w * g.nw / BAN_A) / g.nh; banApply(el, { x: (1 - w) / 2, y: (1 - hf) / 2, w }, true);
+});
+if (typeof artPaint === "function") { const _ap = artPaint; artPaint = function (f) { _ap(f); banInit(); }; }
+</script>
+
+
+
+<style>
+/* ── 框與粒子（美術資產：頭像、動態頭像、頭像框、粒子圖）── */
+.avd{margin-top:14px;padding:14px;border:1px solid var(--edge);border-radius:12px;background:var(--field)}
+.avd h4{margin:0 0 10px;font:600 14px var(--f-display)}
+.avd-top{display:grid;grid-template-columns:minmax(260px,380px) 1fr;gap:18px;align-items:start}
+.avd-top>.l{position:sticky;top:10px}
+@media (max-width:900px){.avd-top{grid-template-columns:1fr}.avd-top>.l{position:static}}
+.avd-pv{--paper:#F2EBDA;--paper-2:#EBE1CC;--ink:#1C1917;--ink-faint:#746958;--cinnabar:#B5402E;--gold:#D59F62;
+  --wx-木:#4f7a4d;--wx-火:#b5402e;--wx-土:#9a7b3f;--wx-金:#9a8f6b;--wx-水:#3b6a86;
+  background:var(--paper);border-radius:12px;padding:30px;display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap;border:1px solid var(--edge)}
+.avd-pv[data-th="night"]{--paper:#15120E;--paper-2:#413935;--ink:#ECE3D1;--ink-faint:#C1A776;--cinnabar:#D86A52;--gold:#C4A164;
+  --wx-木:#7fae6e;--wx-火:#d86a52;--wx-土:#CE9764;--wx-金:#FFE380;--wx-水:#6fa3c4}
+.avx{position:relative;width:var(--s,140px);height:var(--s,140px);flex:none;isolation:isolate}
+.avx-av{position:absolute;inset:0;border-radius:50%;overflow:hidden;z-index:1;background:var(--paper-2)}
+.avx-av>*{width:100%;height:100%;object-fit:cover;display:block;transform-origin:50% 50%}
+.avx.big .avx-av{cursor:grab;touch-action:none}.avx.big .avx-av:active{cursor:grabbing}
+.avd-crop{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair);font-size:13px}
+.avx-ring{position:absolute;z-index:2;border-radius:50%;pointer-events:none;inset:calc(var(--rw) * -1);padding:var(--rw);background:var(--rg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);box-shadow:var(--rs,none)}
+.avx-fimg{position:absolute;z-index:2;inset:-16.667%;width:133.333%;height:133.333%;pointer-events:none;object-fit:contain;
+  -webkit-mask:radial-gradient(closest-side,transparent 68.5%,#000 68.75%);mask:radial-gradient(closest-side,transparent 68.5%,#000 68.75%)}
+.avx-guide{position:absolute;z-index:4;inset:-16.667%;pointer-events:none;border-radius:50%}
+.avx-guide::before,.avx-guide::after{content:"";position:absolute;border-radius:50%}
+.avx-guide::before{inset:12.5%;border:1.5px solid #e0473a}
+.avx-guide::after{inset:15.625%;border:1.5px dashed #2f8fd8}
+.avx-fx{position:absolute;inset:-25%;pointer-events:none;overflow:hidden;container-type:size;
+  -webkit-mask:radial-gradient(closest-side,#000 var(--fm,70%),transparent);mask:radial-gradient(closest-side,#000 var(--fm,70%),transparent)}
+.avx-fx.b{z-index:0}.avx-fx.f{z-index:3}
+.avx-fx i{position:absolute;left:0;top:0;width:var(--w);aspect-ratio:1/var(--ar,1);opacity:0;will-change:transform,opacity;
+  animation:var(--an) var(--du) linear var(--dl) infinite}
+.avx-fx i::before{content:"";position:absolute;inset:0;background:var(--bg);border-radius:var(--br,0);transform:rotate(var(--r0,0deg));
+  animation:avfx-flk var(--fd,1.6s) ease-in-out var(--dl) infinite alternate;animation-play-state:var(--fp,paused)}
+@keyframes avfx-flk{to{opacity:var(--fo,1)}}
+@keyframes avfx-a{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}8%{opacity:var(--op)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  92%{opacity:var(--op)}100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@keyframes avfx-b{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}18%{opacity:var(--op)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  82%{opacity:var(--op)}100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@keyframes avfx-c{0%{opacity:0;transform:translate(var(--x0),var(--y0)) rotate(0deg)}
+  25%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .25 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .25 + var(--sy))) rotate(calc(var(--sp) * .25))}
+  35%{opacity:var(--op)}
+  50%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .5 - var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .5 - var(--sy))) rotate(calc(var(--sp) * .5))}
+  65%{opacity:var(--op)}
+  75%{transform:translate(calc(var(--x0) + (var(--x1) - var(--x0)) * .75 + var(--sx)),calc(var(--y0) + (var(--y1) - var(--y0)) * .75 + var(--sy))) rotate(calc(var(--sp) * .75))}
+  100%{opacity:0;transform:translate(var(--x1),var(--y1)) rotate(var(--sp))}}
+@media (prefers-reduced-motion: reduce){.avx-fx{display:none}}
+.avd-ctl{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;font-size:13px;margin-top:12px}
+.avd-ctl>span{color:var(--ink-soft);white-space:nowrap}
+.avd-ctl select,.avd-ctl input[type=text]{font:inherit;font-size:13px;padding:4px 8px;border:1px solid var(--edge);border-radius:8px;background:var(--paper);color:var(--ink);max-width:100%}
+.avd-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.avd-ed{margin-top:12px;border-top:1px solid var(--edge);padding-top:10px}
+.avd-ed summary{cursor:pointer;font-weight:600;font-size:13.5px}
+.avd-sl{display:grid;grid-template-columns:7.5em 1fr 4.2em;gap:6px 10px;align-items:center;font-size:12.5px;margin-top:10px}
+.avd-sl>b{font-weight:500;color:var(--ink-soft)}
+.avd-sl output{font-family:var(--f-mono);font-size:12px;text-align:right}
+.avd-sl input[type=range]{width:100%;accent-color:var(--cinnabar)}
+.avd-sl .sub{grid-column:1/-1;margin:8px 0 0;font-size:12px;color:var(--ink-faint);border-bottom:1px solid var(--hair);padding-bottom:2px}
+.avd-cc-w{grid-column:2/-1}
+.avd-cc{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.avd-cc input[type=color]{width:34px;height:28px;padding:0;border:1px solid var(--edge);border-radius:6px;background:none;cursor:pointer}
+.avd-cc input[type=text]{width:8.5em;font:12.5px var(--f-mono);padding:4px 8px;border:1px solid var(--edge);border-radius:8px;background:var(--paper);color:var(--ink)}
+.avd-ccn{font-size:11.5px;color:var(--ink-faint)}
+.avd-sw{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px}
+.avd-sw button{width:20px;height:20px;border-radius:50%;border:1px solid var(--hair);padding:0;cursor:pointer;font-size:10px;line-height:18px;color:var(--ink-soft);background:var(--paper)}
+.avd-sw button.on{outline:2px solid var(--cinnabar);outline-offset:1px}
+.avd-note{font-size:12px;color:var(--ink-faint);margin:6px 0 0;line-height:1.6}
+</style>
+<script>
+/* ══ 框與粒子 ══（六六 2026-10-25）
+   動態頭像只算人物，不帶框、不帶粒子；框與粒子是 App 用 CSS 疊上去的兩層，跟頭像脫鉤。
+   存哪裡：
+     - 粒子預設、CSS 色框 → jianghu_cfg/avdeco { fx:{<id>:參數}, frames:{<id>:參數} }
+     - 圖片框 → 美術資產「頭像框」組的列（key frame/<代號>），粒子圖 → 同組「粒子圖」（key fx/<代號>）
+     - 一張頭像預設戴什麼 → 那一列的 deco { frame:"css:<id>"|"img:<key>"|"", fx:"<id>"|"", fx_on:true|false }
+   進 App：Claude 更新 App 時連同 avdeco 與各列 deco 一起帶（寫成前端的 assets/art/deco.json），
+   App 照同一套參數畫（同一條 keyframes、同一組換算），這裡看到的就是 App 的樣子。 */
+const AVD_DEF = {
+  frames: {
+    ink:      { name: "素墨", c1: "--ink", c2: "--ink", angle: 180, width: 3 },
+    gold:     { name: "金箔", c1: "--gold", c2: "--paper-2", angle: 160, width: 5 },
+    cinnabar: { name: "硃砂", c1: "--cinnabar", c2: "--cinnabar", angle: 160, width: 4 },
+    jade:     { name: "青玉", c1: "--wx-木", c2: "--paper-2", angle: 200, width: 5 },
+  },
+  fx: {
+    bamboo:  { name: "竹葉", shape: "leaf",  back: 3, front: 2, size: 8,  ar: 3.2, sizeVar: .35, dur: 7.5, durVar: .35, dir: "down",  travel: 130, area: .9, sway: 9,  spin: 140, spinVar: .6, tilt: 40, op: .9,  fade: "a", flicker: 0,  color: "--wx-木",   color2: "" },
+    petal:   { name: "花瓣", shape: "petal", back: 3, front: 3, size: 6,  ar: 1,   sizeVar: .3,  dur: 8.5, durVar: .3,  dir: "down",  travel: 130, area: 1,  sway: 14, spin: 320, spinVar: .5, tilt: 90, op: .85, fade: "a", flicker: 0,  color: "--cinnabar", color2: "" },
+    mist:    { name: "雲霧", shape: "mist",  back: 2, front: 1, size: 75, ar: .45, sizeVar: .25, dur: 13,  durVar: .3,  dir: "right", travel: 170, area: .8, sway: 3,  spin: 0,   spinVar: 0,  tilt: 0,  op: .5,  fade: "c", flicker: 0,  color: "--paper-2",  color2: "" },
+    firefly: { name: "螢火", shape: "spark", back: 3, front: 2, size: 4,  ar: 1,   sizeVar: .4,  dur: 6,   durVar: .4,  dir: "up",    travel: 90,  area: .8, sway: 7,  spin: 0,   spinVar: 0,  tilt: 0,  op: 1,   fade: "b", flicker: .8, color: "--gold",     color2: "" },
+    snow:    { name: "雪",   shape: "round", back: 4, front: 3, size: 3.5,ar: 1,   sizeVar: .5,  dur: 9,   durVar: .35, dir: "down",  travel: 130, area: 1,  sway: 5,  spin: 0,   spinVar: 0,  tilt: 0,  op: .9,  fade: "a", flicker: 0,  color: "--paper-2",  color2: "" },
+  },
+};
+let avdeco = JSON.parse(JSON.stringify(AVD_DEF)), avdDirty = false, avdTimer = 0;
+const avdUi = { th: "paper", guide: true, ed: "" };
+try { Object.assign(avdUi, JSON.parse(localStorage.getItem("script-sheet-avd") || "{}")); } catch (e) {}
+const avdUiSave = () => { try { localStorage.setItem("script-sheet-avd", JSON.stringify(avdUi)); } catch (e) {} };
+const AVD_TOK = ["--gold", "--cinnabar", "--wx-木", "--wx-火", "--wx-土", "--wx-金", "--wx-水", "--paper-2", "--paper", "--ink", "--ink-faint"];
+const AVD_TOKN = { "--gold": "金", "--cinnabar": "硃砂", "--wx-木": "木", "--wx-火": "火", "--wx-土": "土", "--wx-金": "金（五行）", "--wx-水": "水", "--paper-2": "紙（淺）", "--paper": "紙", "--ink": "墨", "--ink-faint": "淡墨" };
+const avdCol = (c) => !c ? "" : c.startsWith("--") ? `var(${c})` : c;
+// 半隨機但固定：同一個預設每次長得一樣（App 也用同一條）
+const avdRnd = (i, k) => { const x = Math.sin((i + 1) * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+const avdImgs = (kind) => Object.values(arts || {}).filter((a) => a.kind === kind && (a.asset_url || artOrigin(a)));
+
+/* 一層粒子。layer 是頭像的 150%（四邊各多 25%）；位置用 cqw／cqh（layer 的寬高） */
+function avdFx(p, front) {
+  if (!p) return "";
+  const n = Math.max(0, Math.min(10, Math.round(front ? p.front : p.back))); let h = "";
+  const c1 = avdCol(p.color) || "var(--ink)", c2 = avdCol(p.color2) || `color-mix(in srgb, ${c1} 50%, white)`;
+  const imgRow = p.shape === "img" && p.img ? (arts || {})[p.img] : null, imgUrl = imgRow ? imgRow.asset_url || artOrigin(imgRow) : "";
+  const bg = { leaf: [`linear-gradient(135deg, ${c2}, ${c1} 70%)`, "0 100% 0 100%"],
+    petal: [`radial-gradient(circle at 30% 30%, ${c2}, ${c1} 80%)`, "100% 0 100% 100%"],
+    round: [`radial-gradient(closest-side, ${c1} 60%, transparent)`, "50%"],
+    spark: [`radial-gradient(closest-side, ${c2}, ${c1} 40%, transparent)`, "50%"],
+    mist:  [`radial-gradient(closest-side, ${c1}, transparent)`, "50%"],
+    img:   [imgUrl ? `url('${imgUrl}') center/contain no-repeat` : "transparent", "0"] }[p.shape] || ["", ""];
+  for (let j = 0; j < n; j++) {
+    const i = front ? j * 2 + 1 : j * 2, r = (k) => avdRnd(i, k);
+    const sz = p.size / 1.5 * (1 + (r(1) - .5) * 2 * p.sizeVar);                 // 佔 layer 寬的 %
+    const du = Math.max(1, p.dur * (1 + (r(2) - .5) * 2 * p.durVar));
+    const lane = 50 + (r(3) - .5) * 100 * p.area;                                  // 出生的那條線上的位置（%）
+    const tv = p.travel / 1.5, half = tv / 2, sw = p.sway / 1.5 * (r(4) < .5 ? 1 : -1);
+    let x0, y0, x1, y1, sx = 0, sy = 0;
+    const L = `${(lane - sz / 2).toFixed(2)}cqw`, LH = `${(lane - sz / 2).toFixed(2)}cqh`;
+    if (p.dir === "down")  { x0 = x1 = L; y0 = `${(50 - half - sz).toFixed(2)}cqh`; y1 = `${(50 + half).toFixed(2)}cqh`; sx = sw; }
+    else if (p.dir === "up") { x0 = x1 = L; y0 = `${(50 + half).toFixed(2)}cqh`; y1 = `${(50 - half - sz).toFixed(2)}cqh`; sx = sw; }
+    else if (p.dir === "right") { y0 = y1 = LH; x0 = `${(50 - half - sz).toFixed(2)}cqw`; x1 = `${(50 + half).toFixed(2)}cqw`; sy = sw; }
+    else if (p.dir === "left")  { y0 = y1 = LH; x0 = `${(50 + half).toFixed(2)}cqw`; x1 = `${(50 - half - sz).toFixed(2)}cqw`; sy = sw; }
+    else { x0 = `${(lane - half).toFixed(2)}cqw`; x1 = `${(lane + half * .6).toFixed(2)}cqw`; y0 = `${(50 - half - sz).toFixed(2)}cqh`; y1 = `${(50 + half).toFixed(2)}cqh`; sx = sw; }  // diag：斜落
+    const sp = p.spin * (1 - p.spinVar + r(5) * p.spinVar * 2) * (r(6) < .5 ? 1 : -1);
+    const st = { "--w": sz.toFixed(2) + "%", "--ar": p.ar, "--x0": x0, "--y0": y0, "--x1": x1, "--y1": y1,
+      "--sx": (p.dir === "down" || p.dir === "up" || p.dir === "diag" ? sw : 0).toFixed(2) + "cqw", "--sy": (sy).toFixed(2) + "cqh",
+      "--sp": sp.toFixed(0) + "deg", "--r0": ((r(7) - .5) * 2 * p.tilt).toFixed(0) + "deg", "--op": p.op,
+      "--an": "avfx-" + (p.fade || "a"), "--du": du.toFixed(2) + "s", "--dl": (-r(8) * du).toFixed(2) + "s",
+      "--bg": bg[0], "--br": bg[1] };
+    if (p.flicker > 0) Object.assign(st, { "--fp": "running", "--fo": (1 - p.flicker).toFixed(2), "--fd": (0.8 + r(9) * 1.2).toFixed(2) + "s" });
+    h += `<i style="${Object.entries(st).map(([k, v]) => `${k}:${v}`).join(";")}"></i>`;
+  }
+  return `<div class="avx-fx ${front ? "f" : "b"}">${h}</div>`;
+}
+function avdFrame(f) {
+  if (!f) return "";
+  if (f.startsWith("css:")) {
+    const v = avdeco.frames[f.slice(4)]; if (!v) return "";
+    const c1 = avdCol(v.c1), c2 = avdCol(v.c2) || c1;
+    return `<div class="avx-ring" style="--rw:calc(var(--s) * ${(v.width / 100).toFixed(3)});--rg:linear-gradient(${v.angle}deg, ${c1}, ${c2});"></div>`;
+  }
+  if (f.startsWith("img:")) { const a = Object.values(arts || {}).find((x) => x.key === f.slice(4)); const u = a && (a.asset_url || artOrigin(a)); return u ? `<img class="avx-fimg" src="${esc(u)}" alt="">` : ""; }
+  return "";
+}
+// 一顆頭像：avUrl（圖或影片）＋ 框 ＋ 粒子
+/* 顯示範圍：crop {x,y,z}——z 放大倍數（1＝整張塞滿圓），x／y 是圓心落在原圖的哪裡（0～1）。
+   一律先 object-fit:cover 裁成正方形再裁圓，所以上傳什麼比例都一樣。App 照同一條算式。 */
+const avdCropFix = (c) => { const z = Math.min(3, Math.max(1, +(c && c.z) || 1)), m = .5 - .5 / z;
+  return { z, x: Math.min(.5 + m, Math.max(.5 - m, c && c.x != null ? +c.x : .5)), y: Math.min(.5 + m, Math.max(.5 - m, c && c.y != null ? +c.y : .5)) }; };
+const avdCropCss = (c) => { const { z, x, y } = avdCropFix(c); return z === 1 ? "" : `transform:translate(${((.5 - x) * z * 100).toFixed(2)}%,${((.5 - y) * z * 100).toFixed(2)}%) scale(${z.toFixed(3)})`; };
+function avdAv(avUrl, avType, d, size, guide, big) {
+  const p = d && d.fx && d.fx_on !== false ? avdeco.fx[d.fx] : null, cs = avdCropCss(d && d.crop);
+  const media = !avUrl ? "" : isVid(avUrl, avType) ? `<video src="${esc(avUrl)}" autoplay loop muted playsinline style="${cs}"></video>` : `<img src="${esc(avUrl)}" alt="" draggable="false" style="${cs}">`;
+  return `<div class="avx${big ? " big" : ""}" style="--s:${size}px">${p ? avdFx(p, 0) : ""}<div class="avx-av">${media}</div>${avdFrame(d && d.frame)}${p ? avdFx(p, 1) : ""}${guide ? `<div class="avx-guide"></div>` : ""}</div>`;
+}
+const AVD_SAMPLE = () => { const a = Object.values(arts || {}).find((x) => x.key === "av/daoshi_m") || Object.values(arts || {}).find((x) => x.kind === "頭像" && (x.asset_url || artOrigin(x)));
+  return a ? [a.asset_url || artOrigin(a), a.asset_type] : ["", ""]; };
+
+/* ── 粒子參數表（同一份給所有用到這個預設的頭像） ── */
+const AVD_SL = [
+  ["數量", null],
+  ["back", "頭像背後", 0, 8, 1, ""], ["front", "蓋在框上", 0, 8, 1, ""],
+  ["形狀與大小", null],
+  ["size", "大小（頭像的%）", 1, 90, .5, "%"], ["ar", "長寬比（高÷寬）", .3, 5, .05, ""], ["sizeVar", "大小差異", 0, .9, .05, ""], ["tilt", "初始角度散布", 0, 180, 5, "°"],
+  ["動法", null],
+  ["dur", "飄一趟（秒）", 1.5, 25, .5, "s"], ["durVar", "快慢差異", 0, .8, .05, ""], ["travel", "飄多遠（頭像的%）", 40, 200, 5, "%"],
+  ["area", "散布寬度", .1, 1, .05, ""], ["sway", "左右擺幅（頭像的%）", 0, 30, .5, "%"], ["spin", "一趟轉幾度", 0, 720, 10, "°"], ["spinVar", "轉速差異", 0, 1, .05, ""],
+  ["亮度", null],
+  ["op", "不透明度", .1, 1, .05, ""], ["flicker", "明滅（0＝不閃）", 0, 1, .05, ""],
+];
+function avdEditor(id) {
+  const p = avdeco.fx[id]; if (!p) return "";
+  const colSel = (k) => avdColCtl("fx", id, k, p[k] || "", k === "color2");
+  const imgs = avdImgs("粒子圖");
+  return `<div class="avd-sl" data-avdfx="${esc(id)}">
+    <b>名字</b><input type="text" data-avdk="name" value="${esc(p.name)}"><span></span>
+    <b>形狀</b><select data-avdk="shape">${[["leaf", "葉（尖）"], ["petal", "花瓣"], ["round", "圓點（雪）"], ["spark", "光點"], ["mist", "霧"], ["img", "用粒子圖"]].map(([v, l]) => `<option value="${v}"${p.shape === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    ${p.shape === "img" ? `<b>粒子圖</b><select data-avdk="img"><option value="">（選一張）</option>${imgs.map((a) => `<option value="${esc(a.id)}"${p.img === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select><span></span>
+      ${imgs.length ? "" : `<p class="sub" style="border:0">還沒有粒子圖：左欄「頭像框」組按「＋」，類型選「粒子圖」上傳一張 128×128 透明圖。</p>`}` : `<b>主色</b><div class="avd-cc-w">${colSel("color")}</div><b>亮部</b><div class="avd-cc-w">${colSel("color2")}</div>`}
+    <b>方向</b><select data-avdk="dir">${[["down", "往下落"], ["diag", "斜落"], ["up", "往上飄"], ["right", "往右飄"], ["left", "往左飄"]].map(([v, l]) => `<option value="${v}"${p.dir === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    <b>淡入淡出</b><select data-avdk="fade">${[["a", "快（頭尾 8%）"], ["b", "中（頭尾 18%）"], ["c", "慢（頭尾 35%）"]].map(([v, l]) => `<option value="${v}"${p.fade === v ? " selected" : ""}>${l}</option>`).join("")}</select><span></span>
+    ${AVD_SL.map(([k, l, mn, mx, stp, u]) => l === null ? `<p class="sub">${k}</p>` : `<b>${l}</b><input type="range" min="${mn}" max="${mx}" step="${stp}" value="${p[k]}" data-avdn="${k}"><output>${p[k]}${u}</output>`).join("")}
+  </div>
+  <div class="avd-row" style="margin-top:10px"><button class="btn sm" data-avdcopy="${esc(id)}">複製成新的一種</button>${AVD_DEF.fx[id] ? `<button class="btn sm ghost" data-avdreset="${esc(id)}">回到預設值</button>` : `<button class="btn sm danger" data-avddel="${esc(id)}">刪掉這種</button>`}</div>
+  <p class="avd-note">這組參數是<b>所有選了「${esc(p.name)}」的頭像共用</b>的。只想給一張頭像不一樣的，先「複製成新的一種」再調。<br>效能上限：前後加起來最多 16 片；App 只在一個畫面一顆的大頭像畫粒子（道籍頭、觀堂、選頭像預覽），閒聊、留言、排行只畫框。</p>`;
+}
+/* 色碼：色盤＋可打的色碼；下面一排主題色，點了＝跟主題變（存 token 名），自己挑的＝固定色（存 #RRGGBB） */
+const AVD_THV = {
+  paper: { "--paper": "#F2EBDA", "--paper-2": "#EBE1CC", "--ink": "#1C1917", "--ink-faint": "#746958", "--cinnabar": "#B5402E", "--gold": "#D59F62", "--wx-木": "#4f7a4d", "--wx-火": "#b5402e", "--wx-土": "#9a7b3f", "--wx-金": "#9a8f6b", "--wx-水": "#3b6a86" },
+  night: { "--paper": "#15120E", "--paper-2": "#413935", "--ink": "#ECE3D1", "--ink-faint": "#C1A776", "--cinnabar": "#D86A52", "--gold": "#C4A164", "--wx-木": "#7fae6e", "--wx-火": "#d86a52", "--wx-土": "#CE9764", "--wx-金": "#FFE380", "--wx-水": "#6fa3c4" } };
+const avdHex = (v) => !v ? "" : v.startsWith("--") ? (AVD_THV[avdUi.th] || AVD_THV.paper)[v] || "#888888" : v;
+function avdColCtl(scope, id, k, v, auto) {
+  const tok = v.startsWith("--"), hex = avdHex(v) || "#ffffff";
+  return `<div class="avd-cc" data-cs="${scope}" data-cid="${esc(id)}" data-ck="${k}">
+    <input type="color" data-avdpick value="${esc(hex.slice(0, 7))}"><input type="text" data-avdhexin value="${esc(!v ? "" : tok ? hex : v)}" placeholder="${auto ? "自動（主色調淡）" : "#RRGGBB"}" maxlength="9" spellcheck="false">
+    <span class="avd-ccn">${!v ? "自動" : tok ? `跟主題：${AVD_TOKN[v] || v}` : "固定色"}</span>
+    <div class="avd-sw">${auto ? `<button data-avdtok="" title="自動：主色調淡" class="auto${!v ? " on" : ""}">自</button>` : ""}${AVD_TOK.map((t) => `<button data-avdtok="${t}" title="${AVD_TOKN[t]}（跟主題變）" style="background:${avdHex(t)}"${v === t ? ' class="on"' : ""}></button>`).join("")}</div></div>`;
+}
+function avdColSet(el, val) {
+  const { cs, cid, ck } = el.dataset, o = cs === "fx" ? avdeco.fx[cid] : avdeco.frames[cid]; if (!o) return;
+  o[ck] = val; avdTouch();
+}
+function avdFrameEditor(id) {
+  const v = avdeco.frames[id]; if (!v) return "";
+  const sel = (k) => avdColCtl("fr", id, k, v[k] || "", false);
+  return `<div class="avd-sl" data-avdfr="${esc(id)}"><b>名字</b><input type="text" data-avdfk="name" value="${esc(v.name)}"><span></span>
+    <b>起色</b><div class="avd-cc-w">${sel("c1")}</div><b>迄色</b><div class="avd-cc-w">${sel("c2")}</div>
+    <b>粗細（頭像的%）</b><input type="range" min="1" max="12" step=".5" value="${v.width}" data-avdfn="width"><output>${v.width}%</output>
+    <b>漸層角度</b><input type="range" min="0" max="360" step="5" value="${v.angle}" data-avdfn="angle"><output>${v.angle}°</output></div>`;
+}
+function avdFrameOpts(cur) {
+  const imgs = avdImgs("頭像框");
+  return `<option value=""${!cur ? " selected" : ""}>無框</option><optgroup label="CSS 色框">${Object.entries(avdeco.frames).map(([k, v]) => `<option value="css:${esc(k)}"${cur === "css:" + k ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</optgroup>`
+    + `<optgroup label="圖片框（頭像框組）">${imgs.length ? imgs.map((a) => `<option value="img:${esc(a.key)}"${cur === "img:" + a.key ? " selected" : ""}>${esc(a.name)}</option>`).join("") : `<option disabled>（還沒有）</option>`}</optgroup>`;
+}
+
+const avdPvHtml = (a, url, d) => avdAv(url, a.asset_type, d, 168, avdUi.guide && (d.frame || "").startsWith("img:"), true) + avdAv(url, a.asset_type, d, 96, false) + avdAv(url, a.asset_type, { frame: d.frame, crop: d.crop }, 40, false);
+/* 美術資產一列底下的面板 */
+function decoPanel(a, url) {
+  const isAv = a.kind === "頭像" || a.kind === "動態頭像";
+  if (!isAv && a.kind !== "頭像框" && a.kind !== "粒子圖") return "";
+  const th = `<div class="avd-row"><button class="btn sm${avdUi.th === "paper" ? "" : " ghost"}" data-avdth="paper">宣紙</button><button class="btn sm${avdUi.th === "night" ? "" : " ghost"}" data-avdth="night">夜觀</button>
+    <label style="font-size:12px;margin-left:8px"><input type="checkbox" data-avdguide${avdUi.guide ? " checked" : ""}> 參考線</label></div>`;
+  if (a.kind === "粒子圖") {
+    return `<div class="avd"><h4>粒子圖</h4><p class="avd-note">在任何一張頭像的「框與粒子」裡，把粒子形狀選成「用粒子圖」→ 選這張，就能看到它飄起來的樣子。</p></div>`;
+  }
+  if (a.kind === "頭像框") {
+    const [su, st] = AVD_SAMPLE(), d = { frame: url ? "img:" + a.key : "" };
+    return `<div class="avd"><h4>戴起來的樣子</h4>${th}
+      <div class="avd-pv" data-th="${avdUi.th}" style="margin-top:10px">${avdAv(su, st, d, 168, avdUi.guide)}${avdAv(su, st, d, 96, false)}${avdAv(su, st, d, 40, false)}</div>
+      <p class="avd-note"><span style="color:#e0473a">紅線</span>＝頭像的邊（直徑 384／512）；<span style="color:#2f8fd8">藍虛線</span>＝框最多壓到這裡（352／512）；中間不用挖空，藍虛線以內 App 會切掉。三個大小是道籍頭、觀堂、列表。</p>
+      <div class="avd-row" style="margin-top:8px"><button class="btn sm" data-avdtpl>下載框的模板（512×512 參考線 PNG）</button></div></div>`;
+  }
+  const d = a.deco || {}, [fid, frv] = (d.frame || "").startsWith("css:") ? [d.frame.slice(4), 1] : ["", 0];
+  const fxId = d.fx || "", fxOn = d.fx_on !== false;
+  const edId = avdUi.ed && avdeco.fx[avdUi.ed] ? avdUi.ed : fxId;
+  return `<div class="avd" data-avda="${esc(a.id)}"><h4>框與粒子 <small class="fxnote">這張頭像預設戴的</small></h4>
+    <div class="avd-top"><div class="l">${th}
+    <div class="avd-pv" data-th="${avdUi.th}" style="margin-top:10px">${avdPvHtml(a, url, d)}</div>
+    <p class="avd-note">大＝道籍頭、中＝觀堂、小＝閒聊列表（列表只畫框）。</p>
+    <div class="avd-crop"><b>顯示範圍</b> <small class="fxnote">在大的那顆上拖曳移動</small>
+      <div class="avd-sl" style="margin-top:4px"><b>放大</b><input type="range" min="1" max="3" step="0.01" value="${avdCropFix(d.crop).z}" data-avdzoom><output>${avdCropFix(d.crop).z.toFixed(2)}×</output></div>
+      <button class="btn sm ghost" data-avdcropreset style="margin-top:6px">回到整張</button></div></div><div class="r">
+    <div class="avd-ctl" style="margin-top:0">
+      <span>框</span><select data-avdset="frame">${avdFrameOpts(d.frame || "")}</select>
+      <span>粒子</span><div class="avd-row"><select data-avdset="fx"><option value="">不加</option>${Object.entries(avdeco.fx).map(([k, v]) => `<option value="${esc(k)}"${fxId === k ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</select>
+        ${fxId ? `<label style="font-size:12.5px"><input type="checkbox" data-avdon${fxOn ? " checked" : ""}> 預設開著（玩家可以在選框那裡關）</label>` : ""}</div>
+    </div>
+    ${frv ? `<details class="avd-ed"${avdUi.fo ? " open" : ""} data-avdfo><summary>調色框「${esc(avdeco.frames[fid]?.name || fid)}」</summary>${avdFrameEditor(fid)}<p class="avd-note">色框是所有選它的頭像共用的。</p></details>` : ""}
+    ${edId ? `<details class="avd-ed"${avdUi.eo ? " open" : ""} data-avdeo><summary>調粒子「${esc(avdeco.fx[edId].name)}」的細節</summary>${avdEditor(edId)}</details>` : ""}
+    <p class="avd-note">${a.ship || artShip(a) ? "這張勾了「下次更新放進 App」：框與粒子會跟著一起帶進去。" : "框與粒子跟著這張頭像進 App；已經在 App 裡的，改了這裡下次更新也會帶。"}</p></div></div></div>`;
+}
+
+/* ── 存 ── */
+function avdTouch() {
+  avdDirty = true; clearTimeout(avdTimer); setSave("有未存的修改…");
+  if (!db) { try { localStorage.setItem("script-sheet-avdeco", JSON.stringify(avdeco)); } catch (e) {} avdDirty = false; return; }
+  avdTimer = setTimeout(async () => {
+    try { await db.collection("jianghu_cfg").doc("avdeco").set(JSON.parse(JSON.stringify(avdeco))); avdDirty = false; setSave("已存檔"); }
+    catch (e) { setSave("框與粒子沒存上", true); }
+  }, 600);
+}
+// 拉桿拖動時只換預覽，不整頁重畫（不然拉桿會被換掉、拖不動）
+function avdRefreshPv() {
+  const el = document.querySelector("#art-view .avd[data-avda]"), a = el && arts[el.dataset.avda]; if (!a) return;
+  const url = a.asset_url || artOrigin(a), d = a.deco || {};
+  el.querySelector(".avd-pv").innerHTML = avdPvHtml(a, url, d);
+}
+const avdRow = (t) => { const el = t.closest(".avd[data-avda]"); return el ? arts[el.dataset.avda] : null; };
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.matches("[data-avdn]")) { const p = avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx]; p[t.dataset.avdn] = +t.value;
+    const u = (AVD_SL.find((x) => x[0] === t.dataset.avdn) || [])[5] || ""; t.nextElementSibling.textContent = t.value + u; avdRefreshPv(); avdTouch(); }
+  else if (t.matches("[data-avdfn]")) { const v = avdeco.frames[t.closest("[data-avdfr]").dataset.avdfr], k = t.dataset.avdfn; v[k] = +t.value;
+    t.nextElementSibling.textContent = t.value + (k === "angle" ? "°" : "%"); avdRefreshPv(); avdTouch(); }
+  else if (t.matches("[data-avdpick]")) { const el = t.closest(".avd-cc"); avdColSet(el, t.value); el.querySelector("[data-avdhexin]").value = t.value; el.querySelector(".avd-ccn").textContent = "固定色"; el.querySelectorAll(".avd-sw .on").forEach((b) => b.classList.remove("on")); avdRefreshPv(); }
+  else if (t.matches("[data-avdk=name]")) { avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx].name = t.value; avdTouch(); }
+  else if (t.matches("[data-avdfk=name]")) { avdeco.frames[t.closest("[data-avdfr]").dataset.avdfr].name = t.value; avdTouch(); }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = avdRow(t);
+  if (t.matches("[data-avdset]") && a) { a.deco = { ...(a.deco || {}), [t.dataset.avdset]: t.value }; if (t.dataset.avdset === "fx") { avdUi.ed = t.value; avdUiSave(); if (t.value && a.deco.fx_on == null) a.deco.fx_on = true; } artSave(a.id); artPaint(true); }
+  else if (t.matches("[data-avdon]") && a) { a.deco = { ...(a.deco || {}), fx_on: t.checked }; artSave(a.id); artPaint(true); }
+  else if (t.matches("[data-avdk]:not([data-avdk=name])")) { avdeco.fx[t.closest("[data-avdfx]").dataset.avdfx][t.dataset.avdk] = t.value; avdTouch(); artPaint(true); }
+  else if (t.matches("[data-avdhexin]")) { const el = t.closest(".avd-cc"), v = t.value.trim();
+    if (!v && el.querySelector(".auto")) { avdColSet(el, ""); artPaint(true); return; }
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v); if (!m) { setSave("色碼要寫成 #RRGGBB", true); return; }
+    let h = m[1]; if (h.length === 3) h = h.replace(/./g, "$&$&"); avdColSet(el, "#" + h.toUpperCase()); artPaint(true); }
+  else if (t.matches("[data-avdguide]")) { avdUi.guide = t.checked; avdUiSave(); artPaint(true); }
+});
+document.addEventListener("toggle", (e) => { const t = e.target; if (t.matches?.("[data-avdeo]")) { avdUi.eo = t.open; avdUiSave(); } if (t.matches?.("[data-avdfo]")) { avdUi.fo = t.open; avdUiSave(); } }, true);
+document.addEventListener("click", (e) => {
+  const tk = e.target.closest("[data-avdtok]"); if (tk) { avdColSet(tk.closest(".avd-cc"), tk.dataset.avdtok); artPaint(true); return; }
+  const t = e.target.closest("[data-avdth],[data-avdcopy],[data-avdreset],[data-avddel],[data-avdtpl]"); if (!t) return;
+  if (t.dataset.avdth) { avdUi.th = t.dataset.avdth; avdUiSave(); artPaint(true); return; }
+  if (t.hasAttribute("data-avdtpl")) { avdTemplate(); return; }
+  const a = avdRow(t);
+  if (t.dataset.avdcopy) { const src = avdeco.fx[t.dataset.avdcopy], id = "fx" + Date.now().toString(36);
+    avdeco.fx[id] = { ...JSON.parse(JSON.stringify(src)), name: src.name + "・改" }; avdUi.ed = id; avdUiSave();
+    if (a) { a.deco = { ...(a.deco || {}), fx: id }; artSave(a.id); } avdTouch(); artPaint(true); }
+  else if (t.dataset.avdreset) { if (!confirm("回到預設值？調過的數字會不見。")) return; avdeco.fx[t.dataset.avdreset] = JSON.parse(JSON.stringify(AVD_DEF.fx[t.dataset.avdreset])); avdTouch(); artPaint(true); }
+  else if (t.dataset.avddel) { const used = Object.values(arts).filter((x) => x.deco && x.deco.fx === t.dataset.avddel);
+    if (!confirm(used.length ? `有 ${used.length} 張頭像用這種，刪掉之後它們會變成不加粒子。確定？` : "刪掉這種粒子？")) return;
+    delete avdeco.fx[t.dataset.avddel]; for (const x of used) { x.deco.fx = ""; artSave(x.id); } avdUi.ed = ""; avdUiSave(); avdTouch(); artPaint(true); }
+});
+// 框的模板：512×512 透明，紅線＝頭像邊（直徑 384），藍虛線＝框最多往內壓到（352），灰色＝挖空區
+function avdCropSet(a, c, save) {
+  a.deco = { ...(a.deco || {}), crop: c }; const cs = avdCropCss(c);
+  document.querySelectorAll(`.avd[data-avda="${a.id}"] .avx-av>*`).forEach((m) => { m.style.transform = cs ? cs.slice(10) : ""; });
+  if (save) artSave(a.id);
+}
+document.addEventListener("pointerdown", (e) => {
+  const av = e.target.closest(".avd[data-avda] .avx.big .avx-av"); if (!av) return;
+  const a = avdRow(av); if (!a) return;
+  const W = av.clientWidth, c0 = avdCropFix(a.deco && a.deco.crop), sx = e.clientX, sy = e.clientY;
+  av.setPointerCapture(e.pointerId); e.preventDefault();
+  // 往右拖＝圖往右移＝圓心在原圖上往左
+  const mv = (ev) => avdCropSet(a, avdCropFix({ z: c0.z, x: c0.x - (ev.clientX - sx) / (W * c0.z), y: c0.y - (ev.clientY - sy) / (W * c0.z) }), false);
+  const up = () => { av.removeEventListener("pointermove", mv); av.removeEventListener("pointerup", up); av.removeEventListener("pointercancel", up); artSave(a.id); };
+  av.addEventListener("pointermove", mv); av.addEventListener("pointerup", up); av.addEventListener("pointercancel", up);
+});
+document.addEventListener("input", (e) => {
+  const t = e.target; if (!t.matches("[data-avdzoom]")) return; const a = avdRow(t); if (!a) return;
+  const c = avdCropFix({ ...avdCropFix(a.deco && a.deco.crop), z: +t.value }); t.nextElementSibling.textContent = c.z.toFixed(2) + "×"; avdCropSet(a, c, false);
+});
+document.addEventListener("change", (e) => { const t = e.target; if (t.matches("[data-avdzoom]")) { const a = avdRow(t); if (a) artSave(a.id); } });
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-avdcropreset]"); if (!t) return; const a = avdRow(t); if (!a) return;
+  avdCropSet(a, { z: 1, x: .5, y: .5 }, true); const r = t.closest(".avd-crop").querySelector("[data-avdzoom]"); r.value = 1; r.nextElementSibling.textContent = "1.00×";
+});
+function avdTemplate() {
+  const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d");
+  g.fillStyle = "rgba(128,128,128,.25)"; g.beginPath(); g.arc(256, 256, 176, 0, Math.PI * 2); g.fill();
+  g.lineWidth = 2; g.strokeStyle = "#e0473a"; g.beginPath(); g.arc(256, 256, 192, 0, Math.PI * 2); g.stroke();
+  g.setLineDash([8, 6]); g.strokeStyle = "#2f8fd8"; g.beginPath(); g.arc(256, 256, 176, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = "rgba(0,0,0,.25)"; g.lineWidth = 1; g.strokeRect(.5, .5, 511, 511);
+  g.beginPath(); g.moveTo(256, 0); g.lineTo(256, 512); g.moveTo(0, 256); g.lineTo(512, 256); g.stroke();
+  g.fillStyle = "#e0473a"; g.font = "13px sans-serif"; g.textAlign = "center";
+  g.fillText("紅線：頭像的邊（直徑 384）", 256, 50); g.fillStyle = "#2f8fd8"; g.fillText("藍虛線：框最多壓到這裡（直徑 352）", 256, 70);
+  g.fillStyle = "#666"; g.fillText("灰色區不用挖空：藍虛線以內 App 會切掉；框可以畫到畫布邊", 256, 470); g.fillText("交圖前把這一層藏起來", 256, 490);
+  c.toBlob(async (blob) => {
+    let dl = null; try { dl = window.claude && claude.use ? await claude.use("downloads") : null; } catch (e) {}
+    if (!dl) { setSave("這個畫面不能下載：請從 claude.ai 打開工作臺", true); return; }
+    try { await dl.save({ filename: "avatar-frame-template-512.png", data: blob }); }
+    catch (e) { if (e && e.code !== "declined") setSave("模板沒存成：" + (e.message || e.code || ""), true); }
+  }, "image/png");
+}
+function avdInit() {
+  if (!db) { try { const v = JSON.parse(localStorage.getItem("script-sheet-avdeco") || "null"); if (v) avdeco = v; } catch (e) {} return; }
+  db.collection("jianghu_cfg").onSnapshot((snap) => {
+    const d = snap.docs.find((x) => x.exists && x.id === "avdeco");
+    if (d && !avdDirty) { const v = JSON.parse(JSON.stringify(d.data())); avdeco = { frames: v.frames || {}, fx: v.fx || {} };
+      if (!document.activeElement?.closest?.(".avd")) artPaint(true); }
+  }, () => {});
+}
+// 掛進美術資產：一列的面板接在橫幅框後面
+if (typeof artItemHtml === "function") { const _ai = artItemHtml; artItemHtml = function (a) {
+  const h = _ai(a), url = a.asset_url || artOrigin(a), p = decoPanel(a, url);
+  return p ? h + p : h; }; }
+</script>
+
+<style>
+/* ── 道緣信、本地端稿的駁回欄（六六 2026-10-25）── */
+.aibox{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--paper-2));margin-bottom:14px}
+.aibox.rej{border-left-color:var(--cinnabar);background:color-mix(in srgb,var(--cinnabar) 7%,var(--paper-2))}
+.aibox .aist{margin:0;font-size:13px;color:var(--cinnabar);font-weight:600}
+.aibox .aist.sent{color:var(--warn)}
+.aibox textarea{width:100%;font:inherit;font-size:13.5px;padding:6px 8px;border:1px solid var(--edge);border-radius:6px;background:var(--field);color:var(--ink)}
+.aibox .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.aibox .aie{color:var(--cinnabar);font-size:13px}
+.modes{grid-template-columns:repeat(3,1fr);border-radius:16px}
+.pill.ai{color:var(--warn);border-color:var(--warn)} .pill.rej{color:#fff;background:var(--cinnabar);border-color:var(--cinnabar)}
+.ch.empty-slot b{color:var(--ink-faint);font-weight:400}
+.lt-ed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.lt-ed{grid-template-columns:1fr}}
+.lt-ed textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.9;padding:10px;border:1px solid var(--edge);border-radius:6px;background:var(--field);color:var(--ink);min-height:360px}
+.lt-pv{background:var(--paper-2);border:1px solid var(--edge);border-radius:6px;padding:18px 20px;font-size:14.5px;line-height:2}
+.lt-pv h3{margin:0 0 10px;font:600 16px var(--f-display)}
+.lt-pv p{margin:0 0 .6em}
+.lt-pv .mem{margin-top:12px;padding-top:8px;border-top:1px dashed var(--edge);font-size:12.5px;color:var(--ink-faint)}
+</style>
+<script>
+/* ══ 道緣信（六六 2026-10-25）══
+   升一階才寄一封：初識→相熟 300、相熟→相知 500、相知→知己 800。一位角色三封，存在雲端 letters/<角色>_t<道緣>。
+   { id, character_id, at, prev, tier, subject, body, lingshi, memory, status(draft/review/final), note, updated_at,
+     ai_task, ai_meta{round,score,at}, ai_reject{state,text,at} }
+   本地端寫手台審過的稿，由 Claude 巡檢放進來（status=review）。 */
+const LT_TIERS = [[300, "初識", "相熟"], [500, "相熟", "相知"], [800, "相知", "知己"]];
+const LT_ST = { draft: "草稿", review: "待看", final: "定稿" };
+let letters = {}, ltCur = null, ltTimers = {}, ltDirty = new Set(), ltStarted = false;
+const ltId = (cid, at) => `${cid}_t${at}`;
+function ltBlank(cid, at) {
+  const t = LT_TIERS.find((x) => x[0] === at) || LT_TIERS[0];
+  return { id: ltId(cid, at), character_id: cid, at, prev: t[1], tier: t[2], subject: "", body: "", lingshi: 0, memory: "", status: "draft", note: "", updated_at: "" };
+}
+function ltRail() {
+  const el = $("letter-list"); if (!el) return;
+  el.innerHTML = Object.entries(CHARS).map(([cid, nm]) => LT_TIERS.map(([at, a, b]) => {
+    const d = letters[ltId(cid, at)], id = ltId(cid, at), rj = d && d.ai_reject && d.ai_reject.state;
+    return `<button class="ch${id === ltCur ? " on" : ""}${d ? "" : " empty-slot"}" data-lt="${esc(id)}">
+      <b>${esc(nm)}・${a}→${b}${d && d.subject ? "　" + esc(d.subject) : d ? "" : "　（還沒有）"}</b>
+      ${d ? `<span class="pill ${rj ? "rej" : esc(d.status)}">${rj ? (rj === "pending" ? "駁回待送" : "重寫中") : LT_ST[d.status] || d.status}</span>` : "<span></span>"}
+      <small>道緣 ${at}${d && d.ai_task ? "・本地端稿" : ""}${d && +d.lingshi ? `・夾 ${+d.lingshi} 靈石` : ""}</small></button>`; }).join("")).join("");
+}
+const ltParas = (t) => String(t || "").split("\n").map((p) => p.trim() ? `<p>${esc(p)}</p>` : "").join("");
+function letterPaint() {
+  const d = letters[ltCur], main = $("letter-main"); if (!main) return;
+  if (!d) { main.innerHTML = `<div class="empty">從左邊選一封。</div>`; return; }
+  main.innerHTML = `${aiBox("letters", d)}<section class="sec">
+    <h2>${esc(CHARS[d.character_id] || d.character_id)}的信・${esc(d.prev)}→${esc(d.tier)} <small>${esc(d.id)}・道緣 ${d.at}</small></h2>
+    <div class="status" id="lt-status">${Object.entries(LT_ST).map(([k, v]) => `<button data-ltst="${k}" class="${d.status === k ? "on" : ""}">${v}</button>`).join("")}</div>
+    <div class="grid">
+      <label class="field wide"><span>信題</span><input type="text" data-ltk="subject" value="${esc(d.subject)}"></label>
+      <label class="field"><span>夾帶靈石</span><input type="number" min="0" data-ltk="lingshi" data-num value="${+d.lingshi || 0}"></label>
+    </div>
+    <div class="lt-ed">
+      <label class="field"><span>內文 <em>（一行一段）</em></span><textarea data-ltk="body" spellcheck="false">${esc(d.body)}</textarea></label>
+      <div class="field"><span>收信時的樣子</span><div class="lt-pv" id="lt-pv">${ltPv(d)}</div></div>
+    </div>
+    <label class="field"><span>寫入記憶 <em>（他之後聊天會記得的那件事）</em></span><input type="text" data-ltk="memory" value="${esc(d.memory)}"></label>
+    <label class="field"><span>六六的備註</span><textarea data-ltk="note" rows="2" style="min-height:0;font-size:13px">${esc(d.note || "")}</textarea></label>
+  </section>`;
+}
+const ltPv = (d) => `<h3>${esc(d.subject || "（信題）")}</h3>${ltParas(d.body) || `<p class="fxnote">（還沒有內文）</p>`}<div class="mem">寫入記憶：${esc(d.memory || "（無）")}</div>`;
+function letterSave(id) {
+  const d = letters[id]; if (!d) return;
+  d.updated_at = new Date().toISOString(); ltDirty.add(id); setSave("有未存的修改…");
+  clearTimeout(ltTimers[id]);
+  ltTimers[id] = setTimeout(async () => {
+    if (!db) { try { localStorage.setItem("script-sheet-letters", JSON.stringify(letters)); } catch (e) {} ltDirty.delete(id); setSave("已存在這台瀏覽器"); return; }
+    try { await db.collection("letters").doc(id).set(JSON.parse(JSON.stringify(d))); ltDirty.delete(id); setSave("已存檔"); }
+    catch (e) { setSave(e && e.code === "invalid_argument" ? "你沒有寫入權限：這裡只能看" : "道緣信沒存上", true); }
+  }, 700);
+  ltRail();
+}
+function letterInit() {
+  if (ltStarted) return; ltStarted = true;
+  $("letter-list").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-lt]"); if (!b) return;
+    const id = b.dataset.lt;
+    if (!letters[id]) { const m = /^(.+)_t(\d+)$/.exec(id); letters[id] = ltBlank(m[1], +m[2]); letterSave(id); }
+    ltCur = id; ltRail(); letterPaint(); $("pane").scrollTop = 0;
+  });
+  const main = $("letter-main");
+  main.addEventListener("input", (e) => {
+    const t = e.target, d = letters[ltCur]; if (!d || !t.dataset.ltk) return;
+    d[t.dataset.ltk] = t.hasAttribute("data-num") ? Math.max(0, +t.value || 0) : t.value;
+    const pv = $("lt-pv"); if (pv) pv.innerHTML = ltPv(d);
+    letterSave(ltCur);
+  });
+  main.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ltst]"), d = letters[ltCur]; if (!b || !d) return;
+    d.status = b.dataset.ltst; letterSave(ltCur);
+    $("lt-status").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+  if (!db) { try { letters = JSON.parse(localStorage.getItem("script-sheet-letters") || "{}"); } catch (e) {} ltRail(); return; }
+  db.collection("letters").onSnapshot((snap) => {
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#letter-main");
+    for (const x of snap.docs) { if (!x.exists || ltDirty.has(x.id)) continue; letters[x.id] = JSON.parse(JSON.stringify(x.data())); }
+    ltRail(); if (ltCur && !typing) letterPaint();
+  }, () => setSave("道緣信讀不到", true));
+}
+ltRail();
+
+/* ══ 本地端稿：反饋＋駁回重寫（六六 2026-10-25）══
+   只出現在本地端寫的稿（有 ai_task）。按「駁回重寫」→ ai_reject = { state:"pending", text, at }。
+   Claude 巡檢讀到 pending：把意見送回本地端那份稿重寫，改成 state:"sent"；重寫審過就覆蓋這一份、清掉 ai_reject。 */
+const aiT = (iso) => { const x = new Date(iso || ""); if (isNaN(x)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${x.getMonth() + 1}/${x.getDate()} ${p(x.getHours())}:${p(x.getMinutes())}`; };
+function aiBox(col, d) {
+  if (!d || !d.ai_task) return "";
+  const r = d.ai_reject || {}, m = d.ai_meta || {};
+  const st = r.state === "pending" ? `<p class="aist">已駁回（${aiT(r.at)}）：等 Claude 巡檢送回本地端。改主意就按「撤回駁回」。</p>`
+    : r.state === "sent" ? `<p class="aist sent">已送回本地端重寫（${aiT(r.sent_at || r.at)}）：寫好、審過會直接覆蓋這一份。</p>` : "";
+  return `<div class="tcard aibox${r.state ? " rej" : ""}" data-aicol="${col}" data-aiid="${esc(d.id)}">
+    <h3>本地端寫的稿 <small>#${esc(d.ai_task)}${m.round ? `・第 ${m.round} 輪` : ""}${m.score != null ? `・審稿 ${m.score} 分` : ""}${m.at ? `・${aiT(m.at)} 放進來` : ""}</small></h3>
+    ${st}
+    ${r.state === "sent" ? `<p class="fxnote" style="margin:0">送回去的意見：${esc(r.text || "")}</p>` : `
+    <label class="field"><span>給本地端的意見 <em>（哪裡不行、要怎麼改；駁回時一起送回）</em></span><textarea data-aifb rows="3">${esc(r.state === "pending" ? r.text || "" : "")}</textarea></label>
+    <div class="row"><button class="btn primary" data-airej>${r.state === "pending" ? "更新意見" : "駁回重寫"}</button>${r.state === "pending" ? `<button class="btn ghost sm" data-aiundo>撤回駁回</button>` : ""}<span class="aie"></span></div>`}
+    <p class="fxnote" style="margin:0">重寫的稿會蓋掉這一份：你在這裡直接改過、想留下的字，寫進意見裡。</p></div>`;
+}
+const aiDoc = (col, id) => col === "chapters" ? chapters[id] : col === "jianghu" ? jh[id] : letters[id];
+function aiSave(col, id) { if (col === "chapters") touch(id); else if (col === "jianghu") jtouch(id); else letterSave(id); }
+function aiRepaint(col) { if (col === "chapters") { paintRail(); paintMain(); } else if (col === "jianghu") { jRail(); jMain(); } else { ltRail(); letterPaint(); } }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-airej],[data-aiundo]"); if (!b) return;
+  const box = b.closest(".aibox"), col = box.dataset.aicol, id = box.dataset.aiid, d = aiDoc(col, id); if (!d) return;
+  e.stopPropagation();
+  if (b.hasAttribute("data-aiundo")) { delete d.ai_reject; aiSave(col, id); aiRepaint(col); return; }
+  const text = box.querySelector("[data-aifb]").value.trim();
+  if (!text) { box.querySelector(".aie").textContent = "先寫意見：本地端要知道哪裡不行。"; return; }
+  d.ai_reject = { state: "pending", text, at: new Date().toISOString() };
+  aiSave(col, id); aiRepaint(col);
+}, true);
+// 掛到角色事件、江湖事件的編輯畫面最上面
+if (typeof paintMain === "function") { const _pm = paintMain; paintMain = function () { _pm(); const c = chapters[cur]; if (c && c.ai_task) $("main").insertAdjacentHTML("afterbegin", aiBox("chapters", c)); }; }
+if (typeof jMain === "function") { const _jm = jMain; jMain = function () { _jm(); const j = jh[jcur]; if (j && j.ai_task && jcur !== "__cfg" && jcur !== "__world") $("jh-main").insertAdjacentHTML("afterbegin", aiBox("jianghu", j)); }; }
+if (typeof db !== "undefined" && db) letterInit();
+</script>
+
+<style>
+/* ── 收件匣（六六 2026-10-26）── */
+.inbox-st{background:none;border:0;padding:0;text-align:left;cursor:pointer;font-size:11.5px;color:var(--ink-faint)}
+.inbox-st:hover{color:var(--ink)}
+.inbox-st.on{color:var(--ok)} .inbox-st.err{color:var(--cinnabar)}
+.inbox-panel{margin:0 0 14px;max-width:1040px}
+.inbox-panel .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.inbox-panel input{max-width:420px;font-family:var(--f-mono);font-size:12.5px}
+.inbox-log{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px}
+</style>
+<script>
+/* ══ 收件匣（六六 2026-10-26）══
+   幾筆台（本機寫手台）審過、六六在 TG 按「通過」的稿，推到 Supabase 的收件匣（Edge Function studio-inbox）；
+   這頁打開時自己收進來，不用再等 Claude 巡檢手動搬。規則同 dev/ai-studio/SYNC.md：
+     - 這邊還沒有 → 直接放進來（status＝待看）
+     - 這邊有、是六六自己寫的（沒有 ai_task）→ 不覆蓋，重點記進備註；
+       例外：江湖大綱那一卦是種子大綱（六節都空）→ 只補空的欄位
+     - 這邊有、是本地端稿：駁回後的重寫 → 覆蓋；她改過（updated_at 比 ai_meta.at 新）→ 不覆蓋、記進備註；其他 → 覆蓋
+   駁回：按「駁回重寫」後約半分鐘（留時間撤回）自動送回收件匣，幾筆台 10 分鐘內拉回去重寫。
+   金鑰（STUDIO_KEY）存在這台瀏覽器；沒設就整段不動。 */
+const INBOX_URL = "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/studio-inbox";
+const INBOX_LS = "script-sheet-studio-key";
+const INBOX_REJ_WAIT = 25000;   // 按了駁回多久之後才送（這段時間內可以撤回）
+let inboxKey = "", inboxStarted = false, inboxLog = [], inboxBusy = false;
+try { inboxKey = localStorage.getItem(INBOX_LS) || ""; } catch (e) {}
+const inboxCols = () => ({ letters, chapters, jianghu: jh });
+function inboxSt(text, cls) {
+  let b = $("inbox-st");
+  if (!b) { b = document.createElement("button"); b.id = "inbox-st"; b.type = "button"; b.className = "inbox-st"; $("save").insertAdjacentElement("afterend", b); }
+  b.textContent = "📥 " + text; b.className = "inbox-st" + (cls ? " " + cls : "");
+}
+async function inboxCall(method, action, body) {
+  const r = await fetch(`${INBOX_URL}/${action}`, { method, headers: { "x-studio-key": inboxKey, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) throw Object.assign(new Error("金鑰不對"), { code: "key" });
+  if (!r.ok) throw new Error("收件匣回 " + r.status);
+  return r.json();
+}
+const noteAdd = (d, line) => { d.note = ((d.note || "").trim() ? d.note.trim() + "\n" : "") + line; };
+const docLabel = (col, d) => col === "letters" ? `信題「${d.subject || ""}」` : col === "chapters" ? `章名「${d.title || ""}」` : `篇名「${d.title || ""}」`;
+const jhSeedEmpty = (j) => j.status === "draft" && (j.nodes || []).every((n) => !(n.scenes || []).some((s) => (s.text || "").trim()));
+/* 一份稿套進來：回傳 [要存的文件或 null, 給六六看的一句] */
+function inboxMerge(col, cur, inc, tid) {
+  const tag = `#${tid}`;
+  if (!cur) return [inc, `新進：${docLabel(col, inc)} ${tag}`];
+  // 江湖種子大綱：只補空欄。ai_fields 記本地端填過哪幾欄，重寫回來時那幾欄可以換、她填的一個字都不動
+  if (col === "jianghu" && (cur.ai_seed || (!cur.ai_task && jhSeedEmpty(cur)))) {
+    const d = JSON.parse(JSON.stringify(cur)), mine = new Set(cur.ai_fields || []), filled = [];
+    const ok = (k, v) => (!String(v ?? "").trim() || mine.has(k));
+    for (const [k, v] of Object.entries(inc.outline || {})) if (v && ok("outline." + k, d.outline[k])) { d.outline[k] = v; filled.push("outline." + k); }
+    if (((d.npcs || []).length === 0 || mine.has("npcs")) && (inc.npcs || []).length) { d.npcs = inc.npcs; filled.push("npcs"); }
+    if (ok("title", d.title) && inc.title) { d.title = inc.title; filled.push("title"); }
+    if (inc.identity && (mine.has("identity") || (d.identity && d.identity.mode === "disciple" && !d.identity.label))) { d.identity = { ...d.identity, ...inc.identity }; filled.push("identity"); }
+    const rej = cur.ai_reject && cur.ai_reject.state === "sent";
+    if (rej) { d.ai_log = [...(cur.ai_log || []), { at: cur.ai_reject.sent_at || cur.ai_reject.at, text: cur.ai_reject.text }]; delete d.ai_reject; }
+    Object.assign(d, { ai_seed: true, ai_fields: [...new Set([...mine, ...filled])], ai_task: inc.ai_task, ai_source: inc.ai_source, ai_meta: inc.ai_meta });
+    noteAdd(d, `本地端補齊大綱 ${tag}`);
+    return [d, `補大綱：${d.gua}（只填空欄）${tag}`];
+  }
+  if (!cur.ai_task) {
+    const d = JSON.parse(JSON.stringify(cur));
+    noteAdd(d, `【本地端稿 ${tag}】${docLabel(col, inc)}：這一份是你寫的，沒覆蓋。`);
+    return [d, `沒覆蓋（你寫的）：${docLabel(col, cur)}，記進備註 ${tag}`];
+  }
+  const rej = cur.ai_reject && cur.ai_reject.state === "sent";
+  const edited = !rej && cur.updated_at && cur.ai_meta && cur.ai_meta.at && cur.updated_at > cur.ai_meta.at;
+  if (edited) {
+    const d = JSON.parse(JSON.stringify(cur));
+    noteAdd(d, `【本地端新版 ${tag}】${docLabel(col, inc)}：你改過這一份，沒覆蓋。要新版就按「駁回重寫」或跟 Claude 說。`);
+    return [d, `沒覆蓋（你改過）：${docLabel(col, cur)} ${tag}`];
+  }
+  const d = { ...inc, note: cur.note || "" };
+  if (rej) d.ai_log = [...(cur.ai_log || []), { at: cur.ai_reject.sent_at || cur.ai_reject.at, text: cur.ai_reject.text }];
+  else if (cur.ai_log) d.ai_log = cur.ai_log;
+  return [d, `${rej ? "重寫好了" : "更新"}：${docLabel(col, d)} ${tag}`];
+}
+async function inboxPull() {
+  const r = await inboxCall("GET", "pull"), done = [], log = [];
+  for (const it of r.items || []) {
+    const map = inboxCols()[it.col]; if (!map) continue;
+    const id = it.doc_id;
+    if ((it.col === "letters" && ltDirty.has(id)) || (it.col === "chapters" && dirty.has(id)) || (it.col === "jianghu" && jdirty.has(id))) continue;   // 正在改的那份下次再收
+    const [doc, line] = inboxMerge(it.col, map[id], { ...it.doc, id }, it.task_id);
+    if (doc) { await db.collection(it.col).doc(id).set(JSON.parse(JSON.stringify(doc))); map[id] = doc; }
+    done.push(it.id); log.push(line);
+  }
+  if (done.length) await inboxCall("POST", "ack", { ids: done });
+  return log;
+}
+async function inboxRejects() {
+  const now = Date.now(), log = [];
+  for (const [col, map] of Object.entries(inboxCols())) for (const d of Object.values(map)) {
+    const r = d && d.ai_task && d.ai_reject;
+    if (!r || r.state !== "pending" || now - new Date(r.at || 0).getTime() < INBOX_REJ_WAIT) continue;
+    if (col === "letters" ? ltDirty.has(d.id) : col === "chapters" ? dirty.has(d.id) : jdirty.has(d.id)) continue;
+    await inboxCall("POST", "reject", { task: d.ai_task, text: r.text, col, doc_id: d.id });
+    d.ai_reject = { ...r, state: "sent", sent_at: new Date().toISOString() };
+    await db.collection(col).doc(d.id).set(JSON.parse(JSON.stringify(d)));
+    log.push(`駁回送出：${docLabel(col, d)} #${d.ai_task}`);
+  }
+  return log;
+}
+async function inboxRun() {
+  if (!inboxKey || !db || inboxBusy) return;
+  inboxBusy = true;
+  try {
+    const log = [...await inboxPull(), ...await inboxRejects()];
+    if (log.length) {
+      inboxLog = [...log.map((t) => `${aiT(new Date().toISOString())} ${t}`), ...inboxLog].slice(0, 20);
+      ltRail(); paintRail(); jRail();
+      if (ltCur) letterPaint();
+    }
+    inboxSt(log.length ? `收件匣：剛收 ${log.length} 件` : "收件匣：已接上", "on");
+  } catch (e) {
+    inboxSt(e.code === "key" ? "收件匣：金鑰不對，點這裡重設" : "收件匣：連不上（" + (e.message || "被擋了") + "）", "err");
+  } finally { inboxBusy = false; inboxPanelPaint(); }
+}
+function inboxPanelPaint() {
+  const p = $("inbox-panel"); if (!p || p.hidden) return;
+  p.innerHTML = `<h3>收件匣 <small>幾筆台通過的稿自動放進來；駁回自動送回去</small></h3>
+    <div class="row"><input type="text" id="inbox-key" value="${esc(inboxKey)}" placeholder="STUDIO_KEY（跟幾筆台 config.json 的 studio_key 同一把）" autocomplete="off" spellcheck="false">
+      <button class="btn primary sm" type="button" data-inbox="save">存並收一次</button><button class="btn ghost sm" type="button" data-inbox="x">收起</button></div>
+    <p class="fxnote" style="margin:6px 0 0">金鑰只存在這台瀏覽器。換電腦要再貼一次。</p>
+    ${inboxLog.length ? `<ul class="inbox-log">${inboxLog.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}`;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#inbox-st")) {
+    let p = $("inbox-panel");
+    if (!p) { p = document.createElement("div"); p.id = "inbox-panel"; p.className = "tcard inbox-panel"; $("banner").insertAdjacentElement("afterend", p); }
+    else p.hidden = !p.hidden;
+    inboxPanelPaint(); return;
+  }
+  const b = e.target.closest("[data-inbox]"); if (!b) return;
+  if (b.dataset.inbox === "x") { $("inbox-panel").hidden = true; return; }
+  inboxKey = ($("inbox-key").value || "").trim();
+  try { if (inboxKey) localStorage.setItem(INBOX_LS, inboxKey); else localStorage.removeItem(INBOX_LS); } catch (err) {}
+  if (!inboxKey) { inboxSt("收件匣：沒設金鑰"); return; }
+  inboxSt("收件匣：連線中…"); inboxRun();
+});
+function inboxInit() {
+  if (inboxStarted || !db) return; inboxStarted = true;
+  if (!inboxKey) { inboxSt("收件匣：點這裡設定"); return; }
+  inboxSt("收件匣：連線中…");
+  setTimeout(inboxRun, 4000);          // 等三種稿的雲端資料先載進來，才知道哪些已經有了
+  setInterval(inboxRun, 60000);
+}
+// 駁回的說明改成自動送
+{ const _ab = aiBox; aiBox = function (col, d) { return _ab(col, d).replace("等 Claude 巡檢送回本地端", "約半分鐘內自動送回本地端"); }; }
+{ const _li = letterInit; letterInit = function () { _li(); inboxInit(); }; }
+if (typeof db !== "undefined" && db) inboxInit();
+</script>
+
+
+</body></html>

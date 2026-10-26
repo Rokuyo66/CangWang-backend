@@ -1,4 +1,11 @@
-# 寫手台 ↔ 企劃工作臺 同步規格（Claude 巡檢照做）
+# 寫手台 ↔ 企劃工作臺 同步規格
+
+> **2026-10-26 起改走收件匣，不用 Claude 手動搬**：幾筆台（`studio.sync inbox`，每 10 分鐘＋按「通過」當下）把 approved 推上
+> Supabase `studio-inbox`（migration 0108）；工作臺打開時自己收、照下面「一」的規則套用；工作臺按「駁回重寫」約半分鐘後自動送回，
+> 幾筆台拉回去排隊。設定：ai-studio `config.json` 的 `studio_inbox_url`／`studio_key`，工作臺左上「📥 收件匣」貼同一把 key。
+> 終審由本地大模型（`final_reviewer_model`）做，下面「零」的 Claude 終審只在沒設終審模型時才需要。
+> 以下規則仍是收件匣的套用規則（程式在工作臺 sheet.html 的「收件匣」段），也是 Claude 手動補救時的依據。
+
 
 工作臺：https://claude.ai/artifact/WviCnZhrUbFrYSHeBE9bh9 （ArtifactData 讀寫）
 工具：`python3 -m studio.sync pending | mark | reject`（在 ai-studio 資料夾執行）

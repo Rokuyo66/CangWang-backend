@@ -21,5 +21,7 @@
   "final_max_tokens": 4096,
   "round_cap": 12,
   "round_cap_total": 36,
-  "keep_best": true
+  "keep_best": true,
+  "studio_inbox_url": "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/studio-inbox",
+  "studio_key": ""
 }
