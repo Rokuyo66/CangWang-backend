@@ -40,6 +40,7 @@ def tools_spec(job_keys, op_keys):
            {"job": {"type": "string", "enum": job_keys}, "on": {"type": "boolean"}}, ["job", "on"]),
         fn("run_op", "執行維運操作",
            {"op": {"type": "string", "enum": op_keys}}, ["op"]),
+        fn("inbox_sync_now", "立即把通過的稿推上企劃工作臺收件匣、把工作臺駁回拉回來排隊重寫，不等 10 分鐘排程"),
     ]
 
 

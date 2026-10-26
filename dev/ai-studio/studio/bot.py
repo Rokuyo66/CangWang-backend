@@ -36,6 +36,7 @@ COMMANDS = [
     ("gaps", "缺口：還沒寫的信／章／卦"), ("letter", "排信：/letter 師妹 100"),
     ("chapter", "排章：/chapter 觀喵 1"), ("jianghu", "排江湖大綱：/jianghu 5 或 5-8"), ("view", "看稿：/view ID"), ("redo", "退回：/redo ID 理由"),
     ("ops", "維運操作（重啟 Ollama 等）"), ("log", "最近日誌"), ("reload", "重新載入程式"),
+    ("sync", "立即把通過的稿推上工作臺收件匣（不等排程）"),
     ("help", "說明"),
 ]
 
@@ -251,10 +252,23 @@ class Actions:
     async def run_op(self, op):
         return await ops.run_op(self.app, op)
 
+    async def inbox_sync_now(self):
+        """手動版：不等 10 分鐘排程，馬上把 approved 推上收件匣、把工作臺駁回拉回來。"""
+        if not load_config().get("studio_inbox_url"):
+            return "沒設定收件匣（studio_inbox_url），略過。"
+        from . import sync
+        r = await asyncio.to_thread(sync.inbox_sync)
+        parts = []
+        if r["pushed"]:
+            parts.append(f"📥 推上 {len(r['pushed'])} 份：\n" + "\n".join(r["pushed"]))
+        if r["rejected"]:
+            parts.append("↩️ 工作臺駁回，已排回重寫：\n" + "\n".join(r["rejected"]))
+        return "\n\n".join(parts) if parts else "沒有新的（該推的都推過了，也沒有新駁回）。"
+
     def handlers(self):
         return {k: getattr(self, k) for k in [
             "team_status", "add_task", "list_pending", "redo_task",
-            "set_writing", "stop_current", "set_job", "run_op"]}
+            "set_writing", "stop_current", "set_job", "run_op", "inbox_sync_now"]}
 
 
 def requeue(t, reason=None):
@@ -323,6 +337,12 @@ async def cmd_jobs(update, ctx):
 async def cmd_ops(update, ctx):
     rows = [[InlineKeyboardButton(ops.OPS[k], callback_data=f"op:{k}")] for k in ops.BUTTON_OPS]
     await update.message.reply_text(tag("維運操作："), reply_markup=InlineKeyboardMarkup(rows))
+
+
+@admin_only
+async def cmd_sync_now(update, ctx):
+    await reply(update, "📥 同步中…")
+    await reply(update, await A(ctx).inbox_sync_now())
 
 
 MSGMAP = team.OPS_DIR / "msgmap.json"
@@ -1085,7 +1105,7 @@ def _main():
                      ("redo", cmd_redo), ("ideas", cmd_ideas), ("pause", cmd_pause),
                      ("resume", cmd_resume), ("stop", cmd_stop), ("log", cmd_log),
                      ("reload", cmd_reload), ("gaps", cmd_gaps), ("letter", cmd_letter),
-                     ("chapter", cmd_chapter), ("jianghu", cmd_jianghu)]:
+                     ("chapter", cmd_chapter), ("jianghu", cmd_jianghu), ("sync", cmd_sync_now)]:
         app.add_handler(CommandHandler(name, fn))
     app.add_handler(CommandHandler("skip", on_text))
     app.add_handler(CallbackQueryHandler(on_button))
