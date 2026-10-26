@@ -1,0 +1,154 @@
+"""共用：路徑、設定、任務檔案存取、狀態、日誌。"""
+import json
+import logging
+import os
+import time
+import uuid
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+ROOT = Path(__file__).resolve().parent.parent
+STAGES = ["ideas", "queue", "work", "pending", "approved", "rejected"]
+DIRS = {s: ROOT / s for s in STAGES}
+LOG_DIR = ROOT / "logs"
+PROMPT_DIR = ROOT / "prompts"
+CONFIG_PATH = ROOT / "config.json"
+STATE_PATH = ROOT / "state.json"
+
+for d in [*DIRS.values(), LOG_DIR]:
+    d.mkdir(exist_ok=True)
+
+log = logging.getLogger("studio")
+
+
+def setup_logging():
+    if log.handlers:
+        return
+    log.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%m-%d %H:%M:%S")
+    fh = RotatingFileHandler(LOG_DIR / "studio.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    log.addHandler(fh)
+    log.addHandler(sh)
+
+
+# ---------- JSON ----------
+def read_json(p: Path, default=None):
+    try:
+        return json.loads(Path(p).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default
+
+
+def write_json(p: Path, obj):
+    p = Path(p)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+# ---------- 設定 / 狀態 ----------
+DEFAULT_CONFIG = {
+    "telegram_token": "",
+    "admin_id": 0,
+    "ollama_url": "http://127.0.0.1:11434",
+    "writer_model": "qwen3.5:9b",
+    "reviewer_model": "qwen3.5:9b",
+    "reviewer_think": True,
+    "writer_temperature": 0.9,
+    "reviewer_temperature": 0.3,
+    "num_ctx": 16384,
+    "pass_score": 75,
+    "max_rounds": 3,
+    "timezone": "Asia/Taipei",
+    "active_hours": None,
+    "gpu_busy_util": 60,
+    "gpu_max_temp": 88,
+}
+
+
+def load_config() -> dict:
+    cfg = dict(DEFAULT_CONFIG)
+    cfg.update(read_json(CONFIG_PATH, {}) or {})
+    return cfg
+
+
+def load_state() -> dict:
+    st = {"paused": False, "force": False, "current": None}
+    st.update(read_json(STATE_PATH, {}) or {})
+    return st
+
+
+def save_state(**kw):
+    st = load_state()
+    st.update(kw)
+    write_json(STATE_PATH, st)
+    return st
+
+
+def now(cfg=None) -> datetime:
+    cfg = cfg or load_config()
+    return datetime.now(ZoneInfo(cfg["timezone"]))
+
+
+def in_window(cfg) -> bool:
+    hours = cfg.get("active_hours")
+    if not hours:
+        return True
+    start, end = hours
+    t = now(cfg).strftime("%H:%M")
+    if start <= end:
+        return start <= t < end
+    return t >= start or t < end  # 跨午夜
+
+
+# ---------- 任務 ----------
+def new_task(brief: str, source: str = "tg", stage: str = "queue") -> dict:
+    tid = time.strftime("%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    task = {
+        "id": tid,
+        "brief": brief.strip(),
+        "source": source,
+        "created_at": now().isoformat(timespec="seconds"),
+        "rounds": [],
+        "human_feedback": [],
+        "errors": 0,
+        "status": stage,
+    }
+    write_json(DIRS[stage] / f"{tid}.json", task)
+    return task
+
+
+def list_stage(stage: str):
+    return sorted(DIRS[stage].glob("*.json"), key=lambda p: p.name)
+
+
+def find_task(tid: str):
+    for s in STAGES:
+        p = DIRS[s] / f"{tid}.json"
+        if p.exists():
+            return s, p
+    # 允許只打前綴
+    for s in STAGES:
+        hits = [p for p in DIRS[s].glob(f"*{tid}*.json")]
+        if len(hits) == 1:
+            return s, hits[0]
+    return None, None
+
+
+def move_task(task: dict, to: str) -> Path:
+    stage, p = find_task(task["id"])
+    task["status"] = to
+    dst = DIRS[to] / f"{task['id']}.json"
+    write_json(dst, task)
+    if p and p != dst:
+        p.unlink(missing_ok=True)
+    return dst
+
+
+def load_prompt(name: str) -> str:
+    return (PROMPT_DIR / name).read_text(encoding="utf-8")

@@ -1,0 +1,11 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "pull_model",
+  "args": {
+    "model": "gemma4:12b"
+  },
+  "note": "A/B 測試候選一（Google 家族）",
+  "result": "✅ gemma4:12b 下載完成（success）",
+  "done_at": 1792916718.028477
+}

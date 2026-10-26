@@ -1,0 +1,426 @@
+"""寫稿 → 審稿 → 退回重寫 的管線。"""
+import json
+import re
+import time
+
+from .common import LOG_DIR, load_config, load_prompt, log, now
+from . import kinds, lint
+from .ollama_client import Ollama, extract_json
+
+CHAR_IDS = ["daoshi_m", "daoshi_f", "lingshou"]
+CHAR_NAME = {"daoshi_m": "大師兄", "daoshi_f": "師妹", "lingshou": "觀喵"}
+
+SCRIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "kind": {"type": "string", "enum": ["江湖事件", "角色事件"]},
+        "on_duty": {"type": "string", "enum": CHAR_IDS},
+        "trigger": {
+            "type": "object",
+            "properties": {"favor_min": {"type": "integer"}, "condition": {"type": "string"}},
+            "required": ["favor_min", "condition"],
+        },
+        "summary": {"type": "string", "maxLength": 120},
+        "scenes": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "setting": {"type": "string", "maxLength": 60},
+                    "lines": {
+                        "type": "array",
+                        "maxItems": 14,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "speaker": {"type": "string", "maxLength": 12},
+                                "action": {"type": "string", "maxLength": 60},
+                                "text": {"type": "string", "maxLength": 120},
+                            },
+                            "required": ["speaker", "action", "text"],
+                        },
+                    },
+                },
+                "required": ["setting", "lines"],
+            },
+        },
+        "choices": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "result": {"type": "string"},
+                    "favor_delta": {"type": "integer"},
+                },
+                "required": ["label", "result", "favor_delta"],
+            },
+        },
+        "foreshadow": {"type": "array", "items": {"type": "string"}},
+        "portraits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "character": {"type": "string"},
+                    "expression": {"type": "string"},
+                    "pose": {"type": "string"},
+                    "scene_hint": {"type": "string"},
+                },
+                "required": ["character", "expression", "pose", "scene_hint"],
+            },
+        },
+    },
+    "required": ["title", "kind", "on_duty", "trigger", "summary", "scenes",
+                 "choices", "foreshadow", "portraits"],
+}
+
+ISSUE_TYPES = ["設定衝突", "因果斷裂", "角色OOC", "稱呼錯誤", "秘密曝光", "禁用模式", "卦理錯誤", "文筆", "格式"]
+HARD_TYPES = {"稱呼錯誤", "秘密曝光", "卦理錯誤"}
+PENALTY = {"稱呼存疑": 0, "稱呼錯誤": 25, "秘密曝光": 25, "卦理錯誤": 25, "角色OOC": 10, "因果斷裂": 10,
+           "設定衝突": 10, "禁用模式": 8, "文筆": 3, "格式": 3}
+
+# 欄位順序＝生成順序：先列問題、再總評，分數由程式算（避免先下結論再硬湊理由）
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "issues": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ISSUE_TYPES},
+                    "where": {"type": "string", "maxLength": 60},
+                    "detail": {"type": "string", "maxLength": 120},
+                    "fix": {"type": "string", "maxLength": 80},
+                },
+                "required": ["type", "where", "detail", "fix"],
+            },
+        },
+        "summary": {"type": "string", "maxLength": 80},
+    },
+    "required": ["issues", "summary"],
+}
+
+
+def score_review(rv: dict) -> dict:
+    """依問題清單計分（先去重）；模型自報的分數留在 model_score 供對照。"""
+    seen, issues = set(), []
+    for i in rv.get("issues", []):
+        if not isinstance(i, dict):
+            continue
+        k = (i.get("type"), (i.get("where") or "")[:12], (i.get("detail") or "")[:24])
+        if k in seen:
+            continue
+        seen.add(k)
+        issues.append(i)
+    rv["issues"] = issues
+    rv["model_score"] = rv.get("score")
+    rv["score"] = max(0, 100 - sum(PENALTY.get(i.get("type"), 5) for i in issues))
+    rv["hard_fail"] = any(i.get("type") in HARD_TYPES or i.get("hard") for i in issues)
+    return rv
+
+
+IDEAS_SCHEMA = {
+    "type": "object",
+    "properties": {"ideas": {"type": "array", "items": {"type": "string"}}},
+    "required": ["ideas"],
+}
+
+
+def _system(name):
+    return load_prompt(name).replace("{{BIBLE}}", load_prompt("bible.md"))
+
+
+def _dump_bad(kind, task_id, r):
+    p = LOG_DIR / f"bad-{kind}-{task_id}-{int(time.time())}.txt"
+    p.write_text(f"done_reason={r.get('done_reason')} tokens={r.get('tokens')}\n\n"
+                 f"--- thinking ---\n{r.get('thinking','')}\n\n--- content ---\n{r.get('content','')}",
+                 encoding="utf-8")
+    return p.name
+
+
+async def _json_call(o, kind, task_id, model, system, user, *, temps, **kw):
+    """呼叫並解析 JSON；失敗時降溫重試一次。"""
+    last = None
+    for i, temp in enumerate(temps):
+        if i > 0:
+            kw["think"] = False  # 重試時關掉思考，避免思考過程吃光額度
+        r = await o.chat(model, system, user, temperature=temp, **kw)
+        try:
+            return extract_json(r["content"]), r
+        except ValueError:
+            name = _dump_bad(kind, task_id, r)
+            log.warning("%s %s 輸出不是 JSON（%s，%s tokens），原文存 logs/%s，降溫重試",
+                        task_id, kind, r.get("done_reason"), r.get("tokens"), name)
+            last = (r, name)
+    r, name = last
+    reason = "輸出太長被截斷（鬼打牆）" if r.get("done_reason") == "length" else "格式不對"
+    raise ValueError(f"{kind}模型輸出不是 JSON：{reason}，{r.get('tokens')} tokens，原文 logs/{name}")
+
+
+def _system_kind(k):
+    return (load_prompt(k.prompt).replace("{{BIBLE}}", load_prompt("bible.md"))
+            .replace("{{EXAMPLE_CHAPTER}}", kinds.load_example("example_chapter.json"))
+            .replace("{{EXAMPLE_JH}}", kinds.load_example("example_jh_outline.json")))
+
+
+async def write(o: Ollama, cfg, task, prev=None, review=None):
+    k = kinds.kind_of(task)
+    if k is None:
+        raise ValueError(f"任務沒有格式（kind）：{task.get('brief','')[:30]}")
+    parts = [k.user_prompt(task)]
+    if task.get("human_feedback"):
+        parts.append("【製作人修改意見（最高優先；編號對應下方逐行版）】\n"
+                     + "\n".join(f"- {x}" for x in task["human_feedback"]))
+    if prev is not None:
+        parts.append("【上一版（逐行，只改被點名的地方，其餘原樣保留）】\n" + k.numbered(prev, task))
+        parts.append("【上一版 JSON】\n" + json.dumps(prev, ensure_ascii=False))
+    if review is not None:
+        parts.append("【審稿意見，逐條修正】\n" + json.dumps(review.get("issues", []), ensure_ascii=False))
+    t0 = cfg["writer_temperature"] if prev is None else min(cfg["writer_temperature"], 0.7)
+    doc, r = await _json_call(o, "寫稿", task["id"], cfg["writer_model"], _system_kind(k),
+                              "\n\n".join(parts), temps=[t0, 0.5], think=False,
+                              fmt=k.schema, num_ctx=cfg["num_ctx"],
+                              num_predict=k.max_tokens, repeat_penalty=1.1)
+    if hasattr(k, "clean"):
+        doc = k.clean(doc)
+    return doc, r
+
+
+KIND_FOCUS = {
+    "letter": "這是一封道緣信：查口吻是否像這位角色、熟度是否符合道緣點、有沒有露太多秘密、記憶是否是信裡真的提到的事。",
+    "chapter": "這是一章道緣章（多人同場是允許的）：查因果、分支是否合理、角色口吻、這一章的主角是否是重心。",
+    "jh_outline": "這是一卦的江湖大綱：最重要的是六節是否一爻對一爻扣住給的爻辭、卦辭；其次是局是否成立、結局方向是否有一個能走到、人物動機。",
+}
+
+
+def _review_input(script, task):
+    k = kinds.kind_of(task)
+    return f"【審查重點】{KIND_FOCUS[k.key]}\n\n【待審（逐行，引用請用編號）】\n" + k.numbered(script, task)
+
+
+async def review(o: Ollama, cfg, script, task, on_progress=None):
+    """程式檢查 → 因果審（第二審，不同家族模型）→ 口吻審（Qwen）→ 合併去重、程式計分。"""
+    t0 = time.time()
+    task_id = task["id"]
+    issues = kinds.kind_of(task).lint(script, task)
+    secs = {}
+    if lint.has_hard(issues):
+        rv = score_review({"issues": issues, "summary": "程式檢查未過：結構有問題，直接退回重寫（未送模型審）"})
+        return rv, {"secs": round(time.time() - t0, 1), "detail": {"程式": 0}}
+    user = _review_input(script, task)
+    summaries = []
+    second = cfg.get("second_reviewer_model")
+    if second:
+        if on_progress:
+            await on_progress(f"審稿：因果（{second}）")
+        rv2, r2 = await _json_call(o, "因果審", task_id, second, _system("causality.md"), user,
+                                   temps=[0.2, 0.1], think=False, fmt=REVIEW_SCHEMA,
+                                   num_ctx=cfg["num_ctx"], num_predict=3000, repeat_penalty=1.1)
+        for i in rv2.get("issues", []):
+            i["by"] = "因果"
+        issues += rv2.get("issues", [])
+        summaries.append("因果：" + rv2.get("summary", ""))
+        secs["因果"] = r2["secs"]
+    if on_progress:
+        await on_progress(f"審稿：口吻（{cfg['reviewer_model']}）")
+    rv1, r1 = await _json_call(o, "口吻審", task_id, cfg["reviewer_model"], _system("reviewer.md"), user,
+                               temps=[cfg["reviewer_temperature"], 0.1], think=cfg["reviewer_think"],
+                               fmt=REVIEW_SCHEMA, num_ctx=cfg["num_ctx"],
+                               num_thread=cfg.get("reviewer_num_thread"),
+                               num_predict=cfg.get("reviewer_max_tokens", 4096), repeat_penalty=1.1)
+    confirmed = lint.address_lines(issues)
+    for i in rv1.get("issues", []):
+        i["by"] = "口吻"
+        if i.get("type") == "稱呼錯誤" and not any(c in (i.get("where") or "") for c in confirmed):
+            i["type"] = "稱呼存疑"  # 程式沒核實到，不算硬傷
+    issues += rv1.get("issues", [])
+    summaries.append("口吻：" + rv1.get("summary", ""))
+    secs["口吻"] = r1["secs"]
+    rv = score_review({"issues": issues, "summary": "；".join(summaries)})
+    return rv, {"secs": round(time.time() - t0, 1), "detail": secs}
+
+
+def passed(cfg, rv):
+    return rv["score"] >= cfg["pass_score"] and not rv.get("hard_fail")
+
+
+async def process(o: Ollama, task, on_progress=None):
+    """跑完寫審循環。回傳 True=審稿通過；False=達上限仍未過（交人工判斷）。"""
+    cfg = load_config()
+    if task.pop("review_only", False) and task["rounds"]:  # 製作人親改後只送審、不重寫
+        n = len(task["rounds"]) + 1
+        script = task["rounds"][-1]["script"]
+        if on_progress:
+            await on_progress(f"第{n}輪 審稿中（製作人版本，不重寫）")
+        rv, rr = await review(o, cfg, script, task, on_progress)
+        task["rounds"].append({"n": n, "at": now(cfg).isoformat(timespec="seconds"), "script": script,
+                               "review": rv, "secs": {"write": 0, "review": rr["secs"]}, "by": "製作人",
+                               "models": {"reviewer": cfg["reviewer_model"]}, "human_feedback": []})
+        if on_progress:
+            await on_progress(None, f"第{n}輪（製作人版）：審{rr['secs']:.0f}秒｜{rv['score']}分")
+        return passed(cfg, rv)
+    prev = task["rounds"][-1]["script"] if task["rounds"] else None
+    rv = task["rounds"][-1]["review"] if task["rounds"] and not task.get("human_feedback") else None
+    for i in range(cfg["max_rounds"]):
+        n = len(task["rounds"]) + 1
+        if on_progress:
+            await on_progress(f"第{n}輪 寫稿中")
+        script, wr = await write(o, cfg, task, prev, rv)
+        if on_progress:
+            await on_progress(f"第{n}輪 審稿中")
+        rv, rr = await review(o, cfg, script, task, on_progress)
+        task["rounds"].append({
+            "n": n, "at": now(cfg).isoformat(timespec="seconds"),
+            "script": script, "review": rv,
+            "secs": {"write": wr["secs"], "review": rr["secs"]},
+            "models": {"writer": cfg["writer_model"], "reviewer": cfg["reviewer_model"],
+                       "second_reviewer": cfg.get("second_reviewer_model")},
+            "human_feedback": list(task.get("human_feedback") or []),
+        })
+        log.info("%s 第%d輪 分數%s hard_fail=%s", task["id"], n, rv["score"], rv.get("hard_fail"))
+        if on_progress:
+            ok = passed(cfg, rv)
+            top = "、".join(f"{x.get('type')}" for x in rv.get("issues", [])[:3])
+            await on_progress(None, f"第{n}輪：寫{wr['secs']:.0f}秒／審{rr['secs']:.0f}秒｜{rv['score']}分"
+                                    + ("｜通過" if ok else ("｜硬傷" if rv.get("hard_fail") else "")
+                                       + (f"｜{top}" if top else "") + "→重寫"))
+        if passed(cfg, rv):
+            task["human_feedback"] = []
+            return True
+        prev = script
+    task["human_feedback"] = []
+    return False
+
+
+async def brainstorm(o: Ollama, n: int, hint: str = ""):
+    cfg = load_config()
+    user = f"請提出 {n} 個互不重複的事件題目。" + (f"方向：{hint}" if hint else "")
+    r = await o.chat(cfg["writer_model"], _system("ideas.md"), user,
+                     think=False, temperature=1.0, fmt=IDEAS_SCHEMA, num_ctx=cfg["num_ctx"])
+    out = []
+    for x in extract_json(r["content"]).get("ideas", []):
+        x = re.sub(r"^\[?\s*江湖事件\s*[|｜]\s*角色事件\s*\]?\s*／", "", x.strip())
+        if x:
+            out.append(x)
+    return out[:n]
+
+
+# ---------- 給人看的版本 ----------
+def render_script(s: dict) -> str:
+    on = CHAR_NAME.get(s.get("on_duty"), s.get("on_duty"))
+    out = [f"📜 {s.get('title','')}",
+           f"{s.get('kind','')}｜當值：{on}",
+           f"觸發：好感≥{s.get('trigger',{}).get('favor_min',0)}；{s.get('trigger',{}).get('condition','')}",
+           f"摘要：{s.get('summary','')}", ""]
+    for i, sc in enumerate(s.get("scenes", []), 1):
+        out.append(f"— 場景{i}：{sc.get('setting','')}")
+        for ln in sc.get("lines", []):
+            act = ln.get("action", "").strip()
+            txt = ln.get("text", "").strip()
+            if act:
+                out.append(f"  （{act}）")
+            if txt:
+                out.append(f"  {ln.get('speaker','')}：「{txt}」")
+        out.append("")
+    if s.get("choices"):
+        out.append("選項：")
+        for i, c in enumerate(s["choices"], 1):
+            out.append(f"  {i}. {c.get('label','')} → {c.get('result','')}（好感{c.get('favor_delta',0):+d}）")
+    if s.get("foreshadow"):
+        out.append("伏線：" + "；".join(s["foreshadow"]))
+    if s.get("portraits"):
+        out.append("立繪：" + "；".join(
+            f"{p.get('character','')}/{p.get('expression','')}/{p.get('pose','')}" for p in s["portraits"]))
+    return "\n".join(out)
+
+
+def render_review(rv: dict) -> str:
+    out = [f"🔎 審稿 {rv.get('score')}分" + ("｜❌硬傷" if rv.get("hard_fail") else ""),
+           rv.get("summary", "")]
+    for it in rv.get("issues", [])[:8]:
+        out.append(f"・[{(it.get('by') + '｜') if it.get('by') else ''}{it.get('type')}] {it.get('where')}：{it.get('detail')}")
+    return "\n".join(out)
+
+
+# ---------- 閱讀模式（TG HTML） ----------
+from html import escape as _e
+
+
+def numbered(s: dict):
+    """逐行編號：[(L號, 場景序, speaker, action, text)]，全篇連號。"""
+    out, n = [], 0
+    for si, sc in enumerate(s.get("scenes", []), 1):
+        for ln in sc.get("lines", []):
+            n += 1
+            out.append((n, si, ln.get("speaker", ""), ln.get("action", "").strip(), ln.get("text", "").strip()))
+    return out
+
+
+def numbered_text(s: dict) -> str:
+    rows, cur = [], 0
+    scenes = s.get("scenes", [])
+    for n, si, spk, act, txt in numbered(s):
+        if si != cur:
+            cur = si
+            rows.append(f"＝場景{si}：{scenes[si-1].get('setting','')}")
+        rows.append(f"L{n} {spk}｜動作：{act or '—'}｜台詞：{txt or '—'}")
+    return "\n".join(rows)
+
+
+def html_parts_kind(s: dict, task: dict):
+    k = kinds.kind_of(task)
+    return k.html(s, task) if k else html_parts(s)
+
+
+def html_parts(s: dict):
+    """回傳 [(標籤, HTML)]：開頭、每個場景、選項與其他。"""
+    name = {"daoshi_m": "大師兄", "daoshi_f": "師妹", "lingshou": "觀喵"}
+    tr = s.get("trigger", {})
+    parts = [("整篇", f"📜 <b>{_e(s.get('title',''))}</b>\n"
+                     f"{_e(s.get('kind',''))}｜當值：{_e(name.get(s.get('on_duty'), s.get('on_duty','')))}\n"
+                     f"觸發：好感≥{tr.get('favor_min',0)}；{_e(tr.get('condition',''))}\n\n"
+                     f"<i>{_e(s.get('summary',''))}</i>")]
+    rows = numbered(s)
+    scenes = s.get("scenes", [])
+    for si, sc in enumerate(scenes, 1):
+        body = [f"<b>— 場景{si}</b>　{_e(sc.get('setting',''))}", ""]
+        for n, ssi, spk, act, txt in rows:
+            if ssi != si:
+                continue
+            line = f"<code>L{n:<2}</code>"
+            if act:
+                line += f" <i>（{_e(act)}）</i>"
+            if txt:
+                line += f"\n　　<b>{_e(spk)}</b>：「{_e(txt)}」"
+            elif not act:
+                line += f" <b>{_e(spk)}</b>"
+            body.append(line)
+        parts.append((f"場景{si}", "\n".join(body)))
+    tail = []
+    if s.get("choices"):
+        tail.append("<b>選項</b>")
+        for i, c in enumerate(s["choices"], 1):
+            tail.append(f"{i}. {_e(c.get('label',''))}\n　→ {_e(c.get('result',''))}（好感{c.get('favor_delta',0):+d}）")
+    if s.get("foreshadow"):
+        tail.append("\n<b>伏線</b>：" + _e("；".join(s["foreshadow"])))
+    if s.get("portraits"):
+        tail.append("\n<b>立繪</b>")
+        for p in s["portraits"]:
+            tail.append(f"・{_e(p.get('character',''))}／{_e(p.get('expression',''))}／{_e(p.get('pose',''))}"
+                        f"\n　{_e(p.get('scene_hint',''))}")
+    if tail:
+        parts.append(("選項", "\n".join(tail)))
+    return parts
+
+
+def review_html(rv: dict) -> str:
+    head = f"🔎 審稿 <b>{rv.get('score')}分</b>" + ("｜❌硬傷" if rv.get("hard_fail") else "")
+    items = [f"・[{_e(it.get('by','') + '｜' if it.get('by') else '')}{_e(it.get('type',''))}] {_e(it.get('where',''))}\n　{_e(it.get('detail',''))}\n　→ {_e(it.get('fix',''))}"
+             for it in rv.get("issues", [])]
+    body = _e(rv.get("summary", "")) + ("\n\n" + "\n".join(items) if items else "")
+    return f"{head}\n<blockquote expandable>{body}</blockquote>"

@@ -1,0 +1,8 @@
+{
+  "idle_ideas": {
+    "enabled": true
+  },
+  "claude_patrol": {
+    "enabled": true
+  }
+}
