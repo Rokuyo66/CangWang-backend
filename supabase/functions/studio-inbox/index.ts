@@ -1,4 +1,4 @@
-// supabase/functions/studio-inbox/index.ts — 幾筆台 ↔ 企劃工作臺 的收件匣（表見 0108）
+// supabase/functions/studio-inbox/index.ts — 幾筆台 ↔ 企劃工作臺 的收件匣（表見 0111）
 //
 //   幾筆台（六六電腦）：POST push {items:[{task,round,col,doc_id,doc}]}   通過的稿推上來
 //                       GET  rejects                                      拉工作臺的駁回

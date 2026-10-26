@@ -59,7 +59,7 @@ supabase secrets set LOCAL_LLM_URL=https://llm.<你的網域> \
   LOCAL_CF_ID=… LOCAL_CF_SECRET=… LOCAL_LLM_MODEL=qwen3.5:9b
 ```
 
-另跑 migration `0107_local_llm_price.sql`（本地呼叫記 0 元，不掉進 unpriced）。
+另跑 migration `0110_local_llm_price.sql`（本地呼叫記 0 元，不掉進 unpriced）。
 
 | 變數 | 預設 | 說明 |
 |---|---|---|

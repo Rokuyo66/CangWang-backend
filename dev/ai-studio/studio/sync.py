@@ -140,7 +140,7 @@ def verdict(tid, score, notes):
     return f"#{tid} Claude {score} 分 → {'交六六待審' if to == 'pending' else '排回重寫'}"
 
 
-# ---------- 收件匣（Supabase studio-inbox，見 supabase/migrations/0108）----------
+# ---------- 收件匣（Supabase studio-inbox，見 supabase/migrations/0111）----------
 # 工作臺是 claude.ai Artifact，本機寫不進去。以前靠 Claude 手動搬，現在推上收件匣，
 # 工作臺打開時自己收（規則照 SYNC.md：她改過的不覆蓋、江湖大綱只補空欄，這段在工作臺那頭做）。
 def _inbox(method, action, payload=None):

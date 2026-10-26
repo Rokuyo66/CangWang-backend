@@ -334,7 +334,7 @@ migration 是一支一支跑的，失敗的那支不會被記成已套用。修�
 
 ## 收件匣（幾筆台 → 企劃工作臺，2026-10-26）
 
-1. 資料庫：跑 `supabase/migrations/0108_studio_inbox.sql`（照上面跑 migration 的方式）。
+1. 資料庫：跑 `supabase/migrations/0111_studio_inbox.sql`（照上面跑 migration 的方式）。
 2. 金鑰：自己產一把長亂碼（PowerShell：`[guid]::NewGuid().ToString() + [guid]::NewGuid().ToString()`），設成 secret：
    ```powershell
    supabase secrets set STUDIO_KEY=<那把亂碼> --project-ref ajogafvzlhqwlxwkfcpn

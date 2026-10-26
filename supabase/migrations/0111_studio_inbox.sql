@@ -1,4 +1,4 @@
--- 0108_studio_inbox.sql — 幾筆台（dev/ai-studio）↔ 企劃工作臺 的收件匣
+-- 0111_studio_inbox.sql — 幾筆台（dev/ai-studio）↔ 企劃工作臺 的收件匣
 --
 -- 工作臺是 claude.ai 的 Artifact，資料存在 Artifact 自己的資料庫；六六電腦上的幾筆台寫不進去，
 -- 以前每一份通過的稿都要 Claude 手動跑 studio.sync 搬，一放就是好幾天。
