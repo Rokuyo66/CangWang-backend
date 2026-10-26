@@ -925,6 +925,26 @@ async def worker(app: Application):
             last = t["rounds"][-1]
             score = last["review"].get("score")
             # 10-26 六六：本地 <90 自己排回去繼續修；≥90 送 Claude 複審；Claude ≥95 才交給六六
+            if ok and cfg.get("final_reviewer_model"):
+                # 10-26：Claude 複審要人工跑、吃訂閱額度，稿子在 claude/ 一放就是一晚。
+                # 有設終審大模型（本地 235B）就由它把關：過了直接交六六，沒過帶意見排回重寫。
+                frv, fr = await pipeline.final_review(o, cfg, last["script"], t, last["review"], card.progress)
+                fscore = frv["score"]
+                t.setdefault("final_reviews", []).append(
+                    {"round": len(t["rounds"]), "score": fscore, "model": fr["model"], "secs": fr["secs"],
+                     "review": frv, "at": now(cfg).isoformat(timespec="seconds")})
+                if fscore >= cfg.get("final_pass_score", 95) and not frv.get("hard_fail"):
+                    t["needs_human"] = False
+                    move_task(t, "pending")
+                    card.final = f"✅ 本地 {score} 分、終審 {fscore} 分，交六六待審（/pending）"
+                    await card.push()
+                    continue
+                t["human_feedback"] = [f"【終審 {fscore} 分】" + "；".join(
+                    f"{i.get('where')}：{i.get('detail')}（{i.get('fix')}）" for i in frv.get("issues", [])[:8])]
+                t["priority"] = True
+                t["cap_base"] = len(t["rounds"])
+                ok = False
+                await card.progress(None, f"終審 {fscore} 分｜" + "、".join(i.get("type") for i in frv.get("issues", [])[:3]) + "→帶意見重寫")
             if ok:
                 move_task(t, "claude")
                 card.final = f"🟢 本地 {score} 分，送 Claude 複審"
@@ -932,6 +952,14 @@ async def worker(app: Application):
                 continue
             stall = cfg.get("format_stall", 4)
             base = t.get("cap_base", 0)
+            # cap_base 每次被退回（Claude、工作臺、終審）都會重設，round_cap 只管「這一段」。
+            # 再加一道總輪數上限，免得像地水師那樣一路寫到二十幾輪。
+            if len(t["rounds"]) >= cfg.get("round_cap_total", 36):
+                t["stuck"] = "rounds_total"
+                move_task(t, "claude")
+                card.final = f"🧩 總共寫了 {len(t['rounds'])} 輪還沒定稿，停下來交 Claude 診斷"
+                await card.push()
+                continue
             tail = t["rounds"][max(base, len(t["rounds"]) - stall):]
             stalled = len(tail) >= stall and all(
                 any(i.get("hard") and i.get("by") == "程式" for i in r["review"].get("issues", [])) for r in tail)

@@ -14,8 +14,10 @@ async def main():
     try:
         tags = await o.tags()
         print("✅ Ollama 連線正常")
-        for k in ("writer_model", "reviewer_model"):
-            m = cfg[k]
+        for k in ("writer_model", "reviewer_model", "second_reviewer_model", "final_reviewer_model"):
+            m = cfg.get(k)
+            if not m:   # 第二審、終審沒設＝不用
+                continue
             hit = m in tags or f"{m}:latest" in tags
             ok &= hit
             print(("✅" if hit else "❌"), k, m, "" if hit else "（未下載：ollama pull " + m + "）")

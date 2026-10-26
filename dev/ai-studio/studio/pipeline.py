@@ -197,24 +197,37 @@ KIND_FOCUS = {
 }
 
 
-def _review_input(script, task):
+def _review_input(script, task, prev=None, prev_issues=None):
     k = kinds.kind_of(task)
     fb = ""
     if task.get("human_feedback"):  # 10-26 巡檢：審稿看不到製作人／Claude 意見，沒改也給高分
         fb = ("\n\n【這一版必須改到的意見（逐條核對；沒改到的每條列成一個問題）】\n"
               + "\n".join(f"- {x}" for x in task["human_feedback"]))
-    return (f"【審查重點】{KIND_FOCUS[k.key]}" + fb
-            + "\n\n【待審（逐行，引用請用編號）】\n" + k.numbered(script, task))
+    text = k.numbered(script, task)
+    anchor = ""
+    if prev is not None:
+        # 10-26 收斂：每輪審稿都從零挑，這輪挑因果、下輪挑口吻，改來改去不收斂（地水師 24 輪）。
+        # 標出這一版改過的行、附上上一輪的意見：審稿先核對舊意見改了沒，新問題只在改過的行找。
+        old = set(k.numbered(prev, task).split("\n"))
+        text = "\n".join(("＊" if ln not in old else "　") + ln for ln in text.split("\n"))
+        if prev_issues:
+            anchor = ("\n\n【上一輪的審稿意見（先逐條核對這一版改了沒；改好的不要再記，也不要反過來挑剛改好的地方）】\n"
+                      + "\n".join(f"- [{i.get('type')}] {i.get('where')}：{i.get('detail')}" for i in prev_issues[:10]))
+        anchor += ("\n\n【收斂規則】行首有＊的是這一版改過的行。沒有＊的行上一輪已經審過："
+                   "除非是稱呼錯誤、秘密曝光、卦理錯誤這三種硬傷，否則不要對沒有＊的行提新問題。")
+    return (f"【審查重點】{KIND_FOCUS[k.key]}" + fb + anchor
+            + "\n\n【待審（逐行，引用請用編號）】\n" + text)
 
 
-async def review(o: Ollama, cfg, script, task, on_progress=None):
-    """程式檢查 → 因果審（第二審，不同家族模型）→ 口吻審（Qwen）→ 合併去重、程式計分。"""
+async def review(o: Ollama, cfg, script, task, on_progress=None, prev=None, prev_issues=None):
+    """程式檢查 → 因果審（第二審，不同家族模型）→ 口吻審（Qwen）→ 合併去重、程式計分。
+    prev／prev_issues：上一版與它的意見，有給就標出改過的行、要審稿先核對舊意見（收斂用）。"""
     t0 = time.time()
     task_id = task["id"]
     issues = kinds.kind_of(task).lint(script, task)
     secs = {}
     # 10-26：程式檢查沒過也照樣送模型審內容，不然內容錯誤（人設、器物）永遠沒人看，只會在格式上空轉
-    user = _review_input(script, task)
+    user = _review_input(script, task, prev, prev_issues)
     summaries = []
     second = cfg.get("second_reviewer_model")
     if second:
@@ -251,6 +264,34 @@ def passed(cfg, rv):
     return rv["score"] >= cfg["pass_score"] and not rv.get("hard_fail")
 
 
+def _rank(rv):
+    """比兩版誰好：沒硬傷的贏，再比分數。"""
+    return (0 if rv.get("hard_fail") else 1, rv.get("score", 0))
+
+
+async def final_review(o: Ollama, cfg, script, task, local_rv, on_progress=None):
+    """終審（取代 Claude 複審）：大模型一次看因果＋口吻，前兩審的意見只當參考、由它裁定真假。
+    兩個小模型標準互相打架（因果審要改、口吻審又說改錯）時，由這一關拍板。"""
+    model = cfg["final_reviewer_model"]
+    if on_progress:
+        await on_progress(f"終審（{model}）")
+    t0 = time.time()
+    ref = "\n".join(f"- [{i.get('by', '')}｜{i.get('type')}] {i.get('where')}：{i.get('detail')}"
+                     for i in local_rv.get("issues", [])[:12]) or "（前兩審沒有意見）"
+    user = (_review_input(script, task)
+            + "\n\n【前兩審（小模型）的意見，僅供參考：可能有誤判、也可能互相矛盾，你自己判斷真假】\n" + ref)
+    rv, r = await _json_call(o, "終審", task["id"], model, _system("final.md"), user,
+                             temps=[0.2, 0.1], think=False, fmt=REVIEW_SCHEMA,
+                             num_ctx=cfg.get("final_num_ctx", cfg["num_ctx"]),
+                             num_predict=cfg.get("final_max_tokens", 4096), repeat_penalty=1.1)
+    for i in rv.get("issues", []):
+        i["by"] = "終審"
+    lint_issues = kinds.kind_of(task).lint(script, task)   # 程式檢查照算，大模型也不能放過格式硬傷
+    rv = score_review({"issues": lint_issues + rv.get("issues", []), "summary": "終審：" + rv.get("summary", "")})
+    rv["final"] = True
+    return rv, {"secs": round(time.time() - t0, 1), "model": model}
+
+
 async def process(o: Ollama, task, on_progress=None):
     """跑完寫審循環。回傳 True=審稿通過；False=達上限仍未過（交人工判斷）。"""
     cfg = load_config()
@@ -268,6 +309,10 @@ async def process(o: Ollama, task, on_progress=None):
         return passed(cfg, rv)
     prev = task["rounds"][-1]["script"] if task["rounds"] else None
     rv = task["rounds"][-1]["review"] if task["rounds"] and not task.get("human_feedback") else None
+    # 10-26 收斂：重寫常把對的地方改壞（10 分→42 分→0 分來回跳）。記住這一段裡最好的一版，
+    # 新的一版比它差就丟掉，下一輪從最好的那版接著改，分數只會往上走。
+    base = task.get("cap_base", 0)
+    best = max((r for r in task["rounds"][base:] if r.get("review")), key=lambda r: _rank(r["review"]), default=None)
     for i in range(cfg["max_rounds"]):
         n = len(task["rounds"]) + 1
         if on_progress:
@@ -275,7 +320,8 @@ async def process(o: Ollama, task, on_progress=None):
         script, wr = await write(o, cfg, task, prev, rv)
         if on_progress:
             await on_progress(f"第{n}輪 審稿中")
-        rv, rr = await review(o, cfg, script, task, on_progress)
+        prev_issues = (rv or {}).get("issues") if prev is not None else None   # 寫手拿到的那份意見＝審稿要核對的那份
+        rv, rr = await review(o, cfg, script, task, on_progress, prev, prev_issues)
         task["rounds"].append({
             "n": n, "at": now(cfg).isoformat(timespec="seconds"),
             "script": script, "review": rv,
@@ -294,7 +340,16 @@ async def process(o: Ollama, task, on_progress=None):
         if passed(cfg, rv):
             task["human_feedback"] = []
             return True
-        prev = script
+        cur = task["rounds"][-1]
+        if cfg.get("keep_best", True) and best is not None and _rank(rv) < _rank(best["review"]):
+            # 這版比較差：下一輪拿最好那版和它的意見重寫（新的這版仍留在 rounds 裡，查得到）
+            log.info("%s 第%d輪 %s分 不如第%d輪 %s分，下一輪從第%d輪接著改",
+                     task["id"], n, rv["score"], best["n"], best["review"]["score"], best["n"])
+            prev, rv = best["script"], best["review"]
+            if on_progress:
+                await on_progress(None, f"↩︎ 比第{best['n']}輪差，下一輪從第{best['n']}輪接著改")
+        else:
+            best, prev = cur, script
     task["human_feedback"] = []
     return False
 
