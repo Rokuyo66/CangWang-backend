@@ -59,7 +59,7 @@ git pull origin claude/kind-thompson-i29rtz
 
 ```bash
 cd /mnt/d/cangwang
-cp dev/ai-studio/studio/{pipeline,bot,selftest,team,sync}.py ai-studio/studio/
+cp dev/ai-studio/studio/{pipeline,bot,selftest,team,sync,ollama_client}.py ai-studio/studio/
 cp dev/ai-studio/prompts/final.md ai-studio/prompts/
 ```
 

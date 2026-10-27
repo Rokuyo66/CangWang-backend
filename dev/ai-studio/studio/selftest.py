@@ -18,6 +18,11 @@ async def main():
             m = cfg.get(k)
             if not m:   # 第二審、終審沒設＝不用
                 continue
+            if m.startswith("nim:"):   # 走 NVIDIA 雲端，本機不用下載；只檢查有沒有金鑰
+                has = bool(cfg.get("nvidia_api_key"))
+                ok &= has
+                print(("✅" if has else "❌"), k, m, "" if has else "（config.json 缺 nvidia_api_key）")
+                continue
             hit = m in tags or f"{m}:latest" in tags
             ok &= hit
             print(("✅" if hit else "❌"), k, m, "" if hit else "（未下載：ollama pull " + m + "）")

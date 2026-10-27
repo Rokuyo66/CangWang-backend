@@ -23,5 +23,6 @@
   "round_cap_total": 36,
   "keep_best": true,
   "studio_inbox_url": "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/studio-inbox",
-  "studio_key": ""
+  "studio_key": "",
+  "nvidia_api_key": ""
 }
