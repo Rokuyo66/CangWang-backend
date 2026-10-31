@@ -38,6 +38,7 @@ import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 import { kindOf, isDormant } from "../_shared/memkind.ts";
 import { castKeepOf, searchCasts, FORTUNE_KEEP_DAYS, FREE_KEEP_DAYS } from "../_shared/keep.ts";
+import { clientIp, ipLimited } from "../_shared/ip-limit.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -470,6 +471,11 @@ async function handle(req: Request): Promise<Response> {
   const auth = req.headers.get("authorization");
   let jwtUserId: string | null = null;
   if (auth?.startsWith("Bearer ")) jwtUserId = await userFromJwt(auth.slice(7));
+
+  // 免認證的三支：每 IP 每分鐘上限（_shared/ip-limit.ts，記憶體計數、不寫資料庫）
+  if ((body.mode === "wall" || body.mode === "post_list" || body.mode === "post_detail") && ipLimited(clientIp(req))) {
+    return Response.json({ kind: "err", msg: "手速太快了，稍歇片刻。" }, { status: 429, headers: CORS });
+  }
 
   // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
   if (body.mode === "wall") return await wallResponse();
