@@ -134,6 +134,8 @@ const CHONG: Record<string,string> = {子:"午",午:"子",丑:"未",未:"丑",�
 const HE6: Record<string,string> = {子:"丑",丑:"子",寅:"亥",亥:"寅",卯:"戌",戌:"卯",辰:"酉",酉:"辰",巳:"申",申:"巳",午:"未",未:"午"};
 // 入墓：地支墓庫（亥子墓辰、寅卯墓未、巳午墓戌、申酉墓丑）；辰戌丑未（土）不入墓
 const MU: Record<string,string> = {水:"辰",火:"戌",金:"丑",木:"未"};
+// 化絕：本爻五行之絕地（金絕寅、木絕申、水絕巳、火絕亥）；土不論絕（同土不入墓之師訓）
+const JUE: Record<string,string> = {金:"寅",木:"申",水:"巳",火:"亥"};
 const ZHI_IDX: Record<string,number> = Object.fromEntries(ZHI.map((z, i) => [z, i]));
 /** 化進/化退：僅本爻與變爻同五行才成立（寅卯、巳午、申酉、亥子、丑辰未戌順行為進，逆行為退），異五行不標 */
 export function huaJinTui(fromZhi: string, toZhi: string): string {
@@ -347,6 +349,7 @@ export function chartText(c: Chart, question: string): string {
       if (CHONG[e.zhi] === b.zhi) hua.push("回頭沖");
       if (HE6[e.zhi] === b.zhi) hua.push("回頭合");
       if (MU[e.wx] === b.zhi) hua.push("化墓");
+      if (JUE[e.wx] === b.zhi) hua.push("化絕");
       if (kongSet.has(b.zhi)) hua.push("變爻空");
       mv = `動（${c.lines[i] === 9 ? "老陽○" : "老陰✕"}）本爻六親【${e.qin}】→化出變爻六親【${b.qin}】${b.gan}${b.zhi}(${b.wx})${hua.length ? `【${hua.join("·")}】` : ""}`;
     }
@@ -359,6 +362,9 @@ export function chartText(c: Chart, question: string): string {
   const fuyin = fuyinCheck(c);
   // 包局：初爻與上爻（本卦）六親相同，該六親為全卦潛在主軸；依本卦判定，動變不影響成立
   const baoju = c.ben[0].qin === c.ben[5].qin ? c.ben[0].qin : null;
+  // 間爻：世應之間的兩爻（講義：事業＝公司內部同事、出行＝同伴途中、宅＝明堂仲介、財＝仲介競爭）
+  const [lo, hi] = c.shi < c.ying ? [c.shi, c.ying] : [c.ying, c.shi];
+  const jian = [lo + 1, hi - 1].filter((p) => p > lo && p < hi).map((p) => YAO_NAMES[p - 1]).join("、");
   const tags = [c.chong && "本卦六沖", c.he && "本卦六合", c.bianChong && "變卦六沖", c.bianHe && "變卦六合"].filter(Boolean).join("、") || "無";
   return [
     `問事：${question || "（未填）"}`,
@@ -366,13 +372,14 @@ export function chartText(c: Chart, question: string): string {
     `干支：${c.ganzhi.year}年 ${c.ganzhi.month}月 ${c.ganzhi.day}日${c.ganzhi.hour ? " " + c.ganzhi.hour + "時" : ""}　旬空：${c.ganzhi.kong}`,
     `卦：本卦《${c.benName}》（${c.palace}宮${c.type}卦，${c.palaceWx}宮，世${c.shi}應${c.ying}）${c.hasMoving ? `之變卦《${c.bianName}》` : "，六爻安靜"}`,
     `沖合格局：${tags}`,
+    `間爻：${jian}`,
     `三合檢核：${sanhe ?? "無（不構成三合條件）"}`,
     `伏吟檢核：${fuyin ?? "無"}`,
     ...(baoju ? [`包局檢核：${baoju}包局（初爻與上爻六親同為${baoju}）——內參標記：此六親為全卦潛在關鍵，論斷時暗中側重其所主之人事，但輸出中不得出現「包局」一詞、不得當作格局宣講`] : []),
     `爻位 | 六獸 | 六親(本爻) | 干支(五行) | 世/應 | 動靜（本爻六親→化出變爻六親）`,
     ...rows,
     `伏神：${fu}`,
-    `【標記讀法】干支後【】內為排盤程式判定之地支事實（空／月破／日沖／日合／月合／臨日月建／入日墓／入月墓；動爻另標化進退神／回頭生剋沖合／化墓／變爻空），論斷時直接採用，不必自行重推沖合墓空。惟入墓標記僅表「地支墓於日／月」之事實，是否真受困須參旺衰——旺相之爻不入墓、唯休囚之爻才被關。`,
+    `【標記讀法】干支後【】內為排盤程式判定之地支事實（空／月破／日沖／日合／月合／臨日月建／入日墓／入月墓；動爻另標化進退神／回頭生剋沖合／化墓／化絕／變爻空；化絕＝本爻化入其五行之絕地，土不論絕），論斷時直接採用，不必自行重推沖合墓空。惟入墓標記僅表「地支墓於日／月」之事實，是否真受困須參旺衰——旺相之爻不入墓、唯休囚之爻才被關。`,
     `【動爻讀法·硬規】每個動爻有「本爻六親」與「化出變爻六親」兩個不同六親，敘述「動化」時本爻六親一律取上表第3欄的本爻六親，化出六親才是變爻六親，兩者不可混同、更不可用化出的變爻六親覆蓋本爻六親。例：本爻父母化出官鬼，須寫「父母動化官鬼」，嚴禁寫成「官鬼動化官鬼」。`,
   ].join("\n");
 }
