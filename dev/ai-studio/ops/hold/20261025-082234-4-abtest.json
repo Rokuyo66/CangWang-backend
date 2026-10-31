@@ -1,0 +1,1 @@
+{"from": "claude", "kind": "op", "op": "abtest", "args": {"models": ["gemma4:12b", "glm-4.7-flash"], "n": 8}, "note": "因果第二審測試，結果給 Claude 評審"}

@@ -1,4 +1,4 @@
-// _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA] → 罐頭）
+// _shared/chat.ts — 聊天系統（主力 Claude Haiku → 免費層多模型 fallback[Groq→NVIDIA→本地] → 罐頭）
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuests, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -15,6 +15,7 @@ import { threadHint, threadsBrief, topicOf } from "./xinji.ts";
 import { normYong } from "./qrefine.ts";
 import { COST } from "./prices.ts";
 import { noThinking } from "./model-params.ts";
+import { callLocal, localEnabled } from "./local-llm.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 // 2026-10 起預設 Haiku 5.5（$0.10/$0.50，4.5 的十分之一），先想再答見 chatThinking
@@ -1149,12 +1150,29 @@ async function callGroq(system: string, turns: { role: string; body: string }[],
   }
 }
 
-// --- 免費層 dispatcher：逐家試（Groq→NVIDIA），各給短超時，先成功者用，全掛才丟出（→罐頭）---
+// --- 本地 Ollama（最後底線）：家用 GPU，首字比雲端慢，逾時放寬到 LOCAL_CHAT_TIMEOUT_MS ---
+const LOCAL_CHAT_TIMEOUT_MS = Number(Deno.env.get("LOCAL_CHAT_TIMEOUT_MS") ?? "15000");
+async function callLocalChat(system: string, turns: { role: string; body: string }[], message: string): Promise<string> {
+  const r = await callLocal({
+    system,
+    messages: [
+      ...turns.map((t) => ({ role: (t.role === "user" ? "user" : "assistant") as "user" | "assistant", content: t.body })),
+      { role: "user" as const, content: message },
+    ],
+    maxTokens: FREE_MAX_TOKENS,
+    timeoutMs: LOCAL_CHAT_TIMEOUT_MS,
+  });
+  return r.text;
+}
+
+// --- 免費層 dispatcher：逐家試（Groq→NVIDIA→本地），各給短超時，先成功者用，全掛才丟出（→罐頭）---
 // 加新供應商只要往此陣列插一項；順序＝優先序。
 async function callFreeTier(system: string, turns: { role: string; body: string }[], message: string): Promise<string> {
   const providers: [string, () => Promise<string>][] = [
     ["groq", () => callGroq(system, turns, message)],
     ["nvidia", () => callNvidia(system, turns, message)],
+    // 最後底線：六六家裡那台（_shared/local-llm.ts）。電腦關著或沒設網址就跳過，不佔等待時間。
+    ...(localEnabled() ? [["local", () => callLocalChat(system, turns, message)] as [string, () => Promise<string>]] : []),
   ];
   for (const [name, fn] of providers) {
     try {

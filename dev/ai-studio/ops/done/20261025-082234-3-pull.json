@@ -1,0 +1,11 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "pull_model",
+  "args": {
+    "model": "glm-4.7-flash"
+  },
+  "note": "A/B 測試候選二（智譜，中文強）",
+  "result": "✅ glm-4.7-flash 下載完成（success）",
+  "done_at": 1792917033.5618472
+}

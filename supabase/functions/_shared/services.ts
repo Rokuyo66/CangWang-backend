@@ -3,11 +3,12 @@ import { YAO_NAMES, huaJinTui } from "./core.ts";
 // Chart 是 interface，得走 import type——混在值 import 裡，node 的型別剝除
 // （dev/billing-test.mts 就是靠它跑）會照著去 core.ts 找一個不存在的 export。
 import type { Chart } from "./core.ts";
-import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
+import { RULES, TOPIC_RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 import { COST } from "./prices.ts";
 import { REFLECT_RULES } from "./reflect.ts";
 import { isNewTokenizer, noThinking } from "./model-params.ts";
+import { callLocal, localEnabled } from "./local-llm.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -102,6 +103,8 @@ const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // KIMI 硬超時：edge→.cn 跨境慢（實測約 33 tok/s），偶發掛住會拖死整個 function 被平台掐成 546。
 // 逾時就 abort 丟錯，交給備援換家重打；上限取 edge 牆鐘（150s）內留得住備援餘裕的值。
 const KIMI_TIMEOUT_MS = Number(Deno.env.get("KIMI_TIMEOUT_MS") ?? "100000");
+// 本地備援的逾時：規則九千多 token 光讀進去就要幾秒，放寬；它已經是最後一道，慢總比丟錯好
+const LOCAL_INTERPRET_TIMEOUT_MS = Number(Deno.env.get("LOCAL_INTERPRET_TIMEOUT_MS") ?? "60000");
 // 卦理規則的快取存活時間。設 "5m" 可退回舊行為（見 system 組裝處的說明）。
 const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
@@ -157,12 +160,15 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   reflect?: { input: string }; // 回評後反省（reflect.ts）：chartText 不用，盤面已在 input 裡
   priority?: string;         // 判法輕重（reflect.loadPriorityBlock）；空字串＝沒有偏離常規的判法
   userNotes?: string;        // 這位問卦人過往印證留下的提醒（reflect.loadUserNotes）
+  topic?: string | null;     // 事類（topic.ts）：接上 TOPIC_RULES 該類專段；null／其他＝只帶核心
   model?: string;            // 只給 dev/model-ab.mts 用：同一盤面指定模型並排比；線上呼叫端不帶
 }) {
   const mode = opts.reflect ? "reflect" : opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
   const model = opts.model || FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
   // 反省接在 RULES 後面而不是自成一份：前綴與初解同一份，快取共用，九千字規則只付一成。
   const ruleText = opts.reflect ? RULES : opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
+  // 日運、月誌不走事類；其餘（初解、追問、展開、評卦、反省）都帶該卦事類的角色表與專斷
+  const topicText = !opts.fortune && !opts.monthly && opts.topic ? (TOPIC_RULES[opts.topic] ?? "") : "";
   // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
   // TTL 用 1 小時而非預設的 5 分鐘：本站流量約每小時個位數次解卦，平均間隔已經
   // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
@@ -171,6 +177,8 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 判法輕重擺在聲線之後、同樣不進快取：它每次重算都可能變，擺進前綴會讓整份規則快取失效。
   const system: { type: string; text: string; cache_control?: { type: string; ttl?: string } }[] = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
+    // 事類專段緊接核心、自成一個快取斷點：核心那份全站共用，各類專段各自累積（共 2 個斷點，上限 4）
+    ...(topicText ? [{ type: "text", text: topicText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } }] : []),
     ...(opts.reflect ? [{ type: "text", text: REFLECT_RULES }] : [{ type: "text", text: `【角色聲線】\n${persona}` }]),
     ...(opts.priority && !opts.reflect ? [{ type: "text", text: opts.priority }] : []),
   ];
@@ -336,13 +344,34 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   let usedModel = model;
   let r: Awaited<ReturnType<typeof callModel>>;
   const t0 = Date.now();   // 耗時（含備援重打）記進 ai_usage.latency_ms：「批卦變慢」要查得到是哪天、哪個模型（六六 2026-10-22）
+  // 雲端全掛 → 六六家裡那台（_shared/local-llm.ts）。沒設網址或在冷卻中就把原本的錯丟出去。
+  const viaLocal = async (cause: unknown) => {
+    if (!localEnabled()) throw cause;
+    console.error(`interpret [${usedModel}] fail, fallback → local:`, cause instanceof Error ? cause.message : String(cause));
+    const l = await callLocal({
+      system: system.map((b) => b.text).join("\n\n"),
+      messages: [
+        ...messages.map((m2: { role: string; content: string }) => ({ role: m2.role as "user" | "assistant", content: m2.content })),
+        ...(partial ? [{ role: "assistant" as const, content: partial }, { role: "user" as const, content: CONTINUE_ASK }] : []),
+      ],
+      maxTokens: baseMaxTokens,
+      timeoutMs: LOCAL_INTERPRET_TIMEOUT_MS,
+      numCtx: 16384,   // 規則九千多 token＋盤面＋前情，8k 裝不下
+      temperature: 0.7,
+    });
+    usedModel = l.model;
+    return { text: l.text, stopReason: null, rawIn: l.tokensIn ?? undefined, rawOut: l.tokensOut ?? undefined };
+  };
   try {
     r = await callModel(model);
   } catch (e) {
-    if (!fallbackModel || fallbackModel === model) throw e;
-    console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
-    usedModel = fallbackModel;
-    r = await callModel(fallbackModel);
+    if (!fallbackModel || fallbackModel === model) r = await viaLocal(e);
+    else {
+      console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
+      usedModel = fallbackModel;
+      try { r = await callModel(fallbackModel); }
+      catch (e2) { r = await viaLocal(e2); }
+    }
   }
   const { text: rawText, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
   // 干支用字校正擺在最前面，parseTagged 與 reading 兩條路才吃得到同一份修好的字。

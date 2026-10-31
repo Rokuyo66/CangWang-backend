@@ -38,6 +38,7 @@ import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
 import { kindOf, isDormant } from "../_shared/memkind.ts";
 import { castKeepOf, searchCasts, FORTUNE_KEEP_DAYS, FREE_KEEP_DAYS } from "../_shared/keep.ts";
+import { clientIp, ipLimited } from "../_shared/ip-limit.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -470,6 +471,11 @@ async function handle(req: Request): Promise<Response> {
   const auth = req.headers.get("authorization");
   let jwtUserId: string | null = null;
   if (auth?.startsWith("Bearer ")) jwtUserId = await userFromJwt(auth.slice(7));
+
+  // 免認證的三支：每 IP 每分鐘上限（_shared/ip-limit.ts，記憶體計數、不寫資料庫）
+  if ((body.mode === "wall" || body.mode === "post_list" || body.mode === "post_detail") && ipLimited(clientIp(req))) {
+    return Response.json({ kind: "err", msg: "手速太快了，稍歇片刻。" }, { status: 429, headers: CORS });
+  }
 
   // 觀前石牆：免認證（放在認證前；唯讀、匿名安全欄位、5 分鐘快取）
   if (body.mode === "wall") return await wallResponse();
@@ -2007,6 +2013,10 @@ async function handle(req: Request): Promise<Response> {
       // 心跡：「就這件事再問一卦」帶著線的 id 進來。帶了就不吃一事不二占的攔截
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。
       threadId: typeof body.thread_id === "string" ? body.thread_id : undefined,
+      // 問事分流：topic＝問卦人在彈窗點選的事類；topic_ask＝這個前端畫得出 need_topic 彈窗
+      // （舊版 App 不帶 → 分不出就只帶核心規則照解，不回它不認得的 kind）
+      topic: typeof body.topic === "string" ? body.topic : undefined,
+      topicAsk: body.topic_ask === true,
     });
     // 危機攔截：pipeline 回 crisis 時，這裡改用 err 管道送出。
     // 理由是相容——結果本來就是整包 Response.json 透傳，網頁前端不認得沒見過的 kind，

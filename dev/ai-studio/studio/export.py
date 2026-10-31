@@ -1,0 +1,138 @@
+"""把每份稿的最新版輸出成好讀的 Markdown：讀稿/<格式>/<檔名>.md，外加 讀稿/總表.md。
+
+背景每分鐘跑一次，內容沒變就不重寫；稿子改名（標題變了）會把舊檔刪掉。
+"""
+import re
+
+from . import kinds
+from .common import DIRS, ROOT, read_json, write_json
+
+OUT = ROOT / "讀稿"
+INDEX = OUT / ".index.json"
+STAGE_NAME = {"claude": "Claude 複審中", "pending": "待審", "approved": "已通過", "queue": "排隊中", "work": "寫作中"}
+FOLDER = {"letter": "道緣信", "chapter": "道緣章", "jh_outline": "江湖大綱"}
+
+
+def _safe(s, n=16):
+    return re.sub(r'[\\/:*?"<>|\s]+', "", s or "")[:n] or "未命名"
+
+
+def filename(t, d):
+    m = t["meta"]
+    k = t["kind"]
+    if k == "letter":
+        return f"{kinds.CHARS[m['character_id']]}_{m['at']:03d}_{_safe(d.get('subject'))}.md"
+    if k == "chapter":
+        return f"{kinds.CHARS[m['character_id']]}_第{m['chapter']}章_{_safe(d.get('title'))}.md"
+    g = kinds.gua_data()[m["gua_no"] - 1]
+    return f"{m['gua_no']:02d}_{g['gua']}_{_safe(d.get('title'))}.md"
+
+
+def _review_md(t):
+    last = t["rounds"][-1]
+    rv = last["review"]
+    hist = " → ".join(f"{r['review'].get('score')}{'（你改）' if r.get('by') == '製作人' else ''}" for r in t["rounds"])
+    out = ["", "---", f"**審稿** {rv.get('score')} 分{'｜有硬傷' if rv.get('hard_fail') else ''}　",
+           f"各輪分數：{hist}　", f"{rv.get('summary','')}", ""]
+    for i in rv.get("issues", []):
+        out.append(f"- [{i.get('by','')}｜{i.get('type','')}] {i.get('where','')}：{i.get('detail','')}")
+    return out
+
+
+def md_letter(t, d):
+    m = t["meta"]
+    out = [f"# {d.get('subject','').replace(chr(10), ' ')}", "",
+           f"> {kinds.KINDS['letter'].label(t)}｜夾 {d.get('lingshi')} 靈石", ""]
+    out += [p + "  " for p in d.get("body", "").split("\n")]
+    out += ["", f"**寫入記憶**：{d.get('memory','')}"]
+    return out
+
+
+def md_chapter(t, d):
+    m = t["meta"]
+    out = [f"# {d.get('title','')}", "",
+           f"> {kinds.CHARS[m['character_id']]}第{m['chapter']}章（道緣 {kinds.FAVOR[m['chapter']]}）｜id `{m['character_id']}_c{m['chapter']}`",
+           f"> {d.get('summary','')}", ""]
+    for i, s in enumerate(d.get("scenes") or [], 1):
+        if s.get("bg"):
+            out += ["", f"### 〔{s.get('place') or s['bg']}〕", ""]
+        spk = "你" if s.get("me") else kinds.CHARS.get(s.get("who"), "")
+        tag = f"`幕{i}`" + (f" `#{s['id']}`" if s.get("id") else "")
+        text = s.get("text", "").replace("\n", "  \n")
+        out.append(f"{tag} **{spk}**　{text}" if spk else f"{tag} *{text}*")
+        for c in s.get("choices") or []:
+            out.append(f"- ▸ {c.get('label','')}" + (f"（{c['hint']}）" if c.get("hint") else "")
+                       + (f" → `#{c['to']}`" if c.get("to") else ""))
+        if s.get("next"):
+            out.append(f"　→ `#{s['next']}`")
+        if s.get("end"):
+            out.append("　■ 結束")
+        out.append("")
+    out += ["", f"**新身分**：{d.get('reward_title','')}　", f"**記憶**：{d.get('reward_memory','')}　",
+            f"**靈石**：{d.get('reward_lingshi')}"]
+    return out
+
+
+def md_outline(t, d):
+    g = kinds.gua_data()[t["meta"]["gua_no"] - 1]
+    o = d.get("outline") or {}
+    L = {v: k for k, v in kinds.JhOutline.FIELD.items()}
+    out = [f"# {d.get('title','')}", "",
+           f"> 第{g['gua_no']}卦 {g['gua']}｜{'重口' if d.get('tone') == 'heavy' else '江湖小事'}｜{o.get('player_summary','')}", "",
+           "**經文**　", f"卦辭：{g['guaci']}　"] + [y + "　" for y in g["yao"]] + [""]
+    for k in ("theme", "core_question", "summary", "conflict", "player_role"):
+        out += [f"## {L[k]}", o.get(k, ""), ""]
+    for k in ("plot", "source_notes", "ending_dirs"):
+        out += [f"## {L[k]}"] + [f"- {x.strip()}" for x in re.split(r"[；;]", o.get(k, "")) if x.strip()] + [""]
+    out += [f"## {L['achievement_dir']}", o.get("achievement_dir", ""), ""]
+    if o.get("must_include") or o.get("must_avoid"):
+        out += [f"**一定要有**：{o.get('must_include','')}　", f"**一定避開**：{o.get('must_avoid','')}", ""]
+    idt = d.get("identity") or {}
+    out += ["## 人物", f"玩家身分：{'偽裝成' + idt.get('label','') if idt.get('mode') == 'disguise' else '幾知觀弟子'}", ""]
+    out += [f"- **{n.get('name','')}**（`{n.get('id','')}`）：{n.get('desc','')}" for n in d.get("npcs") or []]
+    return out
+
+
+RENDER = {"letter": md_letter, "chapter": md_chapter, "jh_outline": md_outline}
+
+
+def export_all():
+    """回傳 (寫了幾個, 刪了幾個)。"""
+    OUT.mkdir(exist_ok=True)
+    idx = read_json(INDEX, {}) or {}
+    seen, wrote, removed, rows = set(), 0, 0, []
+    for st in ("pending", "claude", "approved", "work", "queue"):
+        for p in DIRS[st].glob("*.json"):
+            t = read_json(p) or {}
+            if t.get("kind") not in RENDER or not t.get("rounds"):
+                continue
+            d = t["rounds"][-1]["script"]
+            rel = f"{FOLDER[t['kind']]}/{filename(t, d)}"
+            seen.add(t["id"])
+            body = [f"<!-- #{t['id']}｜{STAGE_NAME[st]}｜第 {len(t['rounds'])} 輪 -->",
+                    f"**狀態：{STAGE_NAME[st]}**　#{t['id']}", ""] + RENDER[t["kind"]](t, d) + _review_md(t)
+            text = "\n".join(body) + "\n"
+            f = OUT / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            old = idx.get(t["id"])
+            if old and old != rel:
+                (OUT / old).unlink(missing_ok=True)
+                removed += 1
+            if not f.exists() or f.read_text(encoding="utf-8") != text:
+                f.write_text(text, encoding="utf-8")
+                wrote += 1
+            idx[t["id"]] = rel
+            rows.append((FOLDER[t["kind"]], rel, STAGE_NAME[st], t["rounds"][-1]["review"].get("score")))
+    for tid, rel in list(idx.items()):  # 捨棄或不見了的稿，讀稿檔也收掉
+        if tid not in seen:
+            (OUT / rel).unlink(missing_ok=True)
+            del idx[tid]
+            removed += 1
+    write_json(INDEX, idx)
+    lines = ["# 讀稿總表", "", "| 格式 | 檔案 | 狀態 | 分數 |", "|---|---|---|---|"]
+    lines += [f"| {a} | [{b.split('/')[-1]}]({b}) | {c} | {s} |" for a, b, c, s in sorted(rows)]
+    total = OUT / "總表.md"
+    new = "\n".join(lines) + "\n"
+    if not total.exists() or total.read_text(encoding="utf-8") != new:
+        total.write_text(new, encoding="utf-8")
+    return wrote, removed

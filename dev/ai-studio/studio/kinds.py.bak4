@@ -1,0 +1,564 @@
+"""三種產出格式（照 cangwang repo 的正式規格）：道緣信、道緣章、江湖大綱。
+
+每種格式提供：schema（給模型的結構化輸出）、寫手提示、使用者提示、程式檢查、
+逐行文字（給審稿與修改意見對照）、閱讀模式 HTML、缺口清單。
+規格來源：dev/design/journal/EVENT-SCRIPT.md、DAOYUAN-PLAN.md、JIANGHU-SCRIPT.md、JIANGHU-WRITER-BRIEF.md
+"""
+import json
+import re
+from html import escape as _e
+
+from .common import DIRS, PROMPT_DIR, read_json
+
+CHARS = {"daoshi_m": "大師兄", "daoshi_f": "師妹", "lingshou": "觀喵"}
+NAME2ID = {v: k for k, v in CHARS.items()} | {"觀貓": "lingshou", "貓": "lingshou", "師兄": "daoshi_m"}
+WRONG_ADDRESS = {  # 說話者 → 台詞裡不該出現的稱呼
+    "daoshi_m": ["施主", "鏟屎的", "兩腳獸"],
+    "daoshi_f": ["護道人", "鏟屎的", "兩腳獸"],
+    "lingshou": ["施主", "護道人"],
+}
+SIMPLIFIED = set("们这说时会对过还没发现开关问题东车门马话钱银书头么个与将让应实现经从来见观谁难样认识请")
+
+
+def issue(t, where, detail, fix, hard=False):
+    return {"type": t, "where": where, "detail": detail, "fix": fix, "by": "程式", "hard": hard}
+
+
+def _paras_check(out, where, text, limit=120):
+    for j, para in enumerate((text or "").split("\n"), 1):
+        if len(para) > limit:
+            out.append(issue("格式", where, f"第{j}段 {len(para)} 字，超過 {limit}", "拆成兩段"))
+    if "＊" in (text or "") or re.search(r"\*[^*]+\*", text or ""):
+        out.append(issue("格式", where, "用了＊動作＊寫法", "動作改成旁白句"))
+    if re.search(r"你說[：:]", text or ""):
+        out.append(issue("格式", where, "寫了「你說：」", "刪掉，玩家選的話會自己顯示"))
+    sents = [x.strip() for x in re.split(r"[。！？\n]", text or "") if len(x.strip()) >= 4]
+    rep = {x for x in sents if sents.count(x) >= 3}
+    if rep:
+        out.append(issue("格式", where, f"同一句重複 3 次以上：「{next(iter(rep))[:12]}」", "刪掉重複", True))
+    bad = SIMPLIFIED & set(text or "")
+    if bad:
+        out.append(issue("格式", where, f"疑似簡體字：{''.join(sorted(bad))}", "改成繁體"))
+
+
+def _address_check(out, where, who, text):
+    for w in WRONG_ADDRESS.get(who, []):
+        if w in (text or ""):
+            out.append(issue("稱呼錯誤", where, f"{CHARS[who]}的話裡出現「{w}」", "對照稱呼表改正", True))
+
+
+MASTER = re.compile(r"師[傅父]")
+
+
+def _master_check(out, where, who, text):
+    """「師傅」只有大師兄能說；觀喵沒有師傅；師妹只說「喵師傅」；玩家與旁白不用（10-26 六六）"""
+    text = text or ""
+    if who == "daoshi_m" or not MASTER.search(text):
+        return
+    if who == "lingshou":
+        out.append(issue("設定衝突", where, "觀喵說了「師傅」：觀喵沒有師傅", "刪掉，改成觀喵自己的話", True))
+    elif who == "daoshi_f":
+        if re.search(r"(?<!喵)師[傅父]", text):
+            out.append(issue("設定衝突", where, "師妹說了「師傅」：她只叫「喵師傅」", "刪掉或改成「喵師傅」", True))
+    else:
+        out.append(issue("設定衝突", where, f"{'玩家' if who == 'me' else '旁白'}用了「師傅」", "改掉：只有大師兄說「師傅說」"))
+
+
+def done_slots(kind):
+    """已經有稿（不含捨棄）的 slot。"""
+    s = set()
+    for st in ("ideas", "queue", "work", "claude", "pending", "approved"):
+        for p in DIRS[st].glob("*.json"):
+            t = read_json(p) or {}
+            if t.get("kind") == kind:
+                s.add(t.get("slot"))
+    return s
+
+
+def prior_docs(kind, pred):
+    """同類、已通過或待審的稿（給寫手避免重複、接續劇情）。"""
+    out = []
+    for st in ("approved", "pending"):
+        for p in DIRS[st].glob("*.json"):
+            t = read_json(p) or {}
+            if t.get("kind") == kind and t.get("rounds") and pred(t):
+                out.append((t, st))
+    return out
+
+
+# ═════════════════════════ 道緣信 ═════════════════════════
+class Letter:
+    key, name = "letter", "道緣信"
+    POINTS = [300, 500, 800]  # 熟度升階才寄（六六 2026-10-25）：初識→相熟→相知→知己
+    TIER = {300: "相熟", 500: "相知", 800: "知己"}
+    PREV = {300: "初識", 500: "相熟", 800: "相知"}
+    schema = {"type": "object", "properties": {
+        "subject": {"type": "string", "maxLength": 16},
+        "body": {"type": "string", "maxLength": 700},
+        "lingshi": {"type": "integer"},
+        "memory": {"type": "string", "maxLength": 60}},
+        "required": ["subject", "body", "lingshi", "memory"]}
+    prompt, max_tokens = "kind_letter.md", 1500
+
+    def slot(self, meta):
+        return f"{meta['character_id']}@{meta['at']}"
+
+    def label(self, t):
+        m = t["meta"]
+        return f"{CHARS[m['character_id']]}的信・{self.PREV[m['at']]}→{self.TIER[m['at']]}（道緣 {m['at']}）"
+
+    def user_prompt(self, t):
+        m = t["meta"]
+        prev = prior_docs("letter", lambda x: x["meta"]["character_id"] == m["character_id"])
+        prev.sort(key=lambda x: x[0]["meta"]["at"])
+        hist = "\n".join(f"- 道緣 {x['meta']['at']}：{x['rounds'][-1]['script'].get('subject','')}｜"
+                         f"{x['rounds'][-1]['script'].get('memory','')}" for x, _ in prev) or "（還沒有）"
+        return (f"【題目】{CHARS[m['character_id']]}寫給護道人的信：兩人的關係從「{self.PREV[m['at']]}」走到「{self.TIER[m['at']]}」，這封信就是他／她對這一步的回應。"
+                + (f"\n製作人補充：{t['brief']}" if t.get("brief") else "")
+                + f"\n\n【這位角色已寫過的信（避開重複）】\n{hist}")
+
+    def lint(self, d, t):
+        out = []
+        cid = t["meta"]["character_id"]
+        body = d.get("body", "")
+        if len(body) < 120:
+            out.append(issue("格式", "body", f"信只有 {len(body)} 字", "寫到 150–400 字", True))
+        if len(body) > 500:
+            out.append(issue("格式", "body", f"信 {len(body)} 字，太長", "收在 400 字內"))
+        at = t["meta"]["at"]
+        lo, hi = {300: (8, 12), 500: (12, 18), 800: (18, 25)}.get(at, (5, 25))
+        if not (lo <= int(d.get("lingshi", 0) or 0) <= hi):
+            out.append(issue("格式", "lingshi", f"道緣 {at} 給 {d.get('lingshi')} 靈石，應在 {lo}–{hi}", f"改成 {lo}–{hi}", True))
+        meta = r"道緣|[一二三四五六七八九十百千\d]+點|好感|靈石[一二三四五六七八九十\d]+枚"
+        for f in ("body", "memory"):
+            if re.search(meta, d.get(f, "")):
+                out.append(issue("設定衝突", f, "寫出了遊戲數值（道緣／點數），角色不會知道這些", "改成劇中說法", True))
+        if re.search(r"暗示|似乎|可能|或許|也許", d.get("memory", "")):
+            out.append(issue("格式", "memory", "記憶寫成推測", "只寫信裡真的發生的事", True))
+        if not d.get("memory"):
+            out.append(issue("格式", "memory", "沒有記憶", "寫一句第三人稱的事實", True))
+        _paras_check(out, "body", body)
+        _address_check(out, "body", cid, body)
+        if re.search(r"永遠|一輩子都", body):
+            out.append(issue("角色OOC", "body", "出現永久承諾", "刪掉「永遠」類承諾"))
+        return out
+
+    def numbered(self, d, t):
+        rows = [f"信封：{d.get('subject','')}"]
+        rows += [f"P{i} {p}" for i, p in enumerate(d.get("body", "").split("\n"), 1) if p.strip()]
+        rows.append(f"記憶：{d.get('memory','')}｜靈石 {d.get('lingshi')}")
+        return f"【{self.label(t)}】\n" + "\n".join(rows)
+
+    def title(self, d):
+        return d.get("subject", "")
+
+    def summary(self, d):
+        return d.get("memory", "")
+
+    def html(self, d, t):
+        body = "\n".join(f"<code>P{i}</code> {_e(p)}" for i, p in enumerate(d.get("body", "").split("\n"), 1) if p.strip())
+        return [("整篇", f"✉️ <b>{_e(d.get('subject',''))}</b>\n{_e(self.label(t))}｜夾 {d.get('lingshi')} 靈石"),
+                ("信文", body),
+                ("記憶", f"<b>寫入記憶</b>：{_e(d.get('memory',''))}")]
+
+    def apply_edit(self, d, label, text):
+        text = re.sub(r"(?m)^\s*P\d+\s*", "", text).strip()
+        if label == "記憶":
+            d["memory"] = re.sub(r"^寫入記憶[：:]\s*", "", text)
+        elif label == "整篇" and "\n" not in text and len(text) <= 16:
+            d["subject"] = text
+        else:
+            d["body"] = text
+        return d
+
+    def backlog(self):
+        done = done_slots("letter")
+        out = []
+        for cid in CHARS:
+            for at in self.POINTS:
+                meta = {"character_id": cid, "at": at}
+                if self.slot(meta) not in done:
+                    out.append(meta)
+                    break  # 每位角色只列下一封
+        return out
+
+
+# ═════════════════════════ 道緣章 ═════════════════════════
+BG = ["guanmen", "cangjingge", "dadian", "zhongting", "langxia", "qianting", "xiangfang", "zaofang", "houyuan", "wuji"]
+FAVOR = {1: 0, 2: 300, 3: 500, 4: 800}
+LINGSHI = {1: 10, 2: 30, 3: 50, 4: 100}
+EXISTING = {"daoshi_m_c1"}  # 已上線的章（製作人親寫），不重寫
+CHAPTER_HINT = {  # 製作人已定的方向；沒有就留空讓寫手提案
+    "daoshi_m_c2": "接續第一章「雲中來信」：大師兄接下掌門印鑑之後的事。原本規劃章名「缺頁」（一冊殘頁出現在不該出現的地方），可以沿用或改寫。",
+    "daoshi_m_c3": "原本規劃章名「他的名字」：「大師兄」不是名字，是位置。這一章跟他的真名有關。",
+}
+
+
+class Chapter:
+    key, name = "chapter", "道緣章"
+    _scene = {"type": "object", "properties": {
+        "id": {"type": "string", "maxLength": 12},
+        "bg": {"type": "string", "enum": BG},
+        "place": {"type": "string", "maxLength": 10},
+        "portrait": {"type": "string", "enum": list(CHARS) + ["none"]},
+        "who": {"type": "string", "enum": list(CHARS)},
+        "me": {"type": "boolean"},
+        "text": {"type": "string", "maxLength": 300},
+        "choices": {"type": "array", "maxItems": 3, "items": {"type": "object", "properties": {
+            "key": {"type": "string", "maxLength": 6}, "label": {"type": "string", "maxLength": 18},
+            "hint": {"type": "string", "maxLength": 14}, "to": {"type": "string", "maxLength": 12}},
+            "required": ["key", "label"]}},
+        "next": {"type": "string", "maxLength": 12},
+        "end": {"type": "boolean"}},
+        "required": ["text"]}
+    schema = {"type": "object", "properties": {
+        "title": {"type": "string", "maxLength": 8},
+        "summary": {"type": "string", "maxLength": 40},
+        "scenes": {"type": "array", "maxItems": 26, "items": _scene},
+        "reward_title": {"type": "string", "maxLength": 8},
+        "reward_memory": {"type": "string", "maxLength": 60},
+        "reward_lingshi": {"type": "integer"}},
+        "required": ["title", "summary", "scenes", "reward_title", "reward_memory", "reward_lingshi"]}
+    prompt, max_tokens = "kind_chapter.md", 6000
+
+    def slot(self, meta):
+        return f"{meta['character_id']}_c{meta['chapter']}"
+
+    def label(self, t):
+        m = t["meta"]
+        return f"{CHARS[m['character_id']]}第{m['chapter']}章（道緣 {FAVOR[m['chapter']]}）"
+
+    def user_prompt(self, t):
+        m = t["meta"]
+        sid = self.slot(m)
+        prev = prior_docs("chapter", lambda x: x["meta"]["character_id"] == m["character_id"]
+                          and x["meta"]["chapter"] < m["chapter"])
+        prev_txt = "\n".join(f"- 第{x['meta']['chapter']}章「{x['rounds'][-1]['script'].get('title','')}」："
+                             f"{x['rounds'][-1]['script'].get('summary','')}" for x, _ in prev)
+        if m["character_id"] == "daoshi_m" and m["chapter"] > 1:
+            prev_txt = "- 第1章「雲中來信」（已上線）：大師兄一踏出觀門，見觀外樹梢卡了一封信；結尾得到新身分「掌門師兄」。\n" + prev_txt
+        return (f"【題目】{self.label(t)}，id {sid}。"
+                f"\n章節方向：{CHAPTER_HINT.get(sid) or t.get('brief') or '由你提案，要符合這個門檻的熟度。'}"
+                + (f"\n製作人補充：{t['brief']}" if t.get("brief") and CHAPTER_HINT.get(sid) else "")
+                + f"\n前面的章：\n{prev_txt or '（這是第一章）'}"
+                + f"\nreward_lingshi 請填 {LINGSHI[m['chapter']]}。")
+
+    def lint(self, d, t):
+        out = []
+        sc = d.get("scenes") or []
+        cid = t["meta"]["character_id"]
+        if len(sc) < 10:
+            out.append(issue("格式", "全篇", f"只有 {len(sc)} 幕", "寫到 12–24 幕", True))
+        blob = json.dumps(d, ensure_ascii=False)
+        copied = [x for x in ("雲中來信", "掌門印鑑", "樹梢", "掌門師兄") if x in blob] if self.slot(t["meta"]) != "daoshi_m_c2" else []
+        if copied:
+            out.append(issue("設定衝突", "全篇", "照抄已上線的大師兄第一章：" + "、".join(copied), "從這位角色自己的設定另寫一件事", True))
+        if sc and not sc[0].get("bg"):
+            out.append(issue("格式", "幕1", "第一幕沒有 bg", "第一幕要指定場景", True))
+        ids = {s.get("id"): i for i, s in enumerate(sc) if s.get("id")}
+        n_choice = 0
+        for i, s in enumerate(sc, 1):
+            w = f"幕{i}"
+            txt = s.get("text", "")
+            if not txt.strip():
+                out.append(issue("格式", w, "這一幕沒有文字", "補內容或刪掉", True))
+            if s.get("bg") and s["bg"] not in BG:
+                out.append(issue("格式", w, f"bg「{s['bg']}」不在場景清單", "改用清單裡的 key", True))
+            if s.get("who") and s.get("me"):
+                out.append(issue("格式", w, "who 和 me 同時寫了", "只留一個"))
+            if (s.get("who") or s.get("me")) and "「" not in txt:
+                out.append(issue("格式", w, "有說話者但台詞沒用「」", "台詞加「」"))
+            _paras_check(out, w, txt)
+            if s.get("who"):
+                _address_check(out, w, s["who"], "".join(re.findall(r"「([^」]*)」", txt)))
+            for tgt in [s.get("next")] + [c.get("to") for c in s.get("choices") or []]:
+                if tgt and tgt not in ids and not str(tgt).isdigit():
+                    out.append(issue("格式", w, f"指向不存在的幕「{tgt}」", "補上那一幕的 id 或改目標", True))
+            chs = s.get("choices") or []
+            if chs:
+                n_choice += 1
+                if len(chs) < 2:
+                    out.append(issue("格式", w, "選擇點只有一個選項", "至少 2 個", True))
+                for c in chs:
+                    if len(c.get("label", "")) > 16:
+                        out.append(issue("格式", w, f"選項「{c['label']}」超過 16 字", "縮短"))
+                # 分支收回：跳去的幕，前一幕（不是本幕）必須 end/next/choices 擋住
+                for c in chs:
+                    j = ids.get(c.get("to"))
+                    if j and j - 1 != i - 1 and j - 1 >= 0:
+                        before = sc[j - 1]
+                        if not (before.get("end") or before.get("next") or before.get("choices")):
+                            out.append(issue("因果斷裂", f"幕{j}", f"幕{j}前一幕沒有 end／next，前一條路會一路演進來",
+                                             f"幕{j}前一幕加 next 或 end", True))
+        if n_choice == 0:
+            out.append(issue("格式", "全篇", "沒有任何選擇點", "至少 1 個", True))
+        if sc and not (sc[-1].get("end") or sc[-1].get("next")):
+            out.append(issue("格式", f"幕{len(sc)}", "最後一幕沒有 end", "加 end: true"))
+        talks = sum(1 for s in sc if s.get("who") == cid)
+        if sc and talks < max(3, len(sc) // 5):
+            out.append(issue("設定衝突", "全篇", f"主角{CHARS[cid]}只講了 {talks} 幕", "讓他成為這一章的重心"))
+        if not d.get("reward_title"):
+            out.append(issue("格式", "reward_title", "沒有新身分", "補一個 8 字內的身分", True))
+        return out
+
+    def clean(self, d):
+        for s in d.get("scenes") or []:
+            if s.get("portrait") == "none":
+                s["portrait"] = None
+        return d
+
+    def numbered(self, d, t):
+        rows = [f"【{self.label(t)}】{d.get('title','')}：{d.get('summary','')}"]
+        for i, s in enumerate(d.get("scenes") or [], 1):
+            spk = "你" if s.get("me") else CHARS.get(s.get("who"), "旁白")
+            tags = "".join(f"[{k}={s[k]}]" for k in ("id", "bg", "next") if s.get(k)) + ("[end]" if s.get("end") else "")
+            rows.append(f"幕{i}{tags} {spk}：{s.get('text','').replace(chr(10), ' / ')}")
+            for c in s.get("choices") or []:
+                rows.append(f"　選項{c.get('key')}「{c.get('label')}」→{c.get('to') or '下一幕'}（{c.get('hint','')}）")
+        rows.append(f"獎勵：身分「{d.get('reward_title','')}」｜記憶：{d.get('reward_memory','')}｜靈石 {d.get('reward_lingshi')}")
+        return "\n".join(rows)
+
+    def title(self, d):
+        return d.get("title", "")
+
+    def summary(self, d):
+        return d.get("summary", "")
+
+    def html(self, d, t):
+        parts = [("整篇", f"📖 <b>{_e(d.get('title',''))}</b>\n{_e(self.label(t))}\n<i>{_e(d.get('summary',''))}</i>")]
+        buf, start = [], 1
+        sc = d.get("scenes") or []
+        for i, s in enumerate(sc, 1):
+            spk = "你" if s.get("me") else CHARS.get(s.get("who"), "")
+            head = f"<code>幕{i}</code>" + (f" 〔{_e(s.get('place') or s['bg'])}〕" if s.get("bg") else "")
+            if s.get("id"):
+                head += f" <i>#{_e(s['id'])}</i>"
+            body = _e(s.get("text", ""))
+            line = f"{head}\n{('<b>' + spk + '</b>：') if spk else '<i>'}{body}{'' if spk else '</i>'}"
+            for c in s.get("choices") or []:
+                line += f"\n　▸ {_e(c.get('label',''))}" + (f"（{_e(c['hint'])}）" if c.get("hint") else "") \
+                        + (f" → #{_e(c['to'])}" if c.get("to") else "")
+            if s.get("next"):
+                line += f"\n　→ #{_e(s['next'])}"
+            if s.get("end"):
+                line += "\n　■ 結束"
+            buf.append(line)
+            if len(buf) == 6 or i == len(sc):
+                parts.append((f"幕{start}-{i}", "\n\n".join(buf)))
+                buf, start = [], i + 1
+        parts.append(("獎勵", f"<b>新身分</b>：{_e(d.get('reward_title',''))}\n<b>記憶</b>：{_e(d.get('reward_memory',''))}"
+                              f"\n<b>靈石</b>：{d.get('reward_lingshi')}"))
+        return parts
+
+    def apply_edit(self, d, label, text):
+        sc = d.get("scenes") or []
+        if label == "獎勵":
+            for k, f in (("新身分", "reward_title"), ("記憶", "reward_memory"), ("靈石", "reward_lingshi")):
+                m = re.search(k + r"[：:]\s*(.+)", text)
+                if m:
+                    v = m.group(1).strip()
+                    d[f] = int(re.sub(r"\D", "", v) or 0) if f == "reward_lingshi" else v
+            return d
+        if label == "整篇":
+            lines = [x for x in text.split("\n") if x.strip()]
+            if lines:
+                d["title"] = lines[0][:8]
+            if len(lines) > 1:
+                d["summary"] = lines[1][:40]
+            return d
+        # 幕N：內容（可多幕）；只換那一幕的文字，說話者、場景、選項不動
+        hits = list(re.finditer(r"(?m)^\s*幕\s*(\d+)\s*[：:]?\s*", text))
+        if not hits:
+            m = re.match(r"幕(\d+)-(\d+)", label)
+            if m and m.group(1) == m.group(2):
+                sc[int(m.group(1)) - 1]["text"] = text.strip()
+                return d
+            raise ValueError("道緣章請用「幕N：新內容」逐幕寫（換行接下一幕），說話者與選項會保留")
+        for i, h in enumerate(hits):
+            n = int(h.group(1))
+            body = text[h.end(): hits[i + 1].start() if i + 1 < len(hits) else len(text)].strip()
+            body = re.sub(r"^(大師兄|師妹|觀喵|你)[：:]", "", body).strip()
+            if not 1 <= n <= len(sc):
+                raise ValueError(f"沒有幕{n}（共 {len(sc)} 幕）")
+            sc[n - 1]["text"] = body
+        return d
+
+    def backlog(self):
+        done = done_slots("chapter") | EXISTING
+        out = []
+        for ch in (1, 2, 3):
+            for cid in CHARS:
+                meta = {"character_id": cid, "chapter": ch}
+                prev_ok = ch == 1 or f"{cid}_c{ch-1}" in done
+                if self.slot(meta) not in done and prev_ok:
+                    out.append(meta)
+        return out
+
+
+# ═════════════════════════ 江湖大綱 ═════════════════════════
+def gua_data():
+    return json.loads((PROMPT_DIR / "gua64.json").read_text(encoding="utf-8"))
+
+
+class JhOutline:
+    key, name = "jh_outline", "江湖大綱"
+    _str = lambda n: {"type": "string", "maxLength": n}
+    schema = {"type": "object", "properties": {
+        "title": _str(6), "tone": {"type": "string", "enum": ["small", "heavy"]},
+        "outline": {"type": "object", "properties": {
+            "theme": _str(120), "summary": _str(400), "player_summary": _str(40), "core_question": _str(60),
+            "conflict": _str(200), "player_role": _str(80), "plot": _str(400), "ending_dirs": _str(300),
+            "achievement_dir": _str(80), "must_include": _str(100), "must_avoid": _str(100), "source_notes": _str(500)},
+            "required": ["theme", "summary", "player_summary", "core_question", "conflict", "player_role",
+                         "plot", "ending_dirs", "achievement_dir", "must_include", "must_avoid", "source_notes"]},
+        "identity": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["disciple", "disguise"]}, "label": _str(12), "reason": _str(60)},
+            "required": ["mode", "label", "reason"]},
+        "npcs": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+            "id": {"type": "string", "maxLength": 20}, "name": _str(6), "desc": _str(100)},
+            "required": ["id", "name", "desc"]}}},
+        "required": ["title", "tone", "outline", "identity", "npcs"]}
+    prompt, max_tokens = "kind_jh_outline.md", 3500
+
+    def slot(self, meta):
+        return f"gua_{meta['gua_no']:02d}"
+
+    def gua(self, t):
+        return gua_data()[t["meta"]["gua_no"] - 1]
+
+    def label(self, t):
+        g = self.gua(t)
+        return f"江湖大綱・第{g['gua_no']}卦 {g['gua']}"
+
+    def seed(self, t):
+        return jh_seeds()["seeds"].get(self.slot(t["meta"]))
+
+    def user_prompt(self, t):
+        g = self.gua(t)
+        yao = "\n".join(g["yao"])
+        sd = self.seed(t)
+        L = {v: k for k, v in self.FIELD.items()}
+        seed = ("" if not sd else "\n\n【製作人已定的大綱（篇名照抄；以下是定案，補細不改）】\n篇名：" + sd["title"] + "\n"
+                + "\n".join(f"{L.get(k, k)}：{v}" for k, v in sd["outline"].items()))
+        ban = "、".join(jh_seeds()["ban"])
+        return (f"【題目】{self.label(t)}" + seed
+                + (f"\n\n【禁用名單：別卦已用的人物與地名，不准出現】{ban}" if ban else "")
+                + (f"\n製作人補充：{t['brief']}" if t.get("brief") else "")
+                + f"\n\n【經文（只能依此解讀）】\n卦辭：{g['guaci']}\n{yao}\n彖曰：{g['tuan']}")
+
+    def lint(self, d, t):
+        out = []
+        o = d.get("outline") or {}
+        plot = o.get("plot", "")
+        for k in ("初", "二", "三", "四", "五", "上"):
+            if f"{k}：" not in plot and f"{k}:" not in plot:
+                out.append(issue("格式", "plot", f"六節少了「{k}：」", "plot 六節都要寫", True))
+        notes = o.get("source_notes", "")
+        g = self.gua(t)
+        hit = sum(1 for y in g["yao"] if re.sub(r"[^一-龥]", "", y.split("：", 1)[-1])[:2] in notes)
+        if hit < 4:
+            out.append(issue("卦理錯誤", "source_notes", f"只對到 {hit}/6 條爻辭", "六爻各寫一句對應，引用原文", True))
+        sd = self.seed(t)
+        if sd and d.get("title") != sd["title"]:
+            out.append(issue("格式", "title", f"篇名改成「{d.get('title')}」，已定是「{sd['title']}」", "篇名照抄已定的", True))
+        blob = json.dumps(d, ensure_ascii=False)
+        hit_ban = [x for x in jh_seeds()["ban"] if x in blob]
+        if hit_ban:
+            out.append(issue("設定衝突", "全篇", "用了別卦的人物或地名：" + "、".join(hit_ban), "全部換成本卦新創的", True))
+        if g["short"] in d.get("title", "") or g["gua"] in d.get("title", ""):
+            out.append(issue("格式", "title", "篇名直接用了卦名", "另取篇名"))
+        npcs = d.get("npcs") or []
+        if len(npcs) < 3:
+            out.append(issue("格式", "npcs", f"只有 {len(npcs)} 位本篇人物", "3–6 位", True))
+        names = [n.get("name") for n in npcs]
+        if len(set(names)) != len(names):
+            out.append(issue("設定衝突", "npcs", "人物重名", "改名"))
+        for n in npcs:
+            if not re.match(r"^n_[a-z]+$", n.get("id", "")):
+                out.append(issue("格式", "npcs", f"id「{n.get('id')}」格式不對", "用 n_ 加拼音小寫", True))
+        ends = [x for x in re.split(r"[；;]", o.get("ending_dirs", "")) if x.strip()]
+        if not 4 <= len(ends) <= 6:
+            out.append(issue("格式", "ending_dirs", f"{len(ends)} 個結局方向", "4–6 個", True))
+        if len(o.get("player_summary", "")) > 40:
+            out.append(issue("格式", "player_summary", "超過 40 字", "縮短"))
+        if d.get("identity", {}).get("mode") == "disguise" and not d["identity"].get("label"):
+            out.append(issue("格式", "identity", "偽裝身分沒寫 label", "補上偽裝成什麼"))
+        for k, v in o.items():
+            _paras_check(out, k, v, 500)
+        return out
+
+    def numbered(self, d, t):
+        g = self.gua(t)
+        o = d.get("outline") or {}
+        rows = [f"【{self.label(t)}】篇名：{d.get('title','')}（{d.get('tone','')}）",
+                f"經文：卦辭 {g['guaci']}｜" + "｜".join(g["yao"])]
+        rows += [f"{k}：{v}" for k, v in o.items()]
+        rows.append(f"身分：{json.dumps(d.get('identity', {}), ensure_ascii=False)}")
+        rows += [f"人物 {n.get('id')} {n.get('name')}：{n.get('desc')}" for n in d.get("npcs") or []]
+        return "\n".join(rows)
+
+    def title(self, d):
+        return d.get("title", "")
+
+    def summary(self, d):
+        return (d.get("outline") or {}).get("player_summary", "")
+
+    def html(self, d, t):
+        o = d.get("outline") or {}
+        label = {"theme": "主題", "summary": "真相與局", "player_summary": "入口一句", "core_question": "核心問題",
+                 "conflict": "衝突", "player_role": "玩家身分", "plot": "六節", "ending_dirs": "結局方向",
+                 "achievement_dir": "成就方向", "must_include": "一定要有", "must_avoid": "一定避開",
+                 "source_notes": "爻位對應"}
+        head = (f"🗺 <b>{_e(d.get('title',''))}</b>（{'重口' if d.get('tone') == 'heavy' else '江湖小事'}）\n"
+                f"{_e(self.label(t))}\n<i>{_e(o.get('player_summary',''))}</i>")
+        a = "\n\n".join(f"<b>{label[k]}</b>\n{_e(o.get(k,''))}" for k in
+                        ("theme", "core_question", "summary", "conflict", "player_role") if o.get(k))
+        plot = _e(o.get("plot", "")).replace("；", "\n")
+        b = (f"<b>六節</b>\n{plot}\n\n<b>爻位對應</b>\n{_e(o.get('source_notes','')).replace('；', chr(10))}")
+        c = (f"<b>結局方向</b>\n{_e(o.get('ending_dirs','')).replace('；', chr(10))}\n\n"
+             f"<b>成就方向</b>\n{_e(o.get('achievement_dir',''))}\n\n<b>人物</b>\n"
+             + "\n".join(f"・{_e(n.get('name',''))}（{_e(n.get('id',''))}）：{_e(n.get('desc',''))}" for n in d.get("npcs") or []))
+        return [("整篇", head), ("設定", a), ("六節", b), ("結局與人物", c)]
+
+    FIELD = {"主題": "theme", "真相與局": "summary", "入口一句": "player_summary", "核心問題": "core_question",
+             "衝突": "conflict", "玩家身分": "player_role", "六節": "plot", "結局方向": "ending_dirs",
+             "成就方向": "achievement_dir", "一定要有": "must_include", "一定避開": "must_avoid", "爻位對應": "source_notes"}
+
+    def apply_edit(self, d, label, text):
+        o = d.setdefault("outline", {})
+        keys = "|".join(self.FIELD)
+        hits = list(re.finditer(rf"(?m)^\s*({keys}|篇名)\s*[：:\n]", text))
+        if not hits:
+            if label == "六節" and re.search(r"初[：:]", text):
+                o["plot"] = "；".join(x.strip() for x in text.split("\n") if x.strip())
+                return d
+            raise ValueError("江湖大綱請用「欄位名：內容」，例如「核心問題：……」，欄位名照閱讀模式的粗體標題")
+        for i, h in enumerate(hits):
+            body = text[h.end(): hits[i + 1].start() if i + 1 < len(hits) else len(text)].strip()
+            if h.group(1) == "篇名":
+                d["title"] = body[:6]
+            else:
+                f = self.FIELD[h.group(1)]
+                o[f] = "；".join(x.strip() for x in body.split("\n") if x.strip()) if f in ("plot", "ending_dirs", "source_notes") else body
+        return d
+
+    def backlog(self):
+        done = done_slots("jh_outline") | set(jh_seeds()["done"])
+        return [{"gua_no": n} for n in range(1, 65) if f"gua_{n:02d}" not in done]
+
+
+KINDS = {k.key: k for k in (Letter(), Chapter(), JhOutline())}
+
+
+def kind_of(t):
+    return KINDS.get(t.get("kind"))
+
+
+def jh_seeds():
+    """工作臺上六六定的 64 卦大綱（prompts/jh_seeds.json）：done＝已寫完不重寫；seeds＝定案大綱；ban＝別卦已用的名字"""
+    return read_json(PROMPT_DIR / "jh_seeds.json", {"done": ["gua_01"], "seeds": {}, "ban": []})
+
+
+def load_example(name):
+    p = PROMPT_DIR / name
+    return p.read_text(encoding="utf-8") if p.exists() else "（無）"

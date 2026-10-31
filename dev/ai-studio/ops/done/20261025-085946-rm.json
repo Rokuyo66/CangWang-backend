@@ -1,0 +1,11 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "remove_model",
+  "args": {
+    "model": "glm-4.7-flash"
+  },
+  "note": "A/B 測試淘汰，釋放 19GB",
+  "result": "✅ 已刪除 glm-4.7-flash",
+  "done_at": 1792918796.7383745
+}

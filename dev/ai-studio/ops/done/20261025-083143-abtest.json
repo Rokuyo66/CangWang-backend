@@ -1,0 +1,15 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "abtest",
+  "args": {
+    "models": [
+      "gemma4:12b",
+      "glm-4.7-flash"
+    ],
+    "n": 8
+  },
+  "note": "因果第二審測試，結果給 Claude 評審",
+  "result": "已在背景開始（gemma4:12b、glm-4.7-flash，8 份稿）",
+  "done_at": 1792917113.6067967
+}

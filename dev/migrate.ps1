@@ -1,4 +1,4 @@
-# dev/migrate.ps1 — migration 走 Supabase Management API，不再手貼 SQL Editor。
+﻿# dev/migrate.ps1 — migration 走 Supabase Management API，不再手貼 SQL Editor。
 #
 # 手貼的問題不是麻煩，是「沒有履歷」：哪幾支跑過、在哪個環境跑過、跑的是哪一版內容，
 # 全靠記憶。這支腳本把履歷落到 DB 的 _migrations 表，並在內容被改過時吼出來。

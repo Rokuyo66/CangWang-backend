@@ -14,6 +14,7 @@
 //   反過來的話，某一次 TG 卡住就會把當天的生日信一起拖掉。
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureDay } from "../_shared/days.ts";
+import { checkAiCost } from "../_shared/cost-alert.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -91,6 +92,11 @@ Deno.serve(async (req) => {
     // 生日信寄不出去不該讓應期推播整批停擺——那是每天都在跑的正事。
     console.error("birthday block threw", e instanceof Error ? e.message : String(e));
   }
+
+  // AI 成本告警：前 24 小時超過門檻、或有呼叫沒進 model_prices，就推給觀主。
+  // 自己吞錯，排在生日信之後、應期推播之前（一句 RPC，不會拖住後面的上百次 TG 呼叫）。
+  const aiCost = await checkAiCost(db);
+  console.log("ai_cost 24h", aiCost);
 
   // 找：應期已到(<=今日)、未回評(verdict is null或0)、未推播過(notified_at is null)的卦
   const { data: dues, error } = await db.from("feedback")
