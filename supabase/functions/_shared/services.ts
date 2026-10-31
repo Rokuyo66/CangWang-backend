@@ -3,7 +3,7 @@ import { YAO_NAMES, huaJinTui } from "./core.ts";
 // Chart 是 interface，得走 import type——混在值 import 裡，node 的型別剝除
 // （dev/billing-test.mts 就是靠它跑）會照著去 core.ts 找一個不存在的 export。
 import type { Chart } from "./core.ts";
-import { RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
+import { RULES, TOPIC_RULES, FOLLOWUP_RULES, DEEPEN_RULES, COMMENT_RULES, DAILY_FORTUNE_RULES, MONTHLY_RULES, parseTagged, fixGuaciChars } from "./rules.ts";
 import type { Qian } from "./qian60.ts";
 import { COST } from "./prices.ts";
 import { REFLECT_RULES } from "./reflect.ts";
@@ -157,12 +157,15 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   reflect?: { input: string }; // 回評後反省（reflect.ts）：chartText 不用，盤面已在 input 裡
   priority?: string;         // 判法輕重（reflect.loadPriorityBlock）；空字串＝沒有偏離常規的判法
   userNotes?: string;        // 這位問卦人過往印證留下的提醒（reflect.loadUserNotes）
+  topic?: string | null;     // 事類（topic.ts）：接上 TOPIC_RULES 該類專段；null／其他＝只帶核心
   model?: string;            // 只給 dev/model-ab.mts 用：同一盤面指定模型並排比；線上呼叫端不帶
 }) {
   const mode = opts.reflect ? "reflect" : opts.followup ? "followup" : opts.deepen ? (opts.continuePartial ? "deepen_cont" : "deepen") : opts.comment ? "comment" : opts.fortune ? "fortune" : opts.monthly ? "monthly" : "cast";
   const model = opts.model || FORCE_MODEL || (opts.deepen ? MODEL_DEEP : mode === "cast" ? MODEL_CAST : mode === "fortune" ? MODEL_FORTUNE : mode === "monthly" ? MODEL_MONTHLY : MODEL_LITE);
   // 反省接在 RULES 後面而不是自成一份：前綴與初解同一份，快取共用，九千字規則只付一成。
   const ruleText = opts.reflect ? RULES : opts.followup ? FOLLOWUP_RULES : opts.deepen ? DEEPEN_RULES : opts.comment ? COMMENT_RULES : opts.fortune ? DAILY_FORTUNE_RULES : opts.monthly ? MONTHLY_RULES : RULES;
+  // 日運、月誌不走事類；其餘（初解、追問、展開、評卦、反省）都帶該卦事類的角色表與專斷
+  const topicText = !opts.fortune && !opts.monthly && opts.topic ? (TOPIC_RULES[opts.topic] ?? "") : "";
   // 卦理規則約 9,500 token，每次呼叫一字不差 → 快取它。
   // TTL 用 1 小時而非預設的 5 分鐘：本站流量約每小時個位數次解卦，平均間隔已經
   // 超過 5 分鐘，預設 TTL 幾乎每次都 miss，而每次 miss 的寫入要付 1.25 倍——
@@ -171,6 +174,8 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   // 判法輕重擺在聲線之後、同樣不進快取：它每次重算都可能變，擺進前綴會讓整份規則快取失效。
   const system: { type: string; text: string; cache_control?: { type: string; ttl?: string } }[] = [
     { type: "text", text: ruleText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } },
+    // 事類專段緊接核心、自成一個快取斷點：核心那份全站共用，各類專段各自累積（共 2 個斷點，上限 4）
+    ...(topicText ? [{ type: "text", text: topicText, cache_control: { type: "ephemeral", ttl: CACHE_TTL } }] : []),
     ...(opts.reflect ? [{ type: "text", text: REFLECT_RULES }] : [{ type: "text", text: `【角色聲線】\n${persona}` }]),
     ...(opts.priority && !opts.reflect ? [{ type: "text", text: opts.priority }] : []),
   ];

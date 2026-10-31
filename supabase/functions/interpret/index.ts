@@ -2007,6 +2007,10 @@ async function handle(req: Request): Promise<Response> {
       // 心跡：「就這件事再問一卦」帶著線的 id 進來。帶了就不吃一事不二占的攔截
       // （理由見 pipeline.ts 第 1 步），卦也直接掛到那條線上。
       threadId: typeof body.thread_id === "string" ? body.thread_id : undefined,
+      // 問事分流：topic＝問卦人在彈窗點選的事類；topic_ask＝這個前端畫得出 need_topic 彈窗
+      // （舊版 App 不帶 → 分不出就只帶核心規則照解，不回它不認得的 kind）
+      topic: typeof body.topic === "string" ? body.topic : undefined,
+      topicAsk: body.topic_ask === true,
     });
     // 危機攔截：pipeline 回 crisis 時，這裡改用 err 管道送出。
     // 理由是相容——結果本來就是整包 Response.json 透傳，網頁前端不認得沒見過的 kind，

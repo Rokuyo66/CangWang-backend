@@ -11,6 +11,7 @@ import { GRANT_REGISTER, FREE_CASTS_PER_DAY, FREE_FOLLOWUPS_PER_DAY, PLAN_CASTS,
 import { COST, refreshPrices, SIGN_REWARDS } from "../_shared/prices.ts";
 import { labelOf } from "../_shared/ledger.ts";
 import { CASTING_LINE } from "../_shared/rules.ts";
+import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "../_shared/topic.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
@@ -811,6 +812,18 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     return;
   }
 
+  if (data.startsWith("topic:")) {
+    if (!ses.pending_question) {
+      await send(chatId, "先輸入想問的事。"); return;
+    }
+    const [, key, nums] = data.split(":");
+    const t = normTopic(key);
+    if (!t) return;
+    const n = (nums ?? "").split(",").map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    await runCast(chatId, userId, tgId, ses, n.length === 3 ? n as [number, number, number] : undefined, t);
+    return;
+  }
+
   if (data === "numinput") {
     if (!ses.pending_question) {
       await send(chatId, "先輸入想問的事。"); return;
@@ -1140,7 +1153,23 @@ async function runFortune(chatId: number, userId: string, ses: Record<string, an
     { reply_markup: { inline_keyboard: [[{ text: "🔮 我有事想問一卦", callback_data: "guide_first_cast" }]] } });
 }
 
-async function runCast(chatId: number, userId: string, tgId: string, ses: Record<string, any>, numbers?: [number, number, number]) {
+// 分不出事類時的按鈕：callback 帶事類與三數（報數起卦點完按鈕才不會丟掉那三個數）
+async function askTopic(chatId: number, keys: Topic[], numbers?: [number, number, number]) {
+  const tail = numbers ? ":" + numbers.join(",") : "";
+  const btns = keys.map((k) => ({ text: TOPIC_LABELS[k], callback_data: `topic:${k}${tail}` }));
+  const rows: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < btns.length; i += 2) rows.push(btns.slice(i, i + 2));
+  await send(chatId, "這件事比較接近哪一類？點一下，好取對應的看法。", { reply_markup: { inline_keyboard: rows } });
+}
+
+async function runCast(chatId: number, userId: string, tgId: string, ses: Record<string, any>, numbers?: [number, number, number], topic?: string) {
+  // 問事分流（topic.ts）：分不出就先問，擺在落盤台詞之前——還沒起卦，不該先說「三錢落盤」
+  // 危機訊號不先問事類：交給 castAndInterpret 第一步攔（不分流、不起卦）
+  if (!topic && !detectCrisis(ses.pending_question ?? "")) {
+    const rt = routeTopic(ses.pending_question ?? "");
+    if ("ask" in rt) { await askTopic(chatId, rt.ask, numbers); return; }
+    topic = rt.topic;
+  }
   // 即時氛圍回饋（角色聲線）＋ typing，蓋住 AI 生成空窗
   await send(chatId, CASTING_LINE[ses.character_id] ?? "🪙 三錢落盤……");
   await typing(chatId);
@@ -1150,7 +1179,12 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     questionRaw: ses.pending_raw ?? undefined,
     questionSource: ses.pending_source ?? "manual",
     yongQin: ses.pending_yong ?? undefined,   // 擬題／改寫時已取定的用神（世爻由排盤端解算）
+    topic, topicAsk: true,
   });
+  if (r.kind === "need_topic") {   // 上面已先分流，照理到不了；保險
+    await askTopic(chatId, r.options.map((o) => o.key as Topic), numbers);
+    return;
+  }
   if (r.kind === "capped") {
     await send(chatId, "幾知觀今日推演已達上限，三位修行者需要歇息。明日請早。");
     await saveSession({ ...ses, state: "idle" });

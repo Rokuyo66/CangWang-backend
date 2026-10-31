@@ -5,6 +5,7 @@ import { chartTextFull } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
 import { normalizeQuestion, dueFromQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
+import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "./topic.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { bumpCast } from "./achievements.ts";
 import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
@@ -94,6 +95,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   castMethod?: string;                 // 起法：coin / num（報三數）/ manual（手動排盤）（0106）
   clientToken?: string;                // 起卦冪等憑據：同一次起卦動作只准成立一卦
   threadId?: string;                   // 心跡：這一卦屬於哪件在記的心事（見下方「二占」）
+  topic?: string;                      // 問卦人自己點選的事類（need_topic 之後重送）；不帶則由問句分流
+  topicAsk?: boolean;                  // 呼叫端看得懂 need_topic（網頁新版、TG）；舊版 App 不帶 → 分不出就只帶核心
 }) {
   // -2. 危機攔截：擺在最前面，連冪等 token 都不佔——佔了又不回填 cast_id，
   //     同一個 token 的重試會永遠卡在 in_progress。不扣費、不起卦、不呼叫 AI。
@@ -103,6 +106,17 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   if (crisis) {
     logCrisis("cast", p.userId, crisis);
     return { kind: "crisis" as const, message: crisisMessage(p.characterId) };
+  }
+
+  // -1.5 分流事類（topic.ts）：決定這一卦要接哪一段角色表與專斷。分不出、或撞兩類以上，
+  //      不猜——回候選請問卦人自己點（六六 2026-10-31）。擺在搶 token 之前：此時什麼都還沒發生，
+  //      不扣費、不佔 token，他點完同一個 token 重送即可。
+  const picked = normTopic(p.topic);
+  let topic: Topic | null = picked;
+  if (!topic) {
+    const r = routeTopic(p.question);
+    if ("topic" in r) topic = r.topic;
+    else if (p.topicAsk) return { kind: "need_topic" as const, options: r.ask.map((k) => ({ key: k, label: TOPIC_LABELS[k] })) };
   }
 
   // -1. 冪等：先搶 token。搶不到代表這一次起卦已經有人在做（連點兩下、
@@ -175,7 +189,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   const ai = await callInterpret(ch!.persona_prompt, ctext, {
     ...(askedQin ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } } : {}),
     ...(prior ? { prior } : {}),
-    priority, userNotes,
+    priority, userNotes, topic,
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
 
@@ -216,12 +230,13 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     thread_id: threadId,
     cast_via: p.castVia === "chat" || p.castVia === "agenda" ? p.castVia : null,
     cast_method: ["coin", "num", "manual"].includes(p.castMethod ?? "") ? p.castMethod : null,
+    topic,                                // 0107：追問、展開、評卦沿用同一事類專段
   };
   let { data: cast, error: insErr } = await db.from("casts").insert(row).select("id").single();
   if (insErr) {
     // 舊 schema（0028 未跑）兜底：去掉新欄位重試。卦錢已扣，這一步絕不可失敗。
     console.error("cast insert with question_raw failed, retry without", insErr.message);
-    const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, cast_via: _e, cast_method: _f, ...legacy } = row;
+    const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, cast_via: _e, cast_method: _f, topic: _g, ...legacy } = row;
     ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
   }
   if (p.clientToken) {
@@ -319,7 +334,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
       prevReading: cast.reading ?? "", question: p.question,
       history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
     },
-    ...yo, priority, userNotes,
+    ...yo, priority, userNotes, topic: await castTopic(db, cast.id, cast.question),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   // 額度用完還硬問的，程式這一層再擋一次：模型不一定守得住【反問額度】
@@ -398,6 +413,16 @@ export function reflectAfterReview(db: SupabaseClient, castId: string) {
 }
 
 /** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
+// 舊卦的事類：0107 之後存在 casts.topic；之前的卦（或 migration 未跑）以問句再分流，分不出就只帶核心。
+// 單獨查一次而不是塞進各處的 select：欄位不存在時 select 整句會錯，這裡錯了只是少一段專段。
+async function castTopic(db: SupabaseClient, castId: string, question: string | null): Promise<string | null> {
+  const { data, error } = await db.from("casts").select("topic").eq("id", castId).maybeSingle();
+  const saved = error ? null : normTopic((data as { topic?: string } | null)?.topic);
+  if (saved) return saved;
+  const r = routeTopic(question ?? "");
+  return "topic" in r ? r.topic : null;
+}
+
 function yongOpts(chart: Chart, yongQin?: string | null, yongViaShi?: boolean | null, yongViaYing?: boolean | null) {
   return yongQin
     ? {
@@ -456,6 +481,7 @@ export async function commentCast(db: SupabaseClient, p: {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
     priority: await loadPriorityBlock(db),
+    topic: await castTopic(db, cast.id, cast.question),
   });
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
@@ -485,16 +511,17 @@ export async function deepenCast(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const ctext = chartTextFull(chart, cast.question ?? "", { today: nowTaipei() });
   const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
+  const topic = await castTopic(db, cast.id, cast.question);
   try {
     const priority = await loadPriorityBlock(db);
-    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong, priority });
+    const ai = await callInterpret(ch!.persona_prompt, ctext, { deepen: { briefReading: cast.reading ?? "" }, ...yong, priority, topic });
     await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
     let deep = ai.reading;
     let incomplete = ai.stopReason === "max_tokens" || !endsComplete(deep);
     if (incomplete) {
       // 一次接續補完：半成品交回模型，從斷點續寫剩餘段落（不重解卦；做法見 services.ts continuePartial）
       const cont = await callInterpret(ch!.persona_prompt, ctext, {
-        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong, priority,
+        deepen: { briefReading: cast.reading ?? "" }, continuePartial: deep, ...yong, priority, topic,
       });
       await logUsage(db, { userId: p.userId, mode: cont.mode, model: cont.model, usage: cont.usage, estimated: cont.estimated, ms: cont.ms });
       deep = deep.replace(/\s+$/, "") + cont.reading;
