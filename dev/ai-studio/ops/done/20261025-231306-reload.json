@@ -1,0 +1,8 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "restart",
+  "note": "新流程：本地<90自動重修、≥90送Claude複審、Claude≥95才給六六；拿掉指定用語與範本信",
+  "result": "❌ 不在白名單：restart",
+  "done_at": 1792969991.9535444
+}

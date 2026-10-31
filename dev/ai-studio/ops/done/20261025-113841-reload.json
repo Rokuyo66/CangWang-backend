@@ -1,0 +1,8 @@
+{
+  "from": "claude",
+  "kind": "op",
+  "op": "reload",
+  "note": "新增 讀稿/ 資料夾：每份稿自動輸出成 Markdown",
+  "result": "♻️ 20 秒內重新上線",
+  "done_at": 1792928322.314069
+}

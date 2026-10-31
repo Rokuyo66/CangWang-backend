@@ -8,6 +8,7 @@ import type { Qian } from "./qian60.ts";
 import { COST } from "./prices.ts";
 import { REFLECT_RULES } from "./reflect.ts";
 import { isNewTokenizer, noThinking } from "./model-params.ts";
+import { callLocal, localEnabled } from "./local-llm.ts";
 
 /* ---------- Markdown → Telegram HTML ----------
    TG 不認 ## / ** / - 清單，轉成 TG HTML（<b>）並做必要轉義。
@@ -102,6 +103,8 @@ const KIMI_TEMPERATURE = Deno.env.get("KIMI_TEMPERATURE");
 // KIMI 硬超時：edge→.cn 跨境慢（實測約 33 tok/s），偶發掛住會拖死整個 function 被平台掐成 546。
 // 逾時就 abort 丟錯，交給備援換家重打；上限取 edge 牆鐘（150s）內留得住備援餘裕的值。
 const KIMI_TIMEOUT_MS = Number(Deno.env.get("KIMI_TIMEOUT_MS") ?? "100000");
+// 本地備援的逾時：規則九千多 token 光讀進去就要幾秒，放寬；它已經是最後一道，慢總比丟錯好
+const LOCAL_INTERPRET_TIMEOUT_MS = Number(Deno.env.get("LOCAL_INTERPRET_TIMEOUT_MS") ?? "60000");
 // 卦理規則的快取存活時間。設 "5m" 可退回舊行為（見 system 組裝處的說明）。
 const CACHE_TTL = Deno.env.get("PROMPT_CACHE_TTL") ?? "1h";
 // 解卦備援模型：主模型呼叫失敗（過載/斷線/非2xx）時換另一家頂上重打一次。
@@ -336,13 +339,34 @@ export async function callInterpret(persona: string, chartText: string, opts: {
   let usedModel = model;
   let r: Awaited<ReturnType<typeof callModel>>;
   const t0 = Date.now();   // 耗時（含備援重打）記進 ai_usage.latency_ms：「批卦變慢」要查得到是哪天、哪個模型（六六 2026-10-22）
+  // 雲端全掛 → 六六家裡那台（_shared/local-llm.ts）。沒設網址或在冷卻中就把原本的錯丟出去。
+  const viaLocal = async (cause: unknown) => {
+    if (!localEnabled()) throw cause;
+    console.error(`interpret [${usedModel}] fail, fallback → local:`, cause instanceof Error ? cause.message : String(cause));
+    const l = await callLocal({
+      system: system.map((b) => b.text).join("\n\n"),
+      messages: [
+        ...messages.map((m2: { role: string; content: string }) => ({ role: m2.role as "user" | "assistant", content: m2.content })),
+        ...(partial ? [{ role: "assistant" as const, content: partial }, { role: "user" as const, content: CONTINUE_ASK }] : []),
+      ],
+      maxTokens: baseMaxTokens,
+      timeoutMs: LOCAL_INTERPRET_TIMEOUT_MS,
+      numCtx: 16384,   // 規則九千多 token＋盤面＋前情，8k 裝不下
+      temperature: 0.7,
+    });
+    usedModel = l.model;
+    return { text: l.text, stopReason: null, rawIn: l.tokensIn ?? undefined, rawOut: l.tokensOut ?? undefined };
+  };
   try {
     r = await callModel(model);
   } catch (e) {
-    if (!fallbackModel || fallbackModel === model) throw e;
-    console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
-    usedModel = fallbackModel;
-    r = await callModel(fallbackModel);
+    if (!fallbackModel || fallbackModel === model) r = await viaLocal(e);
+    else {
+      console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
+      usedModel = fallbackModel;
+      try { r = await callModel(fallbackModel); }
+      catch (e2) { r = await viaLocal(e2); }
+    }
   }
   const { text: rawText, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
   // 干支用字校正擺在最前面，parseTagged 與 reading 兩條路才吃得到同一份修好的字。

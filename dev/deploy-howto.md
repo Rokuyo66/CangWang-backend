@@ -329,3 +329,20 @@ Cloudflare 會自動把網頁版上線——解卦存圖與朗讀按鈕就回來
 
 migration 是一支一支跑的，失敗的那支不會被記成已套用。修好再跑同一支即可，
 前面成功的不會重跑。
+
+---
+
+## 收件匣（幾筆台 → 企劃工作臺，2026-10-26）
+
+1. 資料庫：跑 `supabase/migrations/0111_studio_inbox.sql`（照上面跑 migration 的方式）。
+2. 金鑰：自己產一把長亂碼（PowerShell：`[guid]::NewGuid().ToString() + [guid]::NewGuid().ToString()`），設成 secret：
+   ```powershell
+   supabase secrets set STUDIO_KEY=<那把亂碼> --project-ref ajogafvzlhqwlxwkfcpn
+   ```
+3. 程式：
+   ```powershell
+   supabase functions deploy studio-inbox --project-ref ajogafvzlhqwlxwkfcpn --no-verify-jwt
+   ```
+   `--no-verify-jwt` 不能省：工作臺和幾筆台都沒有我們的 JWT，驗的是 `x-studio-key`。
+4. 幾筆台 `ai-studio/config.json` 加 `"studio_inbox_url": "https://ajogafvzlhqwlxwkfcpn.supabase.co/functions/v1/studio-inbox"`、`"studio_key": "<同一把>"`，重啟。
+5. 工作臺左上點「📥 收件匣」，貼同一把 key，按「存並收一次」。

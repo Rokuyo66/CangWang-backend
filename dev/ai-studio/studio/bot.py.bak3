@@ -1,0 +1,1041 @@
+"""幾知觀・寫手台：TG 值班 bot + 寫稿工作迴圈 + 工單匣 + 本地助理（同一個行程）。
+
+啟動：python -m studio.bot
+"""
+import asyncio
+import os
+import re
+import time
+import traceback
+
+from telegram import (BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
+                      KeyboardButton, ReplyKeyboardMarkup, Update)
+from telegram.error import BadRequest
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
+                          ContextTypes, MessageHandler, filters)
+
+from . import agent, kinds, ops, pipeline, team
+from .common import (DIRS, LOG_DIR, find_task, in_window, list_stage, load_config,
+                     load_state, log, move_task, new_task, now, read_json, save_state,
+                     setup_logging, write_json)
+from .ollama_client import Ollama
+from .team import mmss, who
+
+# ---------- 常駐按鈕列 ----------
+B_TEAM, B_LIST, B_PAUSE, B_RESUME, B_STOP, B_NEW, B_IDEAS, B_JOBS, B_POOL = (
+    "👥 團隊", "📋 待審", "⏸ 暫停", "▶️ 繼續", "⏹ 停止這份", "✍️ 新題目", "📦 缺口", "🗓 排程", "🗂 題庫")
+MENU = ReplyKeyboardMarkup(
+    [[KeyboardButton(B_TEAM), KeyboardButton(B_LIST), KeyboardButton(B_JOBS)],
+     [KeyboardButton(B_PAUSE), KeyboardButton(B_RESUME), KeyboardButton(B_STOP)],
+     [KeyboardButton(B_IDEAS), KeyboardButton(B_NEW)]],
+    resize_keyboard=True, is_persistent=True)
+
+COMMANDS = [
+    ("team", "團隊狀態：誰在忙、誰閒置"), ("pool", "題庫：挑要寫的題目"), ("list", "待審清單"), ("jobs", "排程開關"),
+    ("pause", "跑完這份就停"), ("resume", "繼續"), ("stop", "立刻停止目前這份"),
+    ("gaps", "缺口：還沒寫的信／章／卦"), ("letter", "排信：/letter 師妹 100"),
+    ("chapter", "排章：/chapter 觀喵 1"), ("jianghu", "排江湖大綱：/jianghu 5 或 5-8"), ("view", "看稿：/view ID"), ("redo", "退回：/redo ID 理由"),
+    ("ops", "維運操作（重啟 Ollama 等）"), ("log", "最近日誌"), ("reload", "重新載入程式"),
+    ("help", "說明"),
+]
+
+HELP = f"""幾知觀・寫手台
+
+【寫什麼】三種，格式照 repo 正式規格
+✉️ 道緣信：道緣每 50 點一封，角色來信＋一條記憶（每人 13 封）
+📖 道緣章：character_events 的一章（0／300／500／800）
+🗺 江湖大綱：64 卦各一篇的大綱，六節一爻對一爻（全篇之後再寫）
+
+【成員】
+{who('duty')}：bot 本身，通知、按鈕、執行工單
+✍️ 寫手／🔎 審稿：本地模型
+🤖 本地助理：你直接打字時回你、替你操作
+🧠 Claude：主管，改程式、終審、巡檢
+每則訊息第一行標明是誰發的。
+
+【怎麼下指令】
+・{B_IDEAS}：列出還沒寫的信／章／卦，點一下就排進佇列
+・/letter 師妹 100　/chapter 觀喵 1　/jianghu 5（或 5-8）
+・直接打字＝跟本地助理講，例：「幫我排大師兄下一封信」「誰在忙」
+・{B_TEAM} 狀態　{B_LIST} 待審（閱讀模式，可逐幕給建議）　{B_JOBS} 排程開關
+・{B_PAUSE} 跑完這份就停　{B_STOP} 立刻中斷　{B_RESUME} 恢復
+・/ops 重啟 Ollama 等　Claude 改完程式後打 /reload"""
+
+
+def kb(tid):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ 通過", callback_data=f"ap:{tid}"),
+        InlineKeyboardButton("↩️ 退回", callback_data=f"rd:{tid}"),
+        InlineKeyboardButton("🗑 捨棄", callback_data=f"dr:{tid}"),
+    ]])
+
+
+def chunks(text, n=3900):
+    while text:
+        yield text[:n]
+        text = text[n:]
+
+
+def is_admin(update: Update) -> bool:
+    return bool(update.effective_user) and update.effective_user.id == load_config()["admin_id"]
+
+
+def admin_only(fn):
+    async def wrap(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if not is_admin(update):
+            if update.message:
+                await update.message.reply_text(f"未授權。你的 TG ID：{update.effective_user.id}")
+            return
+        return await fn(update, ctx)
+    return wrap
+
+
+def tag(text, sender="duty"):
+    return f"{who(sender)}\n{text}"
+
+
+async def reply(update, text, sender="duty", **kw):
+    kw.setdefault("reply_markup", MENU)
+    return await update.message.reply_text(tag(text, sender)[:4000], **kw)
+
+
+async def notify(app, text, markup=None, sender="duty"):
+    try:
+        await app.bot.send_message(load_config()["admin_id"], tag(text, sender)[:3900],
+                                   reply_markup=markup or MENU)
+    except Exception as e:
+        log.error("推播失敗：%s", e)
+
+
+# ---------- 顯卡 ----------
+async def gpu_info():
+    """回傳 (使用率%, 溫度°C, 功耗上限W)；讀不到回 None。"""
+    try:
+        samples = []
+        for _ in range(3):
+            p = await asyncio.create_subprocess_exec(
+                "nvidia-smi", "--query-gpu=utilization.gpu,temperature.gpu,power.limit",
+                "--format=csv,noheader,nounits",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await p.communicate()
+            u, t, w = [x.strip() for x in out.decode().splitlines()[0].split(",")]
+            samples.append((float(u), float(t), float(w)))
+            await asyncio.sleep(1)
+        return (round(sum(x[0] for x in samples) / 3), max(x[1] for x in samples), samples[-1][2])
+    except Exception:
+        return None
+
+
+async def blocked_reason(cfg, st):
+    if st["paused"]:
+        return f"⏸ 寫稿已暫停（按 {B_RESUME}）"
+    if not st["force"] and not in_window(cfg):
+        h = cfg["active_hours"]
+        return f"💤 不在工作時段 {h[0]}–{h[1]}"
+    g = await gpu_info()
+    if g:
+        util, temp, cap = g
+        if util >= cfg["gpu_busy_util"]:
+            return f"🎨 顯卡被其他程式佔用（使用率{util}%，多半是 ComfyUI），空出來自動開工"
+        if temp >= cfg["gpu_max_temp"]:
+            return f"🔥 顯卡過熱 {temp:.0f}°C（上限{cfg['gpu_max_temp']}°C），降溫後自動開工"
+    return None
+
+
+# ---------- 共用動作（按鈕、指令、本地助理共用） ----------
+class Actions:
+    def __init__(self, app):
+        self.app = app
+
+    async def team_status(self):
+        o = self.app.bot_data["ollama"]
+        try:
+            loaded = await o.ps()
+        except Exception:
+            loaded = []
+        return team.roster(loaded, await gpu_info(), self.app.bot_data.get("started_at"),
+                           self.app.bot_data.get("agent_busy", False), self.app.bot_data.get("abtest"))
+
+    async def add_task(self, kind, character="", number=0, brief=""):
+        k = kinds.KINDS.get(kind)
+        if not k:
+            return f"不認得的格式：{kind}（letter／chapter／jh_outline）"
+        cid = kinds.NAME2ID.get(character, character) if character else ""
+        if kind == "letter":
+            if cid not in kinds.CHARS:
+                return "道緣信要指定角色（大師兄／師妹／觀喵）"
+            if not number:
+                nxt = [m for m in k.backlog() if m["character_id"] == cid]
+                if not nxt:
+                    return f"{kinds.CHARS[cid]}的信都排過了"
+                number = nxt[0]["at"]
+            if int(number) not in k.POINTS:
+                return f"道緣點只能是 {k.POINTS}"
+            meta = {"character_id": cid, "at": int(number)}
+        elif kind == "chapter":
+            if cid not in kinds.CHARS or int(number or 0) not in (1, 2, 3, 4):
+                return "道緣章要指定角色與第幾章（1–4）"
+            meta = {"character_id": cid, "chapter": int(number)}
+            if k.slot(meta) in kinds.EXISTING:
+                return f"{k.slot(meta)} 已經上線（製作人親寫），不重寫"
+        else:
+            if not 1 <= int(number or 0) <= 64:
+                return "江湖大綱要指定卦號 1–64"
+            meta = {"gua_no": int(number)}
+        if k.slot(meta) in kinds.done_slots(kind):
+            return f"{k.slot(meta)} 已經有稿了（在佇列／待審／已通過）"
+        t = new_task(brief or "", source="tg", stage="ideas")  # 先放暫存，欄位齊了才進佇列
+        t.update(kind=kind, meta=meta, slot=k.slot(meta))
+        t["brief"] = k.label(t) + (f"｜{brief}" if brief else "")
+        t["note"] = brief or ""
+        move_task(t, "queue")
+        st = load_state()
+        ahead = len(list_stage("queue")) - 1 + (1 if st.get("current") else 0)
+        state = st.get("blocked") or ("寫手忙碌中，排隊" if st.get("current") else "馬上開工")
+        return f"已排入：{t['brief']}（#{t['id']}，前面 {ahead} 份）｜{state}"
+
+    async def add_script_task(self, brief):
+        t = new_task(brief)
+        st = load_state()
+        ahead = len(list_stage("queue")) - 1 + (1 if st.get("current") else 0)
+        state = st.get("blocked") or ("寫手忙碌中，排隊" if st.get("current") else "馬上開工")
+        return f"已加入佇列 #{t['id']}（前面 {ahead} 份）｜{state}"
+
+    async def brainstorm(self, n=5, hint=""):
+        n = max(1, min(20, int(n)))
+        ideas = await pipeline.brainstorm(self.app.bot_data["ollama"], n, hint or "")
+        made = [new_task(x, source="ideas", stage="ideas") for x in ideas]
+        self.app.bot_data["last_ideas"] = [t["id"] for t in made]
+        return f"已放進題庫 {len(made)} 題，等你挑（按 {B_POOL}）"
+
+    async def list_pending(self):
+        items = list_stage("pending")
+        if not items:
+            return "沒有待審稿。"
+        out = []
+        for p in items[:15]:
+            t = read_json(p)
+            s = t["rounds"][-1]["script"] if t.get("rounds") else {}
+            rv = t["rounds"][-1]["review"] if t.get("rounds") else {}
+            k = kinds.kind_of(t)
+            out.append(f"{'⚠️' if t.get('needs_human') else '🟢'}{rv.get('score','?')}分 #{t['id']} "
+                       f"{k.label(t) if k else ''} {k.title(s) if k else s.get('title','')}")
+        return "\n".join(out)
+
+    async def redo_task(self, task_id, reason=""):
+        stage, p = find_task(task_id)
+        if not p:
+            return f"找不到 {task_id}"
+        requeue(read_json(p), reason or None)
+        return f"#{task_id} 已退回佇列"
+
+    async def set_writing(self, on):
+        save_state(paused=not on)
+        st = load_state()
+        if not on and st.get("current"):
+            return f"⏸ 已暫停：手上 #{st['current']['id']} 跑完就停（要立刻停用 {B_STOP}）"
+        return "▶️ 寫稿已恢復" if on else "⏸ 寫稿已暫停"
+
+    async def stop_current(self):
+        save_state(paused=True)
+        job = self.app.bot_data.get("job")
+        if job and not job.done():
+            job.cancel()
+            return f"⏹ 已中斷，這份放回佇列，寫稿暫停中（{B_RESUME} 繼續）"
+        return "目前沒有在跑的稿，已暫停寫稿。"
+
+    async def set_job(self, job, on):
+        team.set_job(job, on)
+        return f"{team.DEFAULT_JOBS[job]['name']}：{'開啟' if on else '關閉'}"
+
+    async def run_op(self, op):
+        return await ops.run_op(self.app, op)
+
+    def handlers(self):
+        return {k: getattr(self, k) for k in [
+            "team_status", "add_task", "list_pending", "redo_task",
+            "set_writing", "stop_current", "set_job", "run_op"]}
+
+
+def requeue(t, reason=None):
+    if reason:
+        t.setdefault("human_feedback", []).append(reason)
+    t.pop("needs_human", None)
+    move_task(t, "queue")
+
+
+def A(ctx) -> Actions:
+    return ctx.application.bot_data["actions"]
+
+
+# ---------- 指令 ----------
+@admin_only
+async def cmd_help(update, ctx):
+    await reply(update, HELP)
+
+
+@admin_only
+async def cmd_team(update, ctx):
+    await reply(update, await A(ctx).team_status())
+
+
+@admin_only
+async def cmd_list(update, ctx):
+    items = list_stage("pending")
+    if not items:
+        await reply(update, "沒有待審稿。")
+        return
+    rows = []
+    for p in items[:20]:
+        t = read_json(p)
+        s = t["rounds"][-1]["script"] if t.get("rounds") else {}
+        rv = t["rounds"][-1]["review"] if t.get("rounds") else {}
+        flag = "⚠️" if t.get("needs_human") else "🟢"
+        k = kinds.kind_of(t)
+        name = (k.label(t) + "・" + k.title(s)) if k else s.get("title", t["brief"])
+        rows.append([InlineKeyboardButton(f"{flag}{rv.get('score','?')}分 {name[:28]}",
+                                          callback_data=f"vw:{t['id']}")])
+    await update.message.reply_text(tag(f"待審 {len(items)} 份（🟢審稿通過 ⚠️未過需你判斷）："),
+                                    reply_markup=InlineKeyboardMarkup(rows))
+
+
+def jobs_markup():
+    rows = []
+    for k, j in team.load_jobs().items():
+        mark = "🟢" if j["enabled"] else "⚪"
+        rows.append([InlineKeyboardButton(f"{mark} {j['name']}", callback_data=f"jb:{k}:{0 if j['enabled'] else 1}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def jobs_text(title="🗓 排程工作（點一下切換開關）"):
+    lines = [title]
+    for j in team.load_jobs().values():
+        lines.append(f"{'🟢' if j['enabled'] else '⚪'} {j['name']}：{j['desc']}")
+    return "\n".join(lines)
+
+
+@admin_only
+async def cmd_jobs(update, ctx):
+    await update.message.reply_text(tag(jobs_text()), reply_markup=jobs_markup())
+
+
+@admin_only
+async def cmd_ops(update, ctx):
+    rows = [[InlineKeyboardButton(ops.OPS[k], callback_data=f"op:{k}")] for k in ops.BUTTON_OPS]
+    await update.message.reply_text(tag("維運操作："), reply_markup=InlineKeyboardMarkup(rows))
+
+
+MSGMAP = team.OPS_DIR / "msgmap.json"
+
+
+def map_msg(mid, tid, label):
+    m = read_json(MSGMAP, {}) or {}
+    m[str(mid)] = [tid, label]
+    if len(m) > 400:
+        m = dict(list(m.items())[-400:])
+    write_json(MSGMAP, m)
+
+
+def lookup_msg(mid):
+    return (read_json(MSGMAP, {}) or {}).get(str(mid))
+
+
+def final_kb(tid, n_notes):
+    second = (InlineKeyboardButton(f"📨 送出 {n_notes} 條建議重寫", callback_data=f"sd:{tid}") if n_notes
+              else InlineKeyboardButton("🔁 不給建議直接重寫", callback_data=f"rw:{tid}"))
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ 通過", callback_data=f"ap:{tid}"),
+         InlineKeyboardButton("🗑 捨棄", callback_data=f"dr:{tid}")],
+        [InlineKeyboardButton("✏️ 整篇建議", callback_data=f"nt:{tid}:整篇"), second],
+        [InlineKeyboardButton("🔎 只送審（不重寫）", callback_data=f"ro:{tid}")]])
+
+
+async def send_view(bot, chat_id, t):
+    """閱讀模式：開頭、每個場景、選項各一則，最後是審稿意見與操作按鈕。"""
+    if not t.get("rounds"):
+        await bot.send_message(chat_id, tag(f"#{t['id']} 還沒有稿：{t['brief']}"))
+        return
+    last = t["rounds"][-1]
+    editable = t["status"] == "pending"
+    hist = "→".join(f"{r['review']['score']}" for r in t["rounds"])
+    parts = pipeline.html_parts_kind(last["script"], t)
+    head = (f"{who('writer')}\n#{t['id']}｜{len(t['rounds'])}輪（分數 {hist}）\n"
+            f"題目：{pipeline._e(t['brief'])}\n\n")
+    for i, (label, html) in enumerate(parts):
+        text = (head if i == 0 else "") + html
+        markup = (InlineKeyboardMarkup([[InlineKeyboardButton("✏️ 建議", callback_data=f"nt:{t['id']}:{label}"[:64]),
+                                          InlineKeyboardButton("📝 直接改", callback_data=f"ed:{t['id']}:{label}"[:64])]])
+                  if editable else None)
+        msg = await bot.send_message(chat_id, text[:4000], parse_mode="HTML", reply_markup=markup)
+        map_msg(msg.message_id, t["id"], label)
+    notes = t.get("draft_notes", [])
+    tail = who("reviewer") + "\n" + pipeline.review_html(last["review"])
+    if notes:
+        tail += "\n\n📝 <b>你已記下的建議</b>\n" + "\n".join(pipeline._e(x) for x in notes)
+    if editable:
+        tail += "\n\n<i>想改哪裡：按段落下的 ✏️，或長按任一則「回覆」直接打建議（可提幕N／PN 編號）。</i>"
+    msg = await bot.send_message(chat_id, tail[:4000], parse_mode="HTML",
+                                 reply_markup=final_kb(t["id"], len(notes)) if editable else None)
+    map_msg(msg.message_id, t["id"], "整篇")
+
+
+EDIT_HELP = {"letter": "直接貼整封信（稱呼到署名）；改記憶就在「記憶」那則按 📝。",
+             "chapter": "用「幕N：新內容」逐幕寫，一幕一行起頭；說話者、場景、選項會保留。",
+             "jh_outline": "用「欄位名：內容」，欄位名照閱讀模式的粗體標題（例：核心問題：……）。"}
+
+
+def apply_direct(tid, label, text):
+    """製作人親改：原樣套用成新一輪，只跑程式檢查，不經寫手。"""
+    import copy
+    stage, p = find_task(tid)
+    if not p or stage != "pending":
+        return None, f"#{tid} 目前在 {stage or '不存在'}，不能直接改。"
+    t = read_json(p)
+    k = kinds.kind_of(t)
+    doc = copy.deepcopy(t["rounds"][-1]["script"])
+    try:
+        doc = k.apply_edit(doc, label, text)
+    except ValueError as e:
+        return None, f"沒套用：{e}"
+    issues = k.lint(doc, t)
+    rv = pipeline.score_review({"issues": issues, "summary": "製作人親改（只跑程式檢查，未送模型審）"})
+    t["rounds"].append({"n": len(t["rounds"]) + 1, "at": now().isoformat(timespec="seconds"), "script": doc,
+                        "review": rv, "secs": {"write": 0, "review": 0}, "by": "製作人", "edited": label,
+                        "models": {}, "human_feedback": []})
+    t["needs_human"] = bool(rv["hard_fail"])
+    write_json(p, t)
+    warn = ("\n⚠️ 程式檢查有意見：\n" + "\n".join(f"・{i['where']}：{i['detail']}" for i in issues[:5])) if issues else "\n程式檢查通過。"
+    return t, f"📝 已用你的版本取代【{label}】（第 {len(t['rounds'])} 輪，製作人版）。{warn}"
+
+
+def after_edit_kb(tid):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ 通過", callback_data=f"ap:{tid}"),
+         InlineKeyboardButton("🔎 送模型審", callback_data=f"ro:{tid}")],
+        [InlineKeyboardButton("👀 重看這份", callback_data=f"vw:{tid}")]])
+
+
+def add_note(tid, label, text):
+    stage, p = find_task(tid)
+    if not p or stage != "pending":
+        return None, f"#{tid} 目前在 {stage or '不存在'}，不能加建議。"
+    t = read_json(p)
+    t.setdefault("draft_notes", []).append(f"【{label}】{text}")
+    write_json(p, t)
+    return t, None
+
+
+def submit_notes(tid, notes=None):
+    stage, p = find_task(tid)
+    if not p:
+        return "找不到這份。"
+    t = read_json(p)
+    fb = notes if notes is not None else t.get("draft_notes", [])
+    t["human_feedback"] = list(fb)
+    t["draft_notes"] = []
+    t["priority"] = True
+    requeue(t)
+    return (f"📨 已送出 {len(fb)} 條建議，#{tid} 排到佇列最前面重寫。" if fb
+            else f"🔁 #{tid} 已排到佇列最前面重寫。")
+
+
+@admin_only
+async def cmd_view(update, ctx):
+    if not ctx.args:
+        await reply(update, "用法：/view ID")
+        return
+    stage, p = find_task(ctx.args[0])
+    if not p:
+        await reply(update, "找不到。")
+        return
+    await send_view(ctx.bot, update.effective_chat.id, read_json(p))
+
+
+@admin_only
+async def cmd_redo(update, ctx):
+    if not ctx.args:
+        await reply(update, "用法：/redo ID 理由")
+        return
+    await reply(update, await A(ctx).redo_task(ctx.args[0], " ".join(ctx.args[1:])))
+
+
+async def do_ideas(update, ctx, n, hint):
+    st = load_state()
+    if st.get("current"):
+        await reply(update, f"寫手正在跑 #{st['current']['id']}，出題會排在它後面。", sender="writer")
+    await reply(update, f"💡 發想 {n} 題中…", sender="writer")
+    t0 = time.time()
+    try:
+        out = await A(ctx).brainstorm(n, hint)
+    except Exception as e:
+        await reply(update, f"出題失敗：{e}", sender="writer")
+        return
+    await reply(update, f"{out}（{mmss(time.time() - t0)}）", sender="writer")
+    await send_pool(ctx.bot, update.effective_chat.id, ctx.application.bot_data.get("last_ideas"))
+
+
+def pool_kb(tid):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ 寫這題", callback_data=f"iw:{tid}"),
+        InlineKeyboardButton("✏️ 改了再寫", callback_data=f"ie:{tid}"),
+        InlineKeyboardButton("🗑", callback_data=f"ix:{tid}")]])
+
+
+async def send_pool(bot, chat_id, ids=None):
+    items = [read_json(p) for p in list_stage("ideas")]
+    if ids:
+        items = [t for t in items if t["id"] in ids]
+    if not items:
+        await bot.send_message(chat_id, tag("題庫是空的。按 💡 出5題，或 /ideas 10 方向"), reply_markup=MENU)
+        return
+    for t in items[:20]:
+        await bot.send_message(chat_id, f"{who('writer')}\n💡 {t['brief']}", reply_markup=pool_kb(t["id"]))
+    rest = len(list_stage("ideas")) - len(items[:20])
+    await bot.send_message(chat_id, tag(f"題庫共 {len(list_stage('ideas'))} 題" + (f"（另有 {rest} 題，按 {B_POOL} 看全部）" if rest > 0 else "")
+                                         + "。點 ✅ 的才會開寫。"), reply_markup=MENU)
+
+
+def gaps_markup():
+    rows = []
+    L, C, J = kinds.KINDS["letter"], kinds.KINDS["chapter"], kinds.KINDS["jh_outline"]
+    rows.append([InlineKeyboardButton(f"✉️ {kinds.CHARS[m['character_id']]} {L.TIER[m['at']]}",
+                                      callback_data=f"bk:letter:{m['character_id']}:{m['at']}") for m in L.backlog()])
+    for m in C.backlog()[:6]:
+        rows.append([InlineKeyboardButton(f"📖 {kinds.CHARS[m['character_id']]}第{m['chapter']}章（道緣 {kinds.FAVOR[m['chapter']]}）",
+                                          callback_data=f"bk:chapter:{m['character_id']}:{m['chapter']}")])
+    jb = J.backlog()[:3]
+    g = kinds.gua_data()
+    if jb:
+        rows.append([InlineKeyboardButton(f"🗺 {m['gua_no']} {g[m['gua_no']-1]['gua']}",
+                                          callback_data=f"bk:jh_outline::{m['gua_no']}") for m in jb])
+    return InlineKeyboardMarkup([r for r in rows if r])
+
+
+def gaps_text():
+    L, C, J = kinds.KINDS["letter"], kinds.KINDS["chapter"], kinds.KINDS["jh_outline"]
+    nl = len(L.POINTS) * 3 - len(kinds.done_slots("letter"))
+    return (f"📦 還沒寫的（點一下排進佇列）\n"
+            f"✉️ 道緣信：還缺 {nl}/{len(L.POINTS) * 3} 封（只在升階寄：相熟 300／相知 500／知己 800）\n"
+            f"📖 道緣章：{len(C.backlog())} 章可寫（前一章有稿才列下一章）\n"
+            f"🗺 江湖大綱：還缺 {len(J.backlog())}/63 卦（列最前面 3 卦；指定卦號用 /jianghu 12）")
+
+
+@admin_only
+async def cmd_gaps(update, ctx):
+    await update.message.reply_text(tag(gaps_text()), reply_markup=gaps_markup())
+
+
+async def _cmd_add(update, ctx, kind):
+    a = list(ctx.args)
+    if kind == "jh_outline":
+        if not a:
+            return await reply(update, "用法：/jianghu 5　或　/jianghu 5-8")
+        m = re.match(r"^(\d+)(?:-(\d+))?$", a[0])
+        if not m:
+            return await reply(update, "卦號寫 1–64，連排寫 5-8")
+        lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
+        out = [await A(ctx).add_task("jh_outline", "", n, " ".join(a[1:])) for n in range(lo, min(hi, lo + 9) + 1)]
+        return await reply(update, "\n".join(out))
+    if not a:
+        return await reply(update, "用法：/letter 師妹 100　/chapter 觀喵 1")
+    num = int(a[1]) if len(a) > 1 and a[1].isdigit() else 0
+    await reply(update, await A(ctx).add_task(kind, a[0], num, " ".join(a[2:] if num else a[1:])))
+
+
+@admin_only
+async def cmd_letter(update, ctx):
+    await _cmd_add(update, ctx, "letter")
+
+
+@admin_only
+async def cmd_chapter(update, ctx):
+    await _cmd_add(update, ctx, "chapter")
+
+
+@admin_only
+async def cmd_jianghu(update, ctx):
+    await _cmd_add(update, ctx, "jh_outline")
+
+
+@admin_only
+async def cmd_pool(update, ctx):
+    await send_pool(ctx.bot, update.effective_chat.id)
+
+
+@admin_only
+async def cmd_ideas(update, ctx):
+    return await reply(update, f"自由出題已停用，三種稿都有固定缺口：按 {B_IDEAS}。")
+    args = list(ctx.args)
+    n = 5
+    if args and args[0].isdigit():
+        n = int(args.pop(0))
+    await do_ideas(update, ctx, n, " ".join(args))
+
+
+@admin_only
+async def cmd_pause(update, ctx):
+    await reply(update, await A(ctx).set_writing(False))
+
+
+@admin_only
+async def cmd_resume(update, ctx):
+    await reply(update, await A(ctx).set_writing(True))
+
+
+@admin_only
+async def cmd_stop(update, ctx):
+    await reply(update, await A(ctx).stop_current())
+
+
+@admin_only
+async def cmd_log(update, ctx):
+    p = LOG_DIR / "studio.log"
+    lines = p.read_text(encoding="utf-8").splitlines()[-20:] if p.exists() else ["（無）"]
+    await reply(update, "\n".join(lines)[-3800:])
+
+
+@admin_only
+async def cmd_reload(update, ctx):
+    st = load_state()
+    note = f"手上的 #{st['current']['id']} 會中斷並放回佇列。" if st.get("current") else ""
+    await reply(update, f"♻️ 重新載入中，約 20 秒後上線。{note}")
+    asyncio.get_running_loop().call_later(1.5, os._exit, 0)
+
+
+BUTTONS = {B_IDEAS: cmd_gaps, B_POOL: cmd_pool, B_TEAM: cmd_team, B_LIST: cmd_list, B_JOBS: cmd_jobs, B_PAUSE: cmd_pause,
+           B_RESUME: cmd_resume, B_STOP: cmd_stop}
+
+
+async def reply_note(update, tid, label, text):
+    t, err = add_note(tid, label, text)
+    if err:
+        return await reply(update, err)
+    n = len(t["draft_notes"])
+    await update.message.reply_text(
+        tag(f"📝 已記下第 {n} 條（{label}）：{text}\n可以繼續補充，好了就送出。"),
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"📨 送出 {n} 條重寫", callback_data=f"sd:{tid}"),
+            InlineKeyboardButton("👀 重看這份", callback_data=f"vw:{tid}")]]))
+
+
+@admin_only
+async def on_text(update, ctx):
+    text = update.message.text.strip()
+    if text in BUTTONS:
+        return await BUTTONS[text](update, ctx)
+    if text == B_NEW:
+        return await reply(update, f"要寫哪一種、寫誰：按 {B_IDEAS} 點選，或用\n/letter 師妹 100\n/chapter 觀喵 1 （後面可接方向）\n/jianghu 5")
+    if text == "/skip" and ctx.chat_data.pop("await_edit", None):
+        return await reply(update, "取消，沒有改。")
+    wait = ctx.chat_data.pop("await_reason", None)
+    if wait and text != "/skip":
+        tid, label = wait
+        return await reply_note(update, tid, label, text)
+    if wait:
+        return await reply(update, "取消，沒有記下建議。")
+    if text.startswith("/"):
+        return
+    ed = ctx.chat_data.pop("await_edit", None)
+    if ed:
+        t, msg = apply_direct(ed[0], ed[1], text)
+        return await update.message.reply_text(tag(msg), reply_markup=after_edit_kb(ed[0]) if t else MENU)
+    rt = update.message.reply_to_message
+    if rt and lookup_msg(rt.message_id):
+        tid, label = lookup_msg(rt.message_id)
+        if len(text) >= 60:  # 長文多半是改好的版本，先問清楚
+            ctx.chat_data["choose"] = (tid, label, text)
+            return await update.message.reply_text(
+                tag(f"這段（{len(text)} 字）要怎麼用？"),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📝 取代原文", callback_data=f"ch:r:{tid}"),
+                    InlineKeyboardButton("💬 當成建議", callback_data=f"ch:n:{tid}")]]))
+        return await reply_note(update, tid, label, text)
+    edit = ctx.chat_data.pop("await_idea", None)
+    if edit:
+        stage, p = find_task(edit)
+        if not p or stage != "ideas":
+            return await reply(update, "這題已經不在題庫了。")
+        t = read_json(p)
+        t["original_brief"], t["brief"] = t["brief"], text
+        move_task(t, "queue")
+        return await reply(update, f"✏️ 已改好並排入佇列：{text}")
+    if ctx.chat_data.pop("await_brief", False):
+        return await reply(update, f"題目現在要指定格式：按 {B_IDEAS}，或 /letter /chapter /jianghu。")
+    m = re.match(r"^題\s*[:：]\s*(.+)", text, re.S)
+    if m:
+        return await reply(update, f"題目現在要指定格式：按 {B_IDEAS}，或 /chapter 師妹 1 {m.group(1)}（方向接在後面）。")
+    # 其他一律交給本地助理
+    ctx.application.bot_data["agent_busy"] = True
+    try:
+        await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
+        hist = ctx.chat_data.setdefault("agent_history", [])
+        out, by_model = await agent.chat(ctx.application.bot_data["ollama"], hist, text,
+                                         A(ctx).handlers(), list(team.DEFAULT_JOBS), ops.BUTTON_OPS)
+    finally:
+        ctx.application.bot_data["agent_busy"] = False
+    await reply(update, out, sender="agent" if by_model else "duty")
+
+
+async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_admin(update):
+        await q.answer("未授權")
+        return
+    act, _, rest = q.data.partition(":")
+    if act in ("iw", "ie", "ix"):
+        stage, p = find_task(rest)
+        if not p or stage != "ideas":
+            await q.answer("這題已處理過")
+            await q.edit_message_reply_markup(None)
+            return
+        t = read_json(p)
+        if act == "iw" and not t.get("kind"):
+            await q.answer("舊格式題目，不能直接寫")
+            await q.message.reply_text(tag(f"這題是舊格式。要寫成道緣章：/chapter 師妹 1 {t['brief'][:40]}"))
+            return
+        if act == "iw":
+            move_task(t, "queue")
+            await q.answer("排入佇列")
+            await q.edit_message_text(f"{who('writer')}\n✅ {t['brief']}\n（已排入佇列）")
+        elif act == "ix":
+            move_task(t, "rejected")
+            await q.answer("已捨棄")
+            await q.edit_message_text(f"{who('writer')}\n🗑 <s>{pipeline._e(t['brief'])}</s>", parse_mode="HTML")
+        else:
+            ctx.chat_data["await_idea"] = t["id"]
+            await q.answer()
+            await q.message.reply_text(tag(f"✏️ 原題：{t['brief']}\n打你改好的題目（整句），送出就排入佇列："))
+        return
+    if act == "bk":
+        kind, cid, num = rest.split(":")
+        res = await A(ctx).add_task(kind, cid, int(num))
+        await q.answer("已排入" if res.startswith("已排入") else "沒排入")
+        await q.message.reply_text(tag(res), reply_markup=MENU)
+        try:
+            await q.edit_message_text(tag(gaps_text()), reply_markup=gaps_markup())
+        except Exception:
+            pass
+        return
+    if act == "jb":
+        key, on = rest.split(":")
+        team.set_job(key, on == "1")
+        await q.answer("已切換")
+        await q.edit_message_text(tag(jobs_text()), reply_markup=jobs_markup())
+        return
+    if act == "op":
+        await q.answer("執行中…")
+        res = await ops.run_op(ctx.application, rest)
+        await q.message.reply_text(tag(f"{ops.OPS.get(rest, rest)} → {res}"), reply_markup=MENU)
+        return
+    if act == "nk":  # 每晚詢問：照舊
+        await q.answer()
+        await q.edit_message_reply_markup(None)
+        await q.message.reply_text(tag("好，今晚照目前設定跑。"), reply_markup=MENU)
+        return
+    if act == "ch":
+        mode, _, tid2 = rest.partition(":")
+        got = ctx.chat_data.pop("choose", None)
+        await q.answer()
+        await q.edit_message_reply_markup(None)
+        if not got or got[0] != tid2:
+            await q.message.reply_text(tag("找不到剛才那段，請再回覆一次。"))
+            return
+        if mode == "r":
+            t2, msg = apply_direct(*got)
+            await q.message.reply_text(tag(msg), reply_markup=after_edit_kb(tid2) if t2 else MENU)
+        else:
+            t2, err = add_note(*got)
+            await q.message.reply_text(tag(err or f"💬 已記成建議（共 {len(t2['draft_notes'])} 條），好了按 📨 送出。"),
+                                       reply_markup=MENU if err else InlineKeyboardMarkup([[
+                                           InlineKeyboardButton(f"📨 送出 {len(t2['draft_notes'])} 條重寫", callback_data=f"sd:{tid2}")]]))
+        return
+    tid = rest.split(":")[0]
+    stage, p = find_task(tid)
+    if not p:
+        await q.answer("任務不存在")
+        return
+    t = read_json(p)
+    if act == "vw":
+        await q.answer()
+        await send_view(ctx.bot, q.message.chat_id, t)
+        return
+    if stage != "pending":
+        await q.answer(f"已在 {stage}")
+        return
+    if act == "ed":
+        tid2, _, label = rest.partition(":")
+        ctx.chat_data["await_edit"] = (tid2, label or "整篇")
+        await q.answer()
+        k = kinds.kind_of(t)
+        await q.message.reply_text(tag(f"📝 #{tid2}【{label}】貼上你改好的版本，會原樣取代（不經寫手）。\n"
+                                       f"{EDIT_HELP.get(k.key if k else '', '')}\n取消傳 /skip"))
+        return
+    if act == "ro":
+        t["review_only"] = True
+        t["priority"] = True
+        requeue(t)
+        await q.answer("已排入")
+        await q.message.reply_text(tag(f"🔎 #{tid} 你的版本排到最前面送審（不重寫）。"), reply_markup=MENU)
+        return
+    if act == "nt":
+        tid2, _, label = rest.partition(":")
+        ctx.chat_data["await_reason"] = (tid2, label or "整篇")
+        await q.answer()
+        await q.message.reply_text(tag(f"✏️ #{tid2}【{label}】要怎麼改？直接打字（可提 L 行號）；取消傳 /skip"))
+        return
+    if act == "sd":
+        await q.answer("已送出")
+        await q.message.reply_text(tag(submit_notes(tid)), reply_markup=MENU)
+        return
+    if act == "rw":
+        await q.answer("已排入")
+        await q.message.reply_text(tag(submit_notes(tid, [])), reply_markup=MENU)
+        return
+    if act == "ap":
+        move_task(t, "approved")
+        await q.answer("已通過")
+        await q.edit_message_reply_markup(None)
+        await q.message.reply_text(tag(f"✅ #{tid} 已通過，等 {who('claude')} 終審。"), reply_markup=MENU)
+    elif act == "dr":
+        move_task(t, "rejected")
+        await q.answer("已捨棄")
+        await q.edit_message_reply_markup(None)
+    elif act == "rd":
+        ctx.chat_data["await_reason"] = (tid, "整篇")
+        await q.answer()
+        await q.message.reply_text(tag(f"✏️ #{tid} 要怎麼改？直接打字；取消傳 /skip"))
+
+
+# ---------- 進度卡 ----------
+class Card:
+    """每份稿一張訊息卡，跑的時候原地更新；第一行標明現在是誰在做。"""
+
+    def __init__(self, app, t):
+        self.app, self.t = app, t
+        self.msg = None
+        self.step, self.done = "準備中", []
+        self.started = self.step_at = time.time()
+        self.final = None
+
+    def text(self):
+        now_t = time.time()
+        actor = who("reviewer") if "審稿" in self.step and not self.final else who("writer")
+        lines = [actor if not self.final else who("duty"),
+                 (self.final or f"▶️ #{self.t['id']}"), f"題目：{self.t['brief']}", *self.done]
+        if not self.final:
+            lines.append(f"⏳ {self.step}（{mmss(now_t - self.step_at)}）")
+        lines.append(f"整份 {mmss(now_t - self.started)}｜佇列還有 {len(list_stage('queue'))} 份")
+        return "\n".join(lines)
+
+    async def push(self):
+        cid = load_config()["admin_id"]
+        try:
+            if self.msg is None:
+                self.msg = await self.app.bot.send_message(cid, self.text())
+            else:
+                await self.msg.edit_text(self.text())
+        except BadRequest as e:
+            if "not modified" not in str(e):
+                log.warning("進度卡更新失敗：%s", e)
+        except Exception as e:
+            log.warning("進度卡更新失敗：%s", e)
+
+    async def progress(self, step, done_line=None):
+        if done_line:
+            self.done.append(done_line)
+        if step:
+            self.step, self.step_at = step, time.time()
+        save_state(current={"id": self.t["id"], "brief": self.t["brief"], "step": self.step,
+                            "step_at": self.step_at, "started": self.started, "done": self.done})
+        await self.push()
+
+    async def ticker(self):
+        while True:
+            await asyncio.sleep(60)
+            await self.push()
+
+
+# ---------- 背景迴圈 ----------
+async def idle_ideas(app):
+    """閒置自動補缺口：佇列空了就排下一封道緣信（三人輪流），每天最多 9 封。"""
+    st = load_state()
+    today = now().strftime("%Y-%m-%d")
+    count = st.get("idle_ideas_count", 0) if st.get("idle_ideas_date") == today else 0
+    if count >= 9 or time.time() - st.get("idle_ideas_at", 0) < 600:
+        return False
+    save_state(idle_ideas_at=time.time())
+    gaps = kinds.KINDS["letter"].backlog()
+    if not gaps:
+        return False
+    m = gaps[count % len(gaps)]
+    res = await app.bot_data["actions"].add_task("letter", m["character_id"], m["at"])
+    save_state(idle_ideas_date=today, idle_ideas_count=count + 1)
+    await notify(app, "佇列空了，依排程補一封道緣信：" + res, sender="duty")
+    return res.startswith("已排入")
+
+
+async def worker(app: Application):
+    o: Ollama = app.bot_data["ollama"]
+    for p in list_stage("work"):
+        move_task(read_json(p), "queue")
+    save_state(current=None)
+    while True:
+        cfg, st = load_config(), load_state()
+        items = list_stage("queue")
+        if not items:
+            if st.get("blocked"):
+                save_state(blocked=None)
+            if not st["paused"] and team.job_on("idle_ideas"):
+                try:
+                    if await idle_ideas(app):
+                        continue
+                except Exception as e:
+                    log.warning("自動出題失敗：%s", e)
+            await asyncio.sleep(20)
+            continue
+        reason = await blocked_reason(cfg, st)
+        if reason != st.get("blocked"):
+            save_state(blocked=reason)
+            if reason:
+                await notify(app, f"佇列有 {len(items)} 份在等：{reason}")
+            elif st.get("blocked"):
+                await notify(app, "✅ 阻擋解除，開工。")
+        if reason:
+            await asyncio.sleep(20)
+            continue
+
+        tasks = [read_json(p) for p in items]
+        legacy = [x for x in tasks if not kinds.kind_of(x)]
+        for x in legacy:  # 舊格式（沒指定 kind）不寫，移出
+            x["legacy"] = True
+            move_task(x, "rejected")
+        if legacy:
+            await notify(app, f"佇列裡 {len(legacy)} 份舊格式題目已移到捨棄（沒有指定信／章／卦）。")
+            continue
+        t = next((x for x in tasks if x.get("priority")), tasks[0])
+        t.pop("priority", None)
+        move_task(t, "work")
+        card = Card(app, t)
+        await card.progress("開工")
+        tick = asyncio.create_task(card.ticker())
+        job = asyncio.create_task(pipeline.process(o, t, card.progress))
+        app.bot_data["job"] = job
+        try:
+            ok = await job
+            t["needs_human"] = not ok
+            move_task(t, "pending")
+            last = t["rounds"][-1]
+            card.final = "🟢 審稿通過" if ok else f"⚠️ {cfg['max_rounds']}輪仍未過，交你判斷"
+            await card.push()
+            k = kinds.kind_of(t)
+            await notify(app, f"{card.final}｜{last['review']['score']}分\n"
+                              f"#{t['id']} {k.label(t)}・{k.title(last['script'])}\n"
+                              f"{k.summary(last['script'])}",
+                         InlineKeyboardMarkup([[InlineKeyboardButton("📖 展開閱讀", callback_data=f"vw:{t['id']}")],
+                                               *final_kb(t["id"], 0).inline_keyboard]), sender="reviewer")
+        except asyncio.CancelledError:
+            if job.cancelled():
+                move_task(t, "queue")
+                card.final = "⏹ 已中斷，放回佇列"
+                await card.push()
+            else:
+                raise
+        except Exception as e:
+            t["errors"] = t.get("errors", 0) + 1
+            t["last_error"] = f"{e.__class__.__name__}: {e}"
+            log.error("%s 失敗：%s\n%s", t["id"], e, traceback.format_exc())
+            if t["errors"] >= 3:
+                move_task(t, "rejected")
+                card.final = "❌ 連續失敗 3 次，已移出"
+            else:
+                move_task(t, "queue")
+                card.final = f"⚠️ 第{t['errors']}次失敗，2 分鐘後重試"
+            await card.push()
+            await notify(app, f"{card.final}｜#{t['id']}\n原因：{t['last_error'][:300]}")
+            if t["errors"] < 3:
+                await asyncio.sleep(120)
+        finally:
+            tick.cancel()
+            app.bot_data["job"] = None
+            save_state(current=None)
+
+
+async def nightly_ask(app):
+    """每天 ask_time 問一次今晚排程。"""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            cfg, st = load_config(), load_state()
+            if not team.job_on("nightly_ask"):
+                continue
+            n = now(cfg)
+            today = n.strftime("%Y-%m-%d")
+            if n.strftime("%H:%M") >= cfg.get("ask_time", "21:30") and st.get("asked_date") != today:
+                save_state(asked_date=today)
+                markup = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("👍 照目前設定", callback_data="nk:")]]
+                    + [list(r) for r in jobs_markup().inline_keyboard])
+                await notify(app, jobs_text(f"🌙 今晚排程確認（佇列 {len(list_stage('queue'))} 份、"
+                                            f"待審 {len(list_stage('pending'))} 份）"), markup)
+        except Exception as e:
+            log.warning("每晚詢問失敗：%s", e)
+
+
+async def export_loop():
+    """每分鐘把稿件輸出成 讀稿/*.md。"""
+    from . import export
+    while True:
+        try:
+            export.export_all()
+        except Exception as e:
+            log.warning("讀稿輸出失敗：%s", e)
+        await asyncio.sleep(60)
+
+
+async def post_init(app: Application):
+    cfg = load_config()
+    app.bot_data["ollama"] = Ollama(cfg["ollama_url"])
+    app.bot_data["actions"] = Actions(app)
+    app.bot_data["started_at"] = time.time()
+    try:
+        await app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
+    except Exception as e:
+        log.warning("註冊指令選單失敗：%s", e)
+    for coro in (worker(app), ops.poll(app, notify), nightly_ask(app), export_loop()):
+        asyncio.create_task(coro)
+    st = load_state()
+    await notify(app, "上線。" + (f"寫稿暫停中，按 {B_RESUME} 繼續。" if st["paused"] else "")
+                 + f"\n佇列 {len(list_stage('queue'))} 份。直接打字可以跟本地助理說話，/help 看用法。")
+
+
+def _main():
+    cfg = load_config()
+    if not cfg["telegram_token"]:
+        raise SystemExit("config.json 缺 telegram_token")
+    app = Application.builder().token(cfg["telegram_token"]).post_init(post_init).build()
+    for name, fn in [("start", cmd_help), ("help", cmd_help), ("team", cmd_team), ("pool", cmd_pool), ("status", cmd_team),
+                     ("list", cmd_list), ("jobs", cmd_jobs), ("ops", cmd_ops), ("view", cmd_view),
+                     ("redo", cmd_redo), ("ideas", cmd_ideas), ("pause", cmd_pause),
+                     ("resume", cmd_resume), ("stop", cmd_stop), ("log", cmd_log),
+                     ("reload", cmd_reload), ("gaps", cmd_gaps), ("letter", cmd_letter),
+                     ("chapter", cmd_chapter), ("jianghu", cmd_jianghu)]:
+        app.add_handler(CommandHandler(name, fn))
+    app.add_handler(CommandHandler("skip", on_text))
+    app.add_handler(CallbackQueryHandler(on_button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    log.info("bot 啟動")
+    asyncio.set_event_loop(asyncio.new_event_loop())  # Python 3.14 相容
+    app.run_polling(drop_pending_updates=True)
+
+
+def main():
+    setup_logging()
+    try:
+        _main()
+    except BaseException:
+        log.error("啟動失敗／崩潰：\n%s", traceback.format_exc())
+        raise
+
+
+if __name__ == "__main__":
+    main()

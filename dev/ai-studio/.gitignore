@@ -1,0 +1,12 @@
+# 這份 ai-studio 複本只供 Claude／六六讀稿參考，不是要在這個 repo 裡跑。
+# 複製時已排除：config.json（含 bot token）、__pycache__、logs/、*.log、venv/.venv、*.env、>5MB 檔案
+config.json
+config.json.bak*
+*.env
+.env
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.log
+logs/

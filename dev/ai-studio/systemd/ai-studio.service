@@ -1,0 +1,15 @@
+[Unit]
+Description=ai-studio night writers (Ollama + Telegram)
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__VENV__/bin/python -m studio.bot
+Restart=always
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
