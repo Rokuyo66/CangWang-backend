@@ -230,7 +230,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     thread_id: threadId,
     cast_via: p.castVia === "chat" || p.castVia === "agenda" ? p.castVia : null,
     cast_method: ["coin", "num", "manual"].includes(p.castMethod ?? "") ? p.castMethod : null,
-    topic,                                // 0107：追問、展開、評卦沿用同一事類專段
+    topic,                                // 0112：追問、展開、評卦沿用同一事類專段
   };
   let { data: cast, error: insErr } = await db.from("casts").insert(row).select("id").single();
   if (insErr) {
@@ -413,7 +413,7 @@ export function reflectAfterReview(db: SupabaseClient, castId: string) {
 }
 
 /** 首解已取定之用神 → callInterpret 選項（追問/深展/評卦沿用，避免中途改取用神） */
-// 舊卦的事類：0107 之後存在 casts.topic；之前的卦（或 migration 未跑）以問句再分流，分不出就只帶核心。
+// 舊卦的事類：0112 之後存在 casts.topic；之前的卦（或 migration 未跑）以問句再分流，分不出就只帶核心。
 // 單獨查一次而不是塞進各處的 select：欄位不存在時 select 整句會錯，這裡錯了只是少一段專段。
 async function castTopic(db: SupabaseClient, castId: string, question: string | null): Promise<string | null> {
   const { data, error } = await db.from("casts").select("topic").eq("id", castId).maybeSingle();
