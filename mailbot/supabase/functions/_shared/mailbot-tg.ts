@@ -41,7 +41,7 @@ export const MAILBOT_HELP =
   "<code>/mailrule add trash|report|keep sender|domain|subject 內容</code>\n" +
   "<code>/week</code>　立刻出產品週報（從產品專案送來）\n" +
   "<code>/due</code>　接下來的到期日（每天 9 點後，前一天和當天會自動提醒）\n" +
-  "<code>/bills</code>　這個月的帳單與訂閱（每月 1 號自動出上個月的）\n" +
+  "<code>/bills</code>　這個月的帳單與訂閱（每月 1 號自動出上個月的）；<code>/bills 2026-10</code> 看指定月份\n" +
   "<code>/news</code>　航空城、客運園區的政府消息（每週一自動）\n" +
   "<code>/tickets</code>　客服紀錄：還沒排除幾件、打開試算表\n\n" +
   "🎧 寄到客服信箱的信：一律推卡，回信草稿會先寫好放在 Gmail，看過再自己送出。\n\n" +
@@ -98,9 +98,11 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
   }
 
   if (cmd === "bills") {
-    const month = taipeiDate().slice(0, 7);
+    // /bills 看本月到今天；/bills 2026-10 看指定月份（舊月報上沒有修正鈕時用這個）
+    const thisMonth = taipeiDate().slice(0, 7);
+    const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(arg) ? arg : thisMonth;
     const [cur, prev] = await chargesOf(db, month);
-    await send(monthlyText(`${month}（到今天）`, cur, prev), cur.length ? fixMenuButton(month) : {});
+    await send(monthlyText(month === thisMonth ? `${month}（到今天）` : month, cur, prev), cur.length ? fixMenuButton(month) : {});
     return;
   }
 
