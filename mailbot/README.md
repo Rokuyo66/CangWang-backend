@@ -221,7 +221,7 @@ $$);
 ## 開發
 
 - 測試：`node mailbot/dev/mailbot-test.mts`
-- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則）、`0003_reminders_bills_news.sql`（提醒、帳單、政府消息）、`0004_tickets.sql`（客服紀錄）、`0005_charge_fixes.sql`（帳單修正），都貼進管家專案的 SQL Editor 跑
+- 資料表：`0001_mailbot.sql`、`0002_rule_drafts.sql`（用說的改規則）、`0003_reminders_bills_news.sql`（提醒、帳單、政府消息）、`0004_tickets.sql`（客服紀錄）、`0005_charge_fixes.sql`（帳單修正）、`0006_charge_ref_item.sql`（同一筆的判斷證據），都貼進管家專案的 SQL Editor 跑
 - 型別檢查：`deno check mailbot/supabase/functions/mail-butler/index.ts mailbot/supabase/functions/admin-tg/index.ts`
 - 這個資料夾**不准 import 產品的檔案**（`supabase/functions/_shared/*`）：兩邊分開部署，import 了就把產品程式一起帶上管家專案。
 - 在 Gmail 新增或改名固定標籤，要同步改 `mailbot.ts` 的 `LABELS`；自建的走 TG 按鈕即可。

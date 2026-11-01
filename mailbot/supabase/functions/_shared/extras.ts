@@ -152,6 +152,7 @@ export async function recordCharges(db: SupabaseClient, metas: MailMeta[], max =
   const rows = parsed.flatMap((c, i) => c ? [{
     gmail_id: batch[i].id, vendor: c.vendor, currency: c.currency, amount: c.amount, twd: toTwd(c, RATES),
     kind: c.kind, sub: c.sub, sus: !!c.sus, charged_at: batch[i].receivedAt, sender_domain: parseFrom(batch[i].from).domain || null,
+    ref: c.ref ?? null, item: c.item ?? null,
   }] : []);
   if (rows.length) await db.from("mailbot_charges").upsert(rows, { onConflict: "gmail_id", ignoreDuplicates: true });
   return rows.length;
@@ -164,7 +165,7 @@ export async function chargesOf(db: SupabaseClient, month: string): Promise<[Cha
   const cur0 = start(y, mo), next0 = start(mo === 12 ? y + 1 : y, mo === 12 ? 1 : mo + 1), prev0 = start(mo === 1 ? y - 1 : y, mo === 1 ? 12 : mo - 1);
   // 排除的（詐騙、按了不計）不算；同一筆消費的多封信在這裡合併——對已經記下的舊資料也有效
   const q = async (a: string, b: string) => dedupeCharges(((await db.from("mailbot_charges")
-    .select("id, vendor, currency, amount, twd, kind, sub, sus, charged_at").eq("excluded", false)
+    .select("id, vendor, currency, amount, twd, kind, sub, sus, charged_at, ref, item").eq("excluded", false)
     .gte("charged_at", a).lt("charged_at", b)).data ?? [])
     .map((r) => ({ ...r, amount: Number(r.amount), twd: r.twd == null ? null : Number(r.twd) })) as ChargeRow[]);
   return [await q(cur0, next0), await q(prev0, cur0)];

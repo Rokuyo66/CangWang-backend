@@ -405,12 +405,13 @@ const monthOf = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOS
 /** 這家這個月的每一筆（含已排除的），附來源信件的主旨。 */
 async function vendorItems(db: SupabaseClient, vendor: string, month: string): Promise<ChargeDetail[]> {
   const [a, b] = monthRange(month);
-  const { data } = await db.from("mailbot_charges").select("id, gmail_id, amount, currency, charged_at, excluded")
+  const { data } = await db.from("mailbot_charges").select("id, gmail_id, amount, currency, charged_at, excluded, ref, item")
     .ilike("vendor", vendor).gte("charged_at", a).lt("charged_at", b).order("charged_at");
   const rows = data ?? [];
   const subj = new Map(((await db.from("mailbot_seen").select("gmail_id, subject").in("gmail_id", rows.map((r) => r.gmail_id))).data ?? [])
     .map((r) => [r.gmail_id, r.subject]));
-  return rows.map((r) => ({ id: r.id, amount: Number(r.amount), currency: r.currency, charged_at: r.charged_at, excluded: r.excluded, subject: subj.get(r.gmail_id) ?? null }));
+  return rows.map((r) => ({ id: r.id, amount: Number(r.amount), currency: r.currency, charged_at: r.charged_at, excluded: r.excluded,
+    subject: subj.get(r.gmail_id) ?? null, ref: r.ref, item: r.item }));
 }
 
 async function handleChargeFix(db: SupabaseClient, op: "B" | "S" | "X" | "V" | "E" | "I", id: number, send: Send, clearButtons: () => Promise<unknown>) {
