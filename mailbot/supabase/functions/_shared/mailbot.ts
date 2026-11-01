@@ -176,9 +176,10 @@ lb 是保留期限標籤，只在 report 或 keep 時給，從下面挑一個（
 - 三月/帳單繳費：信用卡帳單、扣款與繳費通知、一般消費發票（銀行 App 或財政部載具查得回來）
 - 三月/水電瓦斯：水費、電費、瓦斯費、電信費
 - 三月/保險通知：保費繳費通知（不含保單本身）
-- 五年/產品營運：藏往知來的營運費用與憑證——Anthropic、Supabase、Cloudflare、Google Cloud、Google Play 開發者、綠界的收據與發票。國外服務不開台灣發票，這封信就是唯一憑證
+- 五年/產品營運：只限藏往知來的營運服務商——Anthropic（API）、Supabase、Cloudflare、Google Cloud、Google Play 開發者帳號、Resend、綠界——的收據與發票。國外服務不開台灣發票，這封信就是唯一憑證。
+  ⚠ 個人購物與訂閱不是產品營運：蝦皮、電商、保健品、Google One、Google AI Plus、Claude Pro／ChatGPT 個人訂閱、Spotify 等的收據或發票，一般消費放三月/帳單繳費
 - 五年/外包收入：外包合作、報酬、扣繳憑單
-- 五年/保固憑證：3C、電腦零件、家電的購買證明
+- 五年/保固憑證：只限有保固的 3C、電腦零件、家電的購買證明；食品、保健品、衣物、日用品不是
 - 五年/錄取通知：應徵、面試、錄取往來
 - 永久/合約明細：租約、保單本體與條款、勞動或外包合約
 - 永久/房產：建案、預售屋、付款期程、交屋、貸款
@@ -237,11 +238,12 @@ export function parseClassify(text: string, n: number, labels: readonly string[]
 //   u 從垃圾桶救回（/maillog）   k／K 舊版卡片的「留」「以後都報」，舊訊息上的按鈕還按得動
 //   Y／N  用說的改規則：確認／取消（id 是 mailbot_rule_drafts 的，不是 mailbot_seen 的）
 //   R  到期提醒「處理好了」（id 是 mailbot_reminders 的）
-//   B  帳單修正選單（id 是月份 yyyymm）　S 這家是詐騙　X 這家這個月不計（id 是 mailbot_charges 的）
-export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u" | "Y" | "N" | "R" | "B" | "S" | "X";
+//   B  帳單修正：選商家（id 是月份 yyyymm）　V 看這家的每一筆　E 這筆不算　I 這筆算回來
+//   X 這家這個月不算　S 這家是詐騙（V／E／I／X／S 的 id 都是 mailbot_charges 的）
+export type MbOp = "o0" | "o1" | "o2" | "n" | "p" | "A" | "t" | "T" | "D" | "k" | "K" | "u" | "Y" | "N" | "R" | "B" | "S" | "X" | "V" | "E" | "I";
 export const mbCallback = (op: MbOp, id: number) => `mb:${op}:${id}`;
 export function parseMbCallback(data: string): { op: MbOp; id: number } | null {
-  const m = /^mb:(o[0-2]|[nApTtDkKuYNRBSX]):(\d{1,15})$/.exec(data ?? "");
+  const m = /^mb:(o[0-2]|[nApTtDkKuYNRBSXVEI]):(\d{1,15})$/.exec(data ?? "");
   return m ? { op: m[1] as MbOp, id: Number(m[2]) } : null;
 }
 
@@ -532,11 +534,13 @@ currency：TWD、USD、JPY…；amount：數字（不含符號與千分位）。
     例：Google Play 收據「每月 $165.00」是 NT$165，不是 US$165。
 sub：會自動續訂的訂閱制服務（串流、雲端空間、AI 訂閱、軟體月費）→ true。水電瓦斯、電信、信用卡帳單、一次性購物 → false。
 sus：看起來像詐騙或假商店（網域與品牌對不上、價格離譜、要求點連結重新付款）→ true。
+ref：信裡的訂單編號（沒有就空字串）。只填訂單編號，發票號碼、交易序號不要填——同一筆訂單的付款信和發票信要對得起來。
+item：主要商品或訂閱方案的名稱，20 字內（例「Google AI Plus 400GB」「益生菌 60 粒」）；信裡沒寫就空字串，不要猜。
 抓不到金額的那封，amount 給 null。
 
-只輸出 JSON 陣列，不要任何其他字：[{"i":0,"vendor":"Anthropic","currency":"USD","amount":12.5,"kind":"product","sub":false,"sus":false}, …]`;
+只輸出 JSON 陣列，不要任何其他字：[{"i":0,"vendor":"Anthropic","currency":"USD","amount":12.5,"kind":"product","sub":false,"sus":false,"ref":"","item":"API 用量"}, …]`;
 
-export type Charge = { vendor: string; currency: string; amount: number; kind: "product" | "personal"; sub: boolean; sus?: boolean };
+export type Charge = { vendor: string; currency: string; amount: number; kind: "product" | "personal"; sub: boolean; sus?: boolean; ref?: string; item?: string };
 
 export function parseCharges(text: string, n: number): (Charge | null)[] {
   const out: (Charge | null)[] = Array(n).fill(null);
@@ -550,6 +554,9 @@ export function parseCharges(text: string, n: number): (Charge | null)[] {
     const currency = String(x?.currency ?? "").toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) continue;
     out[i] = { vendor: String(x?.vendor ?? "?").slice(0, 40), currency, amount, kind: x?.kind === "product" ? "product" : "personal", sub: x?.sub === true, sus: x?.sus === true };
+    const ref = String(x?.ref ?? "").trim().slice(0, 60), item = String(x?.item ?? "").trim().slice(0, 40);
+    if (ref) out[i]!.ref = ref;
+    if (item) out[i]!.item = item;
   }
   return out;
 }
@@ -563,43 +570,96 @@ export function toTwd(c: { currency: string; amount: number }, rates: Record<str
 
 export type ChargeRow = {
   id?: number; vendor: string; currency: string; amount: number; twd: number | null; kind: "product" | "personal"; sub: boolean;
-  sus?: boolean; charged_at?: string;
+  sus?: boolean; charged_at?: string; ref?: string | null; item?: string | null;
+  maybeDup?: boolean;   // 跟另一筆同家同金額、但證據不夠判斷是不是同一筆：兩筆都算，月報提醒觀主確認
 };
 
 const vkey = (v: string) => v.toLowerCase().replace(/[\s・·.,，。]/g, "");
 
-/** 同一筆消費常寄好幾封（訂單確認＋電子發票＋付款成功）：同商家、同金額、72 小時內只算一筆。
- *  代價：72 小時內真的買了兩次一模一樣金額的同一家，會少算一筆——比重複計算好。 */
+/** 同一筆消費常寄好幾封（訂單確認＋付款成功＋電子發票），但同家同金額也可能真的是兩筆。
+ *  原則：有證據才合併，證據不夠就兩筆都算、標「可能重複」交給觀主——少算比多算危險，因為少算看不出來。
+ *    ・訂單編號相同 → 同一筆（不管隔多久）；編號不同 → 不同筆
+ *    ・沒編號、商品名稱相同（一邊包含另一邊也算）且 14 天內 → 同一筆；名稱不同 → 不同筆
+ *    ・兩邊資訊都不夠（例：蝦皮發票信只寫金額），14 天內 → 不合併，兩筆都標 maybeDup
+ *  14 天：蝦皮這類電商要等訂單完成才開發票，常在付款後 4～10 天才寄。 */
+export const DEDUPE_WINDOW_MS = 14 * 86_400_000;
+const ikey = (s?: string | null) => String(s ?? "").toLowerCase().replace(/[\s・·.,，。()（）\-_/]/g, "");
+
+export type DupVerdict = "same" | "different" | "unsure";
+export function sameCharge(a: ChargeRow, b: ChargeRow): DupVerdict {
+  if (vkey(a.vendor) !== vkey(b.vendor) || a.currency !== b.currency || a.amount !== b.amount) return "different";
+  const ra = ikey(a.ref), rb = ikey(b.ref);
+  if (ra && rb) return ra === rb ? "same" : "different";
+  const near = Math.abs(Date.parse(a.charged_at ?? "") - Date.parse(b.charged_at ?? "")) <= DEDUPE_WINDOW_MS;
+  if (!near) return "different";
+  const ia = ikey(a.item), ib = ikey(b.item);
+  if (ia && ib) return ia === ib || ia.includes(ib) || ib.includes(ia) ? "same" : "different";
+  return "unsure";
+}
+
 export function dedupeCharges(rows: ChargeRow[]): ChargeRow[] {
   const kept: ChargeRow[] = [];
   const sorted = [...rows].sort((a, b) => Date.parse(a.charged_at ?? "") - Date.parse(b.charged_at ?? ""));
   for (const r of sorted) {
-    const t = Date.parse(r.charged_at ?? "");
-    const dup = kept.some((k) => vkey(k.vendor) === vkey(r.vendor) && k.currency === r.currency && k.amount === r.amount &&
-      (isNaN(t) || Math.abs(Date.parse(k.charged_at ?? "") - t) <= 72 * 3600_000));
-    if (!dup) kept.push(r);
+    const verdicts = kept.map((k) => sameCharge(k, r));
+    const same = verdicts.indexOf("same");
+    if (same >= 0) {
+      // 合併時保留資訊比較多的那筆（有編號、有品名的），月報與逐筆清單才看得懂
+      const k = kept[same];
+      if (!k.ref && r.ref) k.ref = r.ref;
+      if (!k.item && r.item) k.item = r.item;
+      continue;
+    }
+    const row = { ...r };
+    verdicts.forEach((v, i) => { if (v === "unsure") { kept[i].maybeDup = true; row.maybeDup = true; } });
+    kept.push(row);
   }
   return kept;
 }
 
-/** 「🛠 修正這份帳單」選單：每個商家一列，🚨 詐騙／✖ 不計。按鈕帶的是該商家其中一筆的 id。 */
-export function fixButtons(rows: ChargeRow[]) {
+/** 「🛠 修正這份帳單」第一層：每個商家一顆鈕（筆數寫在上面），按下去看那家的每一筆。按鈕帶該家其中一筆的 id。 */
+export function fixButtons(rows: ChargeRow[], counts: Map<string, number> = new Map()) {
   const seen = new Map<string, ChargeRow>();
   for (const r of rows) if (r.id && !seen.has(vkey(r.vendor))) seen.set(vkey(r.vendor), r);
-  return [...seen.values()].slice(0, 20).map((r) => [
-    { text: `🚨 ${r.vendor.slice(0, 12)} 是詐騙`, callback_data: mbCallback("S", r.id!) },
-    { text: `✖ ${r.vendor.slice(0, 12)} 不計`, callback_data: mbCallback("X", r.id!) },
-  ]);
+  const btns = [...seen.values()].slice(0, 30).map((r) => {
+    const n = counts.get(vkey(r.vendor)) ?? 1;
+    return { text: `${r.vendor.slice(0, 14)}${n > 1 ? ` ×${n}` : ""}`, callback_data: mbCallback("V", r.id!) };
+  });
+  const out: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < btns.length; i += 2) out.push(btns.slice(i, i + 2));
+  return out;
 }
+
+export const vendorKey = vkey;
+
+export type ChargeDetail = { id: number; amount: number; currency: string; charged_at: string; excluded: boolean; subject: string | null; ref?: string | null; item?: string | null };
+
+/** 第二層：這家這個月的每一筆。每筆一顆「🗑 不算這筆」（已排除的給「↩️ 算回來」），最後一列是整家的處理。 */
+export function vendorDetail(vendor: string, month: string, items: ChargeDetail[]): { text: string; keyboard: { text: string; callback_data: string }[][] } {
+  const at = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(5, 10).replace("-", "/");
+  const lines = [`🔍 <b>${esc(vendor)}</b>　${esc(month)} 的每一筆`, ""];
+  items.forEach((x, i) => lines.push(`${i + 1}. ${at(x.charged_at)}　${esc(x.currency === "TWD" ? `NT$ ${x.amount}` : `${x.currency} ${x.amount}`)}` +
+    `${x.item ? `　${esc(x.item)}` : ""}${x.ref ? `　#${esc(x.ref)}` : ""}${x.excluded ? "　<s>不算</s>" : ""}\n　<i>${esc(String(x.subject ?? "（信已不在）").slice(0, 40))}</i>`));
+  lines.push("", "<i>同一筆消費寄了好幾封（訂單、付款、發票）就把多的刪掉；整家都不對就用最下面兩顆。</i>");
+  const keyboard = items.slice(0, 20).map((x, i) => [x.excluded
+    ? { text: `↩️ 第 ${i + 1} 筆算回來`, callback_data: mbCallback("I", x.id) }
+    : { text: `🗑 第 ${i + 1} 筆不算（重複／退款）`, callback_data: mbCallback("E", x.id) }]);
+  if (items[0]) keyboard.push([
+    { text: "✖ 這家整月不算", callback_data: mbCallback("X", items[0].id) },
+    { text: "🚨 這家是詐騙", callback_data: mbCallback("S", items[0].id) },
+  ]);
+  return { text: lines.join("\n"), keyboard };
+}
+
 
 /** 月報：分產品／個人，依商家加總，跟上個月比；暴增（>50% 且多 NT$100 以上）標 ⚠️。 */
 export function monthlyText(month: string, cur: ChargeRow[], prev: ChargeRow[]): string {
   const n = (v: number) => Math.round(v).toLocaleString("en-US");
   const group = (rows: ChargeRow[], kind: string) => {
-    const g = new Map<string, { twd: number; count: number; sub: boolean; foreign: string[] }>();
+    const g = new Map<string, { twd: number; count: number; sub: boolean; foreign: string[]; dup: boolean }>();
     for (const r of rows.filter((x) => x.kind === kind)) {
-      const e = g.get(r.vendor) ?? { twd: 0, count: 0, sub: false, foreign: [] };
-      e.count++; e.sub ||= r.sub;
+      const e = g.get(r.vendor) ?? { twd: 0, count: 0, sub: false, foreign: [], dup: false };
+      e.count++; e.sub ||= r.sub; e.dup ||= !!r.maybeDup;
       if (r.twd != null) e.twd += r.twd; else e.foreign.push(`${r.currency} ${r.amount}`);
       g.set(r.vendor, e);
     }
@@ -616,11 +676,12 @@ export function monthlyText(month: string, cur: ChargeRow[], prev: ChargeRow[]):
       const p = pg.get(v)?.twd ?? 0;
       const spike = p > 0 && e.twd > p * 1.5 && e.twd - p >= 100;
       lines.push(`${spike ? "⚠️ " : ""}${sus.has(v) ? "❓" : ""}${esc(v)}${e.sub ? "（訂閱）" : ""}　NT$ ${n(e.twd)}${e.count > 1 ? ` ×${e.count}` : ""}` +
-        (e.foreign.length ? `　＋${esc(e.foreign.join("、"))}` : "") + (spike ? `　上月 ${n(p)}` : ""));
+        (e.foreign.length ? `　＋${esc(e.foreign.join("、"))}` : "") + (spike ? `　上月 ${n(p)}` : "") + (e.dup ? "　⚠️可能重複" : ""));
     }
   }
   const subs = [...new Set(cur.filter((r) => r.sub && r.kind === "personal").map((r) => r.vendor))];
   if (subs.length) lines.push("", `🔁 個人訂閱 ${subs.length} 個：${subs.map(esc).join("、")}`);
+  if (cur.some((r) => r.maybeDup)) lines.push("", "⚠️ 可能重複：同一家同金額，但信裡沒有訂單編號或品名可以比對，所以兩筆都先算進去。按「🛠」點那一家看來源信件，是同一筆就刪掉一筆。");
   if (sus.size) lines.push("", `❓ 疑似詐騙：${[...sus].map(esc).join("、")}——確定是的話按下面「🛠 修正」標記`);
   return lines.join("\n");
 }

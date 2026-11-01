@@ -20,7 +20,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash, modify, fileAway, ensureLabel, labelIds } from "./gmail.ts";
 import {
   esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO, LABELS, noThinking,
-  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate, fixButtons,
+  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate, fixButtons, vendorDetail, vendorKey, type ChargeDetail,
   KIND_LABEL, ACTION_LABEL, type Rule, type RuleOp,
 } from "./mailbot.ts";
 import { chargesOf, ticketSummary, fixMenuButton } from "./extras.ts";
@@ -282,7 +282,9 @@ export async function handleMailbotCallback(
   const cb = parseMbCallback(data);
   if (!cb) return false;
   if (cb.op === "Y" || cb.op === "N") { await applyDraft(db, cb.id, cb.op === "Y", send, clearButtons); return true; }
-  if (cb.op === "B" || cb.op === "S" || cb.op === "X") { await handleChargeFix(db, cb.op, cb.id, send, clearButtons); return true; }
+  if (cb.op === "B" || cb.op === "S" || cb.op === "X" || cb.op === "V" || cb.op === "E" || cb.op === "I") {
+    await handleChargeFix(db, cb.op, cb.id, send, clearButtons); return true;
+  }
   if (cb.op === "R") {
     const { data: r } = await db.from("mailbot_reminders").update({ done: true }).eq("id", cb.id).select("what, subject").maybeSingle();
     await send(r ? `✓ 已記下處理好了：${esc(String(r.what || r.subject || ""))}，不再提醒。` : "找不到這個提醒。");
@@ -393,13 +395,50 @@ export async function handleMailbotCallback(
 
 /* ── 帳單修正：🚨 詐騙／✖ 不計 ─────────────────────────────── */
 
-async function handleChargeFix(db: SupabaseClient, op: "B" | "S" | "X", id: number, send: Send, clearButtons: () => Promise<unknown>) {
+/** 台北月份的起訖（UTC ISO）。 */
+function monthRange(month: string): [string, string] {
+  const [y, m] = month.split("-").map(Number);
+  return [new Date(Date.UTC(y, m - 1, 1) - 8 * 3600_000).toISOString(), new Date(Date.UTC(y, m, 1) - 8 * 3600_000).toISOString()];
+}
+const monthOf = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 7);
+
+/** 這家這個月的每一筆（含已排除的），附來源信件的主旨。 */
+async function vendorItems(db: SupabaseClient, vendor: string, month: string): Promise<ChargeDetail[]> {
+  const [a, b] = monthRange(month);
+  const { data } = await db.from("mailbot_charges").select("id, gmail_id, amount, currency, charged_at, excluded, ref, item")
+    .ilike("vendor", vendor).gte("charged_at", a).lt("charged_at", b).order("charged_at");
+  const rows = data ?? [];
+  const subj = new Map(((await db.from("mailbot_seen").select("gmail_id, subject").in("gmail_id", rows.map((r) => r.gmail_id))).data ?? [])
+    .map((r) => [r.gmail_id, r.subject]));
+  return rows.map((r) => ({ id: r.id, amount: Number(r.amount), currency: r.currency, charged_at: r.charged_at, excluded: r.excluded,
+    subject: subj.get(r.gmail_id) ?? null, ref: r.ref, item: r.item }));
+}
+
+async function handleChargeFix(db: SupabaseClient, op: "B" | "S" | "X" | "V" | "E" | "I", id: number, send: Send, clearButtons: () => Promise<unknown>) {
   if (op === "B") {
     const month = `${String(id).slice(0, 4)}-${String(id).slice(4, 6)}`;
-    const [cur] = await chargesOf(db, month);
-    if (!cur.length) { await send(`${month} 沒有記到任何扣款。`); return; }
-    await send(`🛠 <b>${month} 帳單修正</b>\n\n🚨 詐騙：這家的金額不再計入、封鎖整個寄件網域、相關的信移到 Gmail 垃圾郵件\n✖ 不計：只是這個月這家不算進月報（例如已退款、重複）`,
-      { reply_markup: { inline_keyboard: fixButtons(cur) } });
+    const [a, b] = monthRange(month);
+    const { data: raw } = await db.from("mailbot_charges").select("id, vendor, currency, amount, twd, kind, sub, charged_at")
+      .eq("excluded", false).gte("charged_at", a).lt("charged_at", b).order("charged_at");
+    if (!raw?.length) { await send(`${month} 沒有記到任何扣款。`); return; }
+    const counts = new Map<string, number>();
+    for (const r of raw) counts.set(vendorKey(r.vendor), (counts.get(vendorKey(r.vendor)) ?? 0) + 1);
+    await send(`🛠 <b>${month} 帳單修正</b>　選一家，看它的每一筆\n<i>×2 以上的多半是同一筆消費寄了好幾封信</i>`,
+      { reply_markup: { inline_keyboard: fixButtons(raw.map((r) => ({ ...r, amount: Number(r.amount), twd: r.twd == null ? null : Number(r.twd) })), counts) } });
+    return;
+  }
+
+  if (op === "V" || op === "E" || op === "I") {
+    const { data: c } = await db.from("mailbot_charges").select("vendor, charged_at").eq("id", id).maybeSingle();
+    if (!c) { await send("找不到這筆紀錄。"); return; }
+    if (op !== "V") {
+      await db.from("mailbot_charges").update({ excluded: op === "E" }).eq("id", id);
+      await clearButtons();
+    }
+    const month = monthOf(c.charged_at);
+    const d = vendorDetail(c.vendor, month, await vendorItems(db, c.vendor, month));
+    await send((op === "E" ? "🗑 這筆不算了。\n\n" : op === "I" ? "↩️ 這筆算回來了。\n\n" : "") + d.text +
+      (op !== "V" ? `\n\n<i>打 /bills ${month} 看更新後的數字</i>` : ""), { reply_markup: { inline_keyboard: d.keyboard } });
     return;
   }
 

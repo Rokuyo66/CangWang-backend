@@ -14,7 +14,7 @@ import {
   isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
   reminderDue, reminderText, upcomingText, taipeiDate, classifyPrompt, isSupport, parseSupport,
   parseCharges, toTwd, monthlyText, parseNews, newsText, type ChargeRow,
-  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL, dedupeCharges, fixButtons, CHARGE_SYS,
+  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL, dedupeCharges, fixButtons, CHARGE_SYS, vendorDetail, sameCharge,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -377,17 +377,6 @@ t("客服：平台不認得的歸不明；編號補零", () => {
 const ch = (vendor: string, amount: number, at: string, extra: Partial<ChargeRow> = {}): ChargeRow =>
   ({ id: Math.floor(Math.random() * 1e6), vendor, currency: "TWD", amount, twd: amount, kind: "personal", sub: false, charged_at: at, ...extra });
 
-t("重複計算：訂單確認＋電子發票同一筆（大研生醫 1056 被算成 2112）→ 只算一次", () => {
-  const out = dedupeCharges([ch("大研生醫", 1056, "2026-10-22T10:00:00Z"), ch("大研生醫", 1056, "2026-10-23T01:16:04Z")]);
-  eq(out.length, 1);
-});
-
-t("重複計算：商家名大小寫、空白不同也算同一家；超過 72 小時、金額不同的照算", () => {
-  eq(dedupeCharges([ch("HeroMama", 1168, "2026-10-05T00:00:00Z"), ch("Hero Mama", 1168, "2026-10-06T00:00:00Z")]).length, 1);
-  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 382, "2026-10-10T00:00:00Z")]).length, 2);
-  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 500, "2026-10-01T05:00:00Z")]).length, 2);
-});
-
 t("幣別：提示詞明講只寫 $ 的台灣收據是新台幣（Google One $165 被當成 US$165＝5280）", () => {
   if (!CHARGE_SYS.includes("每月 $165.00」是 NT$165")) throw new Error("沒有把 Google Play 的例子寫進提示詞");
   if (!CHARGE_SYS.includes("只有寫明 US$、USD、美元，才是 USD")) throw new Error("沒寫美金的判準");
@@ -399,12 +388,58 @@ t("詐騙：AI 覺得可疑的在月報標 ❓；修正選單每家一列、call
     ch("全聯", 99, "2026-10-20T00:00:00Z", { id: 33 })];
   const s = monthlyText("2026-10", rows, []);
   if (!s.includes("❓鍋寶好食光市集") || !s.includes("疑似詐騙：鍋寶好食光市集")) throw new Error(s);
-  const btn = fixButtons(rows);
-  eq(btn.length, 2);
-  eq(btn[0].map((b) => b.callback_data), ["mb:S:31", "mb:X:31"]);
+  const btn = fixButtons(rows, new Map([["全聯", 2]]));
+  eq(btn.flat().map((b) => [b.text, b.callback_data]), [["鍋寶好食光市集", "mb:V:31"], ["全聯 ×2", "mb:V:32"]]);
   for (const b of btn.flat()) if (!parseMbCallback(b.callback_data)) throw new Error(b.callback_data);
   eq(parseMbCallback("mb:B:202610"), { op: "B", id: 202610 });
   eq(parseCharges('[{"i":0,"vendor":"x","currency":"TWD","amount":1,"sus":true}]', 1)[0]?.sus, true);
+});
+
+t("歸檔：個人購物不准進產品營運、保健品不是保固憑證（寫在提示詞裡）", () => {
+  const sys = classifySys();
+  if (!sys.includes("蝦皮、電商、保健品、Google One、Google AI Plus")) throw new Error("沒排除個人購物");
+  if (!sys.includes("食品、保健品、衣物、日用品不是")) throw new Error("沒排除保健品");
+});
+
+t("帳單逐筆：每筆一顆刪除、已刪的變算回來、最後一列是整家處理；HTML 轉義", () => {
+  const d = vendorDetail("蝦<皮", "2026-10", [
+    { id: 1, amount: 382, currency: "TWD", charged_at: "2026-10-15T02:00:00Z", excluded: false, subject: "訂單已付款" },
+    { id: 2, amount: 382, currency: "TWD", charged_at: "2026-10-22T01:00:00Z", excluded: true, subject: "電子發票開立通知" },
+  ]);
+  if (!d.text.includes("蝦&lt;皮") || !d.text.includes("10/15") || !d.text.includes("<s>不算</s>")) throw new Error(d.text);
+  eq(d.keyboard.map((r) => r.map((b) => b.callback_data)), [["mb:E:1"], ["mb:I:2"], ["mb:X:1", "mb:S:1"]]);
+});
+
+// ── 是不是同一筆：有證據才合併 ──
+const D = "2026-10-15T00:00:00Z", D7 = "2026-10-22T00:00:00Z", D30 = "2026-11-14T00:00:00Z";
+t("同一筆：訂單編號相同就合併，隔多久都一樣；編號不同就分開", () => {
+  eq(sameCharge(ch("蝦皮購物", 382, D, { ref: "2610150ABC" }), ch("蝦皮", 382, D30, { ref: "2610150abc" })), "different");   // 商家名不同
+  eq(sameCharge(ch("蝦皮購物", 382, D, { ref: "2610150ABC" }), ch("蝦皮購物", 382, D30, { ref: "2610150abc" })), "same");
+  eq(sameCharge(ch("蝦皮購物", 382, D, { ref: "A1" }), ch("蝦皮購物", 382, D7, { ref: "B2" })), "different");
+});
+
+t("同一筆：沒編號時比品名（含部分相同）；品名不同就是兩筆", () => {
+  eq(sameCharge(ch("大研生醫", 1056, D, { item: "益生菌 60粒" }), ch("大研生醫", 1056, D7, { item: "益生菌60粒（兩盒）" })), "same");
+  eq(sameCharge(ch("大研生醫", 1056, D, { item: "益生菌" }), ch("大研生醫", 1056, D7, { item: "魚油" })), "different");
+  eq(sameCharge(ch("Spotify", 168, D, { item: "Premium" }), ch("Spotify", 168, D30, { item: "Premium" })), "different");   // 下個月的續訂
+});
+
+t("證據不足（蝦皮發票只寫金額）：不合併、兩筆都算、都標可能重複", () => {
+  const out = dedupeCharges([ch("蝦皮購物", 382, D), ch("蝦皮購物", 382, D7)]);
+  eq(out.length, 2); eq(out.map((r) => r.maybeDup), [true, true]);
+  const s = monthlyText("2026-10", out, []);
+  if (!s.includes("⚠️可能重複") || !s.includes("NT$ 764 ×2")) throw new Error(s);
+});
+
+t("合併：付款信有編號、發票信沒有，但品名相同 → 一筆，並留下有編號的資訊", () => {
+  const out = dedupeCharges([ch("HeroMama", 1168, D, { item: "幼犬飼料 2kg" }), ch("HeroMama", 1168, D7, { item: "幼犬飼料", ref: "HM-9" })]);
+  eq(out.length, 1); eq([out[0].ref, out[0].maybeDup], ["HM-9", undefined]);
+});
+
+t("抓金額：編號與品名有抓、空的不留；提示詞要求別把發票號碼當訂單編號", () => {
+  const out = parseCharges('[{"i":0,"vendor":"x","currency":"TWD","amount":1,"ref":" A1 ","item":"益生菌"},{"i":1,"vendor":"y","currency":"TWD","amount":2,"ref":"","item":""}]', 2);
+  eq([out[0]?.ref, out[0]?.item, out[1]?.ref, out[1]?.item], ["A1", "益生菌", undefined, undefined]);
+  if (!CHARGE_SYS.includes("發票號碼、交易序號不要填")) throw new Error("提示詞沒講清楚");
 });
 
 setTimeout(() => {
