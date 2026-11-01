@@ -20,10 +20,10 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { trash, untrash, modify, fileAway, ensureLabel, labelIds } from "./gmail.ts";
 import {
   esc, fileText, fileButtons, parseMbCallback, mbCallback, isValidNewLabel, TODO, LABELS, noThinking,
-  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate,
+  ruleNlSys, ruleNlPrompt, parseRuleIntent, describeOp, upcomingText, monthlyText, taipeiDate, fixButtons,
   KIND_LABEL, ACTION_LABEL, type Rule, type RuleOp,
 } from "./mailbot.ts";
-import { chargesOf, ticketSummary } from "./extras.ts";
+import { chargesOf, ticketSummary, fixMenuButton } from "./extras.ts";
 
 type Send = (text: string, extra?: Record<string, unknown>) => Promise<unknown>;
 
@@ -100,7 +100,7 @@ export async function handleMailbotCommand(db: SupabaseClient, text: string, sen
   if (cmd === "bills") {
     const month = taipeiDate().slice(0, 7);
     const [cur, prev] = await chargesOf(db, month);
-    await send(monthlyText(`${month}（到今天）`, cur, prev));
+    await send(monthlyText(`${month}（到今天）`, cur, prev), cur.length ? fixMenuButton(month) : {});
     return;
   }
 
@@ -280,6 +280,7 @@ export async function handleMailbotCallback(
   const cb = parseMbCallback(data);
   if (!cb) return false;
   if (cb.op === "Y" || cb.op === "N") { await applyDraft(db, cb.id, cb.op === "Y", send, clearButtons); return true; }
+  if (cb.op === "B" || cb.op === "S" || cb.op === "X") { await handleChargeFix(db, cb.op, cb.id, send, clearButtons); return true; }
   if (cb.op === "R") {
     const { data: r } = await db.from("mailbot_reminders").update({ done: true }).eq("id", cb.id).select("what, subject").maybeSingle();
     await send(r ? `✓ 已記下處理好了：${esc(String(r.what || r.subject || ""))}，不再提醒。` : "找不到這個提醒。");
@@ -386,4 +387,57 @@ export async function handleMailbotCallback(
   const what = isTrash ? "🗑 已刪" : cb.op === "K" ? "📌 已留" : "📥 已留";
   await send(`${what}：${subj}${extra}`);
   return true;
+}
+
+/* ── 帳單修正：🚨 詐騙／✖ 不計 ─────────────────────────────── */
+
+async function handleChargeFix(db: SupabaseClient, op: "B" | "S" | "X", id: number, send: Send, clearButtons: () => Promise<unknown>) {
+  if (op === "B") {
+    const month = `${String(id).slice(0, 4)}-${String(id).slice(4, 6)}`;
+    const [cur] = await chargesOf(db, month);
+    if (!cur.length) { await send(`${month} 沒有記到任何扣款。`); return; }
+    await send(`🛠 <b>${month} 帳單修正</b>\n\n🚨 詐騙：這家的金額不再計入、封鎖整個寄件網域、相關的信移到 Gmail 垃圾郵件\n✖ 不計：只是這個月這家不算進月報（例如已退款、重複）`,
+      { reply_markup: { inline_keyboard: fixButtons(cur) } });
+    return;
+  }
+
+  const { data: c } = await db.from("mailbot_charges").select("id, gmail_id, vendor, sender_domain, charged_at").eq("id", id).maybeSingle();
+  if (!c) { await send("找不到這筆紀錄。"); return; }
+
+  if (op === "X") {
+    const d = new Date(Date.parse(c.charged_at) + 8 * 3600_000);
+    const from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - 8 * 3600_000).toISOString();
+    const to = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - 8 * 3600_000).toISOString();
+    const { data } = await db.from("mailbot_charges").update({ excluded: true }).ilike("vendor", c.vendor)
+      .gte("charged_at", from).lt("charged_at", to).select("id");
+    await clearButtons();
+    await send(`✖ ${esc(c.vendor)} 這個月的 ${data?.length ?? 0} 筆不計入月報了。打 /bills 看更新後的數字。`);
+    return;
+  }
+
+  // 🚨 詐騙：網域優先用記下的；舊資料沒記，就從那封信的寄件人推
+  let domain: string = c.sender_domain ?? "";
+  if (!domain) {
+    const { data: seen } = await db.from("mailbot_seen").select("sender").eq("gmail_id", c.gmail_id).maybeSingle();
+    domain = String(seen?.sender ?? "").split("@").pop() ?? "";
+  }
+  const vendorRows = (await db.from("mailbot_charges").select("id, gmail_id").ilike("vendor", c.vendor)).data ?? [];
+  const domainRows = domain ? (await db.from("mailbot_charges").select("id, gmail_id").eq("sender_domain", domain)).data ?? [] : [];
+  const rows = [...new Map([...vendorRows, ...domainRows].map((r) => [r.id, r])).values()];
+  await db.from("mailbot_charges").update({ excluded: true, sus: true }).in("id", rows.map((r) => r.id));
+
+  let rule = "";
+  if (domain) {
+    const { data: r } = await db.from("mailbot_rules")
+      .upsert({ kind: "domain", pattern: domain, action: "trash", note: `TG 標記詐騙（${c.vendor}）` }, { onConflict: "kind,pattern" }).select("id").single();
+    rule = `\n🚫 封鎖網域 <code>${esc(domain)}</code>（規則 #${r?.id ?? "?"}），以後這個網域的信直接刪`;
+  }
+  // 信移到垃圾郵件：Gmail 會學到這是詐騙，對其他人也有幫助
+  const seenIds = domain ? ((await db.from("mailbot_seen").select("gmail_id").like("sender", `%@${domain}`)).data ?? []).map((r) => r.gmail_id) : [];
+  let spammed = 0;
+  for (const gid of new Set([...rows.map((r) => r.gmail_id), ...seenIds])) {
+    try { await modify(gid, ["SPAM"], ["INBOX"]); spammed++; } catch { /* 信已經不在了 */ }
+  }
+  await clearButtons();
+  await send(`🚨 已標記 <b>${esc(c.vendor)}</b> 為詐騙\n✖ ${rows.length} 筆金額不再計入${rule}\n📮 ${spammed} 封信移到垃圾郵件\n\n<i>打 /bills 看更新後的數字。如果你有在這家付過錢，記得聯絡銀行。</i>`);
 }

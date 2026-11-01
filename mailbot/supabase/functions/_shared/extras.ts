@@ -10,7 +10,7 @@ import { ask, askWithSearch } from "./claude.ts";
 import {
   esc, parseFrom, mbCallback, reminderDue, reminderText, taipeiDate, taipeiHour,
   SUPPORT_SYS, SUPPORT_CATS, parseSupport, CHARGE_SYS, parseCharges, toTwd, monthlyText,
-  newsSys, parseNews, newsText, NEWS_DOMAINS, PLATFORMS, TICKET_HEADERS, TICKET_DONE_COL, ticketRow, ticketNo, countOpen,
+  newsSys, parseNews, newsText, NEWS_DOMAINS, PLATFORMS, dedupeCharges, TICKET_HEADERS, TICKET_DONE_COL, ticketRow, ticketNo, countOpen,
   type AiVerdict, type ChargeRow, type ReminderItem, type Ticket,
 } from "./mailbot.ts";
 
@@ -151,7 +151,7 @@ export async function recordCharges(db: SupabaseClient, metas: MailMeta[], max =
   const parsed = parseCharges(await ask(CHARGE_SYS, prompt, { maxTokens: 80 * batch.length + 200 }), batch.length);
   const rows = parsed.flatMap((c, i) => c ? [{
     gmail_id: batch[i].id, vendor: c.vendor, currency: c.currency, amount: c.amount, twd: toTwd(c, RATES),
-    kind: c.kind, sub: c.sub, charged_at: batch[i].receivedAt,
+    kind: c.kind, sub: c.sub, sus: !!c.sus, charged_at: batch[i].receivedAt, sender_domain: parseFrom(batch[i].from).domain || null,
   }] : []);
   if (rows.length) await db.from("mailbot_charges").upsert(rows, { onConflict: "gmail_id", ignoreDuplicates: true });
   return rows.length;
@@ -162,10 +162,17 @@ export async function chargesOf(db: SupabaseClient, month: string): Promise<[Cha
   const [y, mo] = month.split("-").map(Number);
   const start = (yy: number, mm: number) => new Date(Date.UTC(yy, mm - 1, 1) - 8 * 3600_000).toISOString();
   const cur0 = start(y, mo), next0 = start(mo === 12 ? y + 1 : y, mo === 12 ? 1 : mo + 1), prev0 = start(mo === 1 ? y - 1 : y, mo === 1 ? 12 : mo - 1);
-  const q = async (a: string, b: string) => ((await db.from("mailbot_charges").select("vendor, currency, amount, twd, kind, sub")
-    .gte("charged_at", a).lt("charged_at", b)).data ?? []).map((r) => ({ ...r, amount: Number(r.amount), twd: r.twd == null ? null : Number(r.twd) })) as ChargeRow[];
+  // 排除的（詐騙、按了不計）不算；同一筆消費的多封信在這裡合併——對已經記下的舊資料也有效
+  const q = async (a: string, b: string) => dedupeCharges(((await db.from("mailbot_charges")
+    .select("id, vendor, currency, amount, twd, kind, sub, sus, charged_at").eq("excluded", false)
+    .gte("charged_at", a).lt("charged_at", b)).data ?? [])
+    .map((r) => ({ ...r, amount: Number(r.amount), twd: r.twd == null ? null : Number(r.twd) })) as ChargeRow[]);
   return [await q(cur0, next0), await q(prev0, cur0)];
 }
+
+/** 月報底下那顆「🛠 修正」：帶月份（yyyymm），按下去才列出各商家的詐騙／不計按鈕，不讓月報本身塞滿按鈕。 */
+export const fixMenuButton = (month: string) =>
+  ({ reply_markup: { inline_keyboard: [[{ text: "🛠 有問題？標記詐騙／不計", callback_data: mbCallback("B", Number(month.replace("-", ""))) }]] } });
 
 /** 每月 1 號 09 點後，出上個月的月報（同一個月只出一次）。 */
 export async function sendMonthlyIfDue(db: SupabaseClient, say: Say): Promise<boolean> {
@@ -177,7 +184,7 @@ export async function sendMonthlyIfDue(db: SupabaseClient, say: Say): Promise<bo
   const { data: st } = await db.from("mailbot_state").select("value").eq("key", "monthly_sent").maybeSingle();
   if (st?.value === last) return false;
   const [cur, prev] = await chargesOf(db, last);
-  await say(monthlyText(last, cur, prev));
+  await say(monthlyText(last, cur, prev), fixMenuButton(last));
   await db.from("mailbot_state").upsert({ key: "monthly_sent", value: last, updated_at: new Date().toISOString() });
   return true;
 }

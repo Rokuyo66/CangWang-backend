@@ -14,7 +14,7 @@ import {
   isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
   reminderDue, reminderText, upcomingText, taipeiDate, classifyPrompt, isSupport, parseSupport,
   parseCharges, toTwd, monthlyText, parseNews, newsText, type ChargeRow,
-  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL,
+  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL, dedupeCharges, fixButtons, CHARGE_SYS,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -303,7 +303,7 @@ t("客服：沒有回信內容的不算；類別不認得的歸其他", () => {
 // ── 帳單 ──
 t("帳單：金額要是正數、幣別三碼；壞的那封回 null", () => {
   const out = parseCharges('[{"i":0,"vendor":"Anthropic","currency":"usd","amount":12.5,"kind":"product"},{"i":1,"vendor":"X","currency":"TWD","amount":null},{"i":2,"vendor":"Y","currency":"新台幣","amount":100},{"i":3,"vendor":"Z","currency":"TWD","amount":-5}]', 4);
-  eq(out[0], { vendor: "Anthropic", currency: "USD", amount: 12.5, kind: "product", sub: false });
+  eq(out[0], { vendor: "Anthropic", currency: "USD", amount: 12.5, kind: "product", sub: false, sus: false });
   eq([out[1], out[2], out[3]], [null, null, null]);
 });
 
@@ -371,6 +371,40 @@ t("客服：平台不認得的歸不明；編號補零", () => {
   eq(parseSupport('{"cat":"bug","platform":"ios","reply":"x"}')?.platform, "unknown");
   eq(parseSupport('{"cat":"bug","platform":"tg","reply":"x"}')?.platform, "tg");
   eq(ticketNo(12345), "T-12345");
+});
+
+// ── 2026-10 月報的三個錯 ──
+const ch = (vendor: string, amount: number, at: string, extra: Partial<ChargeRow> = {}): ChargeRow =>
+  ({ id: Math.floor(Math.random() * 1e6), vendor, currency: "TWD", amount, twd: amount, kind: "personal", sub: false, charged_at: at, ...extra });
+
+t("重複計算：訂單確認＋電子發票同一筆（大研生醫 1056 被算成 2112）→ 只算一次", () => {
+  const out = dedupeCharges([ch("大研生醫", 1056, "2026-10-22T10:00:00Z"), ch("大研生醫", 1056, "2026-10-23T01:16:04Z")]);
+  eq(out.length, 1);
+});
+
+t("重複計算：商家名大小寫、空白不同也算同一家；超過 72 小時、金額不同的照算", () => {
+  eq(dedupeCharges([ch("HeroMama", 1168, "2026-10-05T00:00:00Z"), ch("Hero Mama", 1168, "2026-10-06T00:00:00Z")]).length, 1);
+  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 382, "2026-10-10T00:00:00Z")]).length, 2);
+  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 500, "2026-10-01T05:00:00Z")]).length, 2);
+});
+
+t("幣別：提示詞明講只寫 $ 的台灣收據是新台幣（Google One $165 被當成 US$165＝5280）", () => {
+  if (!CHARGE_SYS.includes("每月 $165.00」是 NT$165")) throw new Error("沒有把 Google Play 的例子寫進提示詞");
+  if (!CHARGE_SYS.includes("只有寫明 US$、USD、美元，才是 USD")) throw new Error("沒寫美金的判準");
+  if (!/出貨、到貨、取貨/.test(CHARGE_SYS)) throw new Error("沒排除訂單狀態信");
+});
+
+t("詐騙：AI 覺得可疑的在月報標 ❓；修正選單每家一列、callback 帶 id 不帶中文", () => {
+  const rows = [ch("鍋寶好食光市集", 749, "2026-10-08T00:00:00Z", { id: 31, sus: true }), ch("全聯", 201, "2026-10-09T00:00:00Z", { id: 32 }),
+    ch("全聯", 99, "2026-10-20T00:00:00Z", { id: 33 })];
+  const s = monthlyText("2026-10", rows, []);
+  if (!s.includes("❓鍋寶好食光市集") || !s.includes("疑似詐騙：鍋寶好食光市集")) throw new Error(s);
+  const btn = fixButtons(rows);
+  eq(btn.length, 2);
+  eq(btn[0].map((b) => b.callback_data), ["mb:S:31", "mb:X:31"]);
+  for (const b of btn.flat()) if (!parseMbCallback(b.callback_data)) throw new Error(b.callback_data);
+  eq(parseMbCallback("mb:B:202610"), { op: "B", id: 202610 });
+  eq(parseCharges('[{"i":0,"vendor":"x","currency":"TWD","amount":1,"sus":true}]', 1)[0]?.sus, true);
 });
 
 setTimeout(() => {
