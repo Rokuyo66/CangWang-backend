@@ -14,7 +14,7 @@ import {
   isValidNewLabel, classifySys, parseRuleIntent, describeOp, ruleNlPrompt, ruleNlSys, type Rule, type Meta,
   reminderDue, reminderText, upcomingText, taipeiDate, classifyPrompt, isSupport, parseSupport,
   parseCharges, toTwd, monthlyText, parseNews, newsText, type ChargeRow,
-  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL, dedupeCharges, fixButtons, CHARGE_SYS,
+  ticketRow, ticketNo, countOpen, TICKET_HEADERS, TICKET_DONE_COL, dedupeCharges, fixButtons, CHARGE_SYS, vendorDetail,
 } from "../supabase/functions/_shared/mailbot.ts";
 
 let pass = 0, fail = 0;
@@ -384,7 +384,7 @@ t("重複計算：訂單確認＋電子發票同一筆（大研生醫 1056 被�
 
 t("重複計算：商家名大小寫、空白不同也算同一家；超過 72 小時、金額不同的照算", () => {
   eq(dedupeCharges([ch("HeroMama", 1168, "2026-10-05T00:00:00Z"), ch("Hero Mama", 1168, "2026-10-06T00:00:00Z")]).length, 1);
-  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 382, "2026-10-10T00:00:00Z")]).length, 2);
+  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 382, "2026-10-20T00:00:00Z")]).length, 2);
   eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-01T00:00:00Z"), ch("蝦皮購物", 500, "2026-10-01T05:00:00Z")]).length, 2);
 });
 
@@ -399,12 +399,30 @@ t("詐騙：AI 覺得可疑的在月報標 ❓；修正選單每家一列、call
     ch("全聯", 99, "2026-10-20T00:00:00Z", { id: 33 })];
   const s = monthlyText("2026-10", rows, []);
   if (!s.includes("❓鍋寶好食光市集") || !s.includes("疑似詐騙：鍋寶好食光市集")) throw new Error(s);
-  const btn = fixButtons(rows);
-  eq(btn.length, 2);
-  eq(btn[0].map((b) => b.callback_data), ["mb:S:31", "mb:X:31"]);
+  const btn = fixButtons(rows, new Map([["全聯", 2]]));
+  eq(btn.flat().map((b) => [b.text, b.callback_data]), [["鍋寶好食光市集", "mb:V:31"], ["全聯 ×2", "mb:V:32"]]);
   for (const b of btn.flat()) if (!parseMbCallback(b.callback_data)) throw new Error(b.callback_data);
   eq(parseMbCallback("mb:B:202610"), { op: "B", id: 202610 });
   eq(parseCharges('[{"i":0,"vendor":"x","currency":"TWD","amount":1,"sus":true}]', 1)[0]?.sus, true);
+});
+
+t("蝦皮：付款後 7 天才寄發票，也要合併成一筆（2026-10 的 ×2）", () => {
+  eq(dedupeCharges([ch("蝦皮購物", 382, "2026-10-15T00:00:00Z"), ch("蝦皮購物", 382, "2026-10-22T01:00:00Z")]).length, 1);
+});
+
+t("歸檔：個人購物不准進產品營運、保健品不是保固憑證（寫在提示詞裡）", () => {
+  const sys = classifySys();
+  if (!sys.includes("蝦皮、電商、保健品、Google One、Google AI Plus")) throw new Error("沒排除個人購物");
+  if (!sys.includes("食品、保健品、衣物、日用品不是")) throw new Error("沒排除保健品");
+});
+
+t("帳單逐筆：每筆一顆刪除、已刪的變算回來、最後一列是整家處理；HTML 轉義", () => {
+  const d = vendorDetail("蝦<皮", "2026-10", [
+    { id: 1, amount: 382, currency: "TWD", charged_at: "2026-10-15T02:00:00Z", excluded: false, subject: "訂單已付款" },
+    { id: 2, amount: 382, currency: "TWD", charged_at: "2026-10-22T01:00:00Z", excluded: true, subject: "電子發票開立通知" },
+  ]);
+  if (!d.text.includes("蝦&lt;皮") || !d.text.includes("10/15") || !d.text.includes("<s>不算</s>")) throw new Error(d.text);
+  eq(d.keyboard.map((r) => r.map((b) => b.callback_data)), [["mb:E:1"], ["mb:I:2"], ["mb:X:1", "mb:S:1"]]);
 });
 
 setTimeout(() => {
