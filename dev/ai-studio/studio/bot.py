@@ -775,6 +775,31 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.answer("任務不存在")
         return
     t = read_json(p)
+    if act == "pr":  # 進度卡的「叫出來審」：停下手上這份，把目前最新一版交六六審
+        job = ctx.application.bot_data.get("job")
+        running = stage == "work" and (load_state().get("current") or {}).get("id") == tid and job and not job.done()
+        if running:
+            ctx.application.bot_data["pull_review"] = tid
+            job.cancel()   # worker 收到後把這份移到 pending、送閱讀模式（記憶體裡那份才有最新輪）
+            await q.answer("停下來交你審")
+            return
+        if not t.get("rounds"):
+            await q.answer("第一輪還沒寫完，等一下再按")
+            return
+        if stage != "pending":
+            if stage not in ("queue", "claude"):
+                await q.answer(f"已在 {stage}，不能叫出來")
+                return
+            t["needs_human"] = True
+            t.pop("priority", None)
+            move_task(t, "pending")
+        await q.answer("叫出來了")
+        try:
+            await q.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await send_view(ctx.bot, q.message.chat_id, t)
+        return
     if act == "vw":
         await q.answer()
         await send_view(ctx.bot, q.message.chat_id, t)
@@ -857,13 +882,19 @@ class Card:
         lines.append(f"整份 {mmss(now_t - self.started)}｜佇列還有 {len(list_stage('queue'))} 份")
         return "\n".join(lines)
 
+    def kb(self):
+        """進度卡底下的「叫出來審」：跑的時候、或排回佇列／交 Claude 之後都能按（11-03 六六）。"""
+        if self.final and self.t.get("status") not in ("queue", "claude"):
+            return None
+        return InlineKeyboardMarkup([[InlineKeyboardButton("🙋 叫出來審", callback_data=f"pr:{self.t['id']}")]])
+
     async def push(self):
         cid = load_config()["admin_id"]
         try:
             if self.msg is None:
-                self.msg = await self.app.bot.send_message(cid, self.text())
+                self.msg = await self.app.bot.send_message(cid, self.text(), reply_markup=self.kb())
             else:
-                await self.msg.edit_text(self.text())
+                await self.msg.edit_text(self.text(), reply_markup=self.kb())
         except BadRequest as e:
             if "not modified" not in str(e):
                 log.warning("進度卡更新失敗：%s", e)
@@ -1005,7 +1036,18 @@ async def worker(app: Application):
                           else f"🧩 修了 {len(t['rounds']) - base} 輪還在 {score} 分，交 Claude 診斷")
             await card.push()
         except asyncio.CancelledError:
-            if job.cancelled():
+            if job.cancelled() and app.bot_data.pop("pull_review", None) == t["id"]:
+                if t.get("rounds"):
+                    t["needs_human"] = True
+                    move_task(t, "pending")
+                    card.final = f"🙋 第 {len(t['rounds'])} 輪停下，交你審（/pending）"
+                    await card.push()
+                    await send_view(app.bot, load_config()["admin_id"], t)
+                else:
+                    move_task(t, "queue")
+                    card.final = "⏹ 第一輪還沒寫完，放回佇列"
+                    await card.push()
+            elif job.cancelled():
                 move_task(t, "queue")
                 card.final = "⏹ 已中斷，放回佇列"
                 await card.push()
