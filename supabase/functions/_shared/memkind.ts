@@ -117,9 +117,20 @@ const STALE_MS = 7 * 86400_000;
 const STALE_MIN = 8;
 const HARD_CAP = 80;
 const MAX_BATCH = 120;
+export const EXPIRE_MS = 24 * 3600_000;   // 明細存活上限：過了就收成回憶並刪掉（chat.ts 的回灌與 chat_history 同一條線）
 
 /** 由舊到新的明細 → 這次要濃縮最舊的幾則（0＝先不收）。 */
 export function condenseCount(msgs: { created_at?: string }[], now = Date.now()): number {
+  // 超過一天的明細一律先收成回憶、再刪（六六 2026-11-03：隔天的閒聊不再回灌，也不留逐字稿）。
+  // 這條優先於 KEEP_TAIL／MIN_BATCH：反正已經不注入了，留著只是等著被誤接。
+  let expired = 0;
+  while (expired < msgs.length && now - Date.parse(msgs[expired]?.created_at ?? "") >= EXPIRE_MS) expired++;
+  // 一場跨過一天那條線時不切半場：退回到場次邊界，那一場等整場都過期再一起收（避免碎片回憶）
+  if (expired < msgs.length) {
+    const at = (i: number) => Date.parse(msgs[i]?.created_at ?? "");
+    while (expired > 0 && !(at(expired) - at(expired - 1) >= SESSION_GAP_MS)) expired--;
+  }
+  if (expired > 0) return Math.min(expired, MAX_BATCH);
   const eligible = msgs.length - KEEP_TAIL;
   if (eligible <= 0) return 0;
   const at = (i: number) => Date.parse(msgs[i]?.created_at ?? "");

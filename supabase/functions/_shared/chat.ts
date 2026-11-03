@@ -7,7 +7,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, logCrisis, CRISIS_OPENING } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
 import { tianshiLine } from "./tianshi.ts";
-import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, type MemRow } from "./memkind.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, EXPIRE_MS, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -592,9 +592,15 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   const { data: history } = await db.from("chat_messages")
     .select("role, body, created_at").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
-  const hist = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
+  const all = (history ?? []).reverse() as { role: string; body: string; created_at?: string }[];
   // 最後一次說話的時間：隔太久的話，提示詞裡會說「那已經是昨天的事」（見 timeGapHint）
-  const lastAt = hist.length ? hist[hist.length - 1].created_at ?? null : null;
+  // 要在下面濾掉舊對話之前取——隔了三天，模型仍該知道「上次是三天前」。
+  const lastAt = all.length ? all[all.length - 1].created_at ?? null : null;
+  // 超過一天的閒聊不回灌（六六 2026-11-03：不管是不是前文都不要硬接）。
+  // 那些事該記得的已經進了 character_memories／心跡，逐字的舊對話留著只會讓他繞回去接。
+  // 讀不到時間的舊列照舊保留，不因缺欄而失憶。
+  const cutoff = Date.now() - EXPIRE_MS;
+  const hist = all.filter((t) => { const at = Date.parse(t.created_at ?? ""); return !Number.isFinite(at) || at >= cutoff; });
   // 舊稿回灌前先照新規則收拾一遍：模型會把自己的舊回覆當範本——舊稿滿是「停頓，」，新稿就跟著寫。
   // 兩則之間隔了很久的，在那一句前面標出來，模型才分得出哪些話是同一場、哪些是好幾天前的。
   const turns = hist.map((t, i) => {
@@ -637,7 +643,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
 
 // 滾動記憶彙整：把結束了的對話場次濃縮成長期記憶、再刪明細（何時收見 memkind.ts 的 condenseCount）。
 // 目的：避免記憶斷層（舊事不因滑出視窗而遺忘）＋控制 context 長度。背景跑，不拖慢回覆。
-async function condenseMemory(db: SupabaseClient, userId: string, characterId: string) {
+/** 收明細：先搶這一組的鎖（0115 condense_claim）。聊天回覆後、打開閒聊、每日清理三條路可能同時到，
+ *  沒搶到就讓給正在收的那一個。鎖的 RPC 不存在（0115 未上）就照舊直接收，不擋功能。 */
+export async function condenseMemory(db: SupabaseClient, userId: string, characterId: string) {
+  const { data: got, error: lockErr } = await db.rpc("condense_claim", { p_user: userId, p_char: characterId });
+  if (!lockErr && got === false) return;
+  try { await condenseLocked(db, userId, characterId); }
+  finally { if (!lockErr) await db.rpc("condense_release", { p_user: userId, p_char: characterId }).then(() => {}, () => {}); }
+}
+
+async function condenseLocked(db: SupabaseClient, userId: string, characterId: string) {
   const { data: allMsgs } = await db.from("chat_messages")
     .select("id, role, body, created_at")
     .eq("user_id", userId).eq("character_id", characterId)
@@ -709,11 +724,29 @@ async function condenseMemory(db: SupabaseClient, userId: string, characterId: s
     if (!wrote) {
       const text = items.map((it) => it.body).join("\n");
       const merged = known ? `${known}\n${text}`.slice(-1200) : text;
-      await db.from("user_character").update({ memory_summary: merged })
-        .eq("user_id", userId).eq("character_id", characterId);
+      const { data: upRows, error: upErr } = await db.from("user_character").update({ memory_summary: merged })
+        .eq("user_id", userId).eq("character_id", characterId).select("user_id");
+      // 兩條路都寫不進去（報錯，或沒有那一列＝0 列命中）：不刪明細，下次再收——刪得更勤了，不能拿記憶去賭
+      if (upErr || !upRows?.length) { console.error("condense write failed, keep messages", upErr?.message ?? "no user_character row"); return; }
     }
   }
   await db.from("chat_messages").delete().in("id", oldMsgs.map((m) => m.id));
+}
+
+/** 每日清明細（六六 2026-11-03：「隔很久回來他還在講好幾週以前的事」）。
+ *  不是海巡：只撈「手上真的有超過一天明細」的那幾組（chat_expired_pairs，0115），一天一次、每次封頂。
+ *  一組一組收成回憶再刪；收不完的（明細太多、或這次封頂外的人）明天再接。
+ *  另一條路在 interpret 的 chat_history：他回來打開閒聊時，那一位先收。 */
+export async function sweepExpiredChats(db: SupabaseClient, limit = 20): Promise<{ pairs: number; done: number }> {
+  const { data, error } = await db.rpc("chat_expired_pairs", { p_limit: limit });
+  if (error) { console.error("chat_expired_pairs failed", error.message); return { pairs: 0, done: 0 }; }
+  const pairs = (data ?? []) as { user_id: string; character_id: string }[];
+  let done = 0;
+  for (const p of pairs) {   // 一組一組來：每組一次 Haiku，同時打太多會撞速率
+    try { await condenseMemory(db, p.user_id, p.character_id); done++; }
+    catch (e) { console.error("sweep condense failed", p.user_id, p.character_id, e instanceof Error ? e.message : String(e)); }
+  }
+  return { pairs: pairs.length, done };
 }
 
 /* ═══ 旁白寫法 ═══

@@ -7,7 +7,7 @@ import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAf
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
 import { widgetMonth, widgetState } from "../_shared/widget-state.ts";
-import { chat, chatFavorCap, chatQuotaOf, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatFavorCap, chatQuotaOf, condenseMemory, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
@@ -36,7 +36,7 @@ import {
 } from "../_shared/voice.ts";
 import { ledgerDetails, groupLedger, type LedgerRow } from "../_shared/ledger.ts";
 import { castTexts, speakCast, speakChat, ttsQuota, ttsFreeOf } from "../_shared/tts.ts";
-import { kindOf, isDormant } from "../_shared/memkind.ts";
+import { kindOf, isDormant, EXPIRE_MS } from "../_shared/memkind.ts";
 import { castKeepOf, searchCasts, FORTUNE_KEEP_DAYS, FREE_KEEP_DAYS } from "../_shared/keep.ts";
 import { clientIp, ipLimited } from "../_shared/ip-limit.ts";
 
@@ -1373,10 +1373,22 @@ async function handle(req: Request): Promise<Response> {
       // 依 id 排，不依 created_at：同一問答常常同一個 timestamp，那時就得再補一個
       // role 排序鍵去猜誰先誰後。id 是 bigserial，本來就是寫入順序，一個鍵就夠準。
       // id 一起下發——朗讀與收藏閒聊那一句，客戶端送的就是它。
-      const { data: msgs } = await db.from("chat_messages").select("id, role, body")
+      // created_at 一起下發：前台在每則下面標小字日期時間（六六 2026-11-03）
+      const { data: msgs } = await db.from("chat_messages").select("id, role, body, created_at")
         .eq("user_id", uid).eq("character_id", body.character_id)
+        // 超過一天的閒聊已捨棄（收成回憶後刪掉，見 memkind 的 EXPIRE_MS）；還沒收掉的也不顯示
+        .gte("created_at", new Date(Date.now() - EXPIRE_MS).toISOString())
         .order("id", { ascending: false })
         .limit(40);
+      // 他回來打開閒聊：這一位手上若還有超過一天的明細，背景先收成回憶再刪（不等每日清理）
+      const { data: stale } = await db.from("chat_messages").select("id")
+        .eq("user_id", uid).eq("character_id", body.character_id)
+        .lt("created_at", new Date(Date.now() - EXPIRE_MS).toISOString()).limit(1);
+      if (stale?.length) {
+        const t = condenseMemory(db, uid, body.character_id).catch((e) => console.error("open condense failed", e));
+        // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+        if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(t);
+      }
       return Response.json({ kind: "ok", messages: (msgs ?? []).reverse() }, { headers: CORS });
     }
 
