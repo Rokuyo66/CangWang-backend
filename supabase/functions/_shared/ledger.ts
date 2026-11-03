@@ -16,7 +16,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 /** ledger.action → 人看得懂的名字。後台統計與收支列表共用同一份，免得兩處各翻各的。 */
 export const LEDGER_LABELS: Record<string, string> = {
   register: "註冊", signin: "簽到", signin_mend: "補簽",
-  chat: "閒聊", followup: "追問", extra_cast: "加卦",
+  chat: "閒聊", followup: "追問", extra_cast: "加卦", extra_cast_refund: "加卦退款",
   deepen: "展開", deepen_refund: "展開退款", comment: "換評",
   breakthrough: "突破", feedback: "回評",
   post_hot: "熱門貼文", comment_hot: "熱門回文", buy_theme: "解鎖配色",
@@ -36,7 +36,7 @@ export type LedgerGroup = { action: string; label: string; count: number; amount
 export type LedgerDay = { date: string; income: number; spend: number; net: number; groups: LedgerGroup[] };
 
 /** 這筆流水指向的是一支卦（ref_id 為 cast id）。明細＝那一卦問的事。 */
-const CAST_ACTIONS = new Set(["extra_cast", "followup", "deepen", "deepen_refund", "comment", "feedback"]);
+const CAST_ACTIONS = new Set(["extra_cast", "extra_cast_refund", "followup", "deepen", "deepen_refund", "comment", "feedback"]);
 
 /** 台北日界：與免費額度、日運、簽到同一條線。01:22 起的卦算前一天的，畫面才對得起來。 */
 export function taipeiDayOf(iso: string) {

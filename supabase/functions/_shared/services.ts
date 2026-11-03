@@ -610,14 +610,32 @@ export async function billCast(db: SupabaseClient, userId: string, quotaKey: str
   const today = taipeiToday();
   if (await consumeQuota(db, quotaKey, freeCasts, today)) {
     const { used } = await castFreeUsed(db, quotaKey);
-    return { ok: true, paid: 0, freeLeft: Math.max(0, freeCasts - used) };
+    return { ok: true, paid: 0, freeLeft: Math.max(0, freeCasts - used), day: today, free: true };
   }
   const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast", p_amount: -COST.extra_cast });
   if (error) {
     const { data: prof } = await db.from("profiles").select("lingshi").eq("id", userId).maybeSingle();
     return { ok: false, paid: 0, freeLeft: 0, reason: "lingshi", need: COST.extra_cast, lingshi: prof?.lingshi ?? 0 };
   }
-  return { ok: true, paid: COST.extra_cast, freeLeft: 0 };
+  return { ok: true, paid: COST.extra_cast, freeLeft: 0, day: today, free: false };
+}
+
+/** 起卦已扣費、卻沒產出卦（解卦失敗、入庫失敗）：把 billCast 收的退回去。
+ *  免費格退扣的那一天（跨過午夜就不退——那格本來就歸零了）；
+ *  以 free 旗標分辨（不靠 paid > 0：加卦價若調成 0 會被誤當免費格）；加卦的靈石原數加回，記成 extra_cast_refund，收支列表上一扣一退對得起來。
+ *  退款本身失敗只記 log、不往外拋：呼叫端此刻已經在處理一個錯誤了。 */
+export async function refundCast(db: SupabaseClient, userId: string, quotaKey: string,
+  bill: { paid: number; day?: string; free?: boolean }) {
+  try {
+    if (bill.free === false) {
+      const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast_refund", p_amount: bill.paid });
+      if (error) console.error("refundCast lingshi failed", userId, error.message);
+    } else {
+      await refundQuota(db, quotaKey, bill.day ?? taipeiToday());
+    }
+  } catch (e) {
+    console.error("refundCast failed", userId, e);
+  }
 }
 
 /** 把剛扣的那筆流水接回它買到的東西。

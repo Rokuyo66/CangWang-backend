@@ -2039,6 +2039,9 @@ async function handle(req: Request): Promise<Response> {
     // ⚠ 前端加上 crisis 分支之後，這裡就該改回原樣的 kind:"crisis"。
     if ((result as { kind: string }).kind === "crisis")
       return Response.json({ kind: "err", crisis: true, msg: (result as { message: string }).message }, { headers: CORS });
+    // 起卦扣了費卻沒解出來：pipeline 已退款、放掉 token。走 err 管道（理由同上：前端認得）
+    if ((result as { kind: string }).kind === "failed")
+      return Response.json({ kind: "err", msg: "這一卦推演不順，已退回這次的費用，稍後再起一卦。" }, { headers: CORS });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
       return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });
