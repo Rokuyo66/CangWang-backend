@@ -9,15 +9,21 @@
 //
 // 純函式、不碰資料庫：interpret 拿它來判，測試直接 import。
 
-export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string; set?: string; to?: string;
+/** req：身上帶著才看得到。一樣道具（字串），或幾樣裡帶著任一樣（陣列，六六 2026-10-24） */
+export type Choice = { key: string; label?: string; fx?: Record<string, number>; get?: string; req?: string | string[]; set?: string; to?: string;
   /** 要花的錢（財 s5）：身上不夠就選不了（畫面上照樣列出來、反灰），選了扣掉 */
   cost?: number };
 /** 財＝盤纏。花費（cost）只看它 */
 export const MONEY = "s5";
-export type Scene = { id?: string; text?: string; end?: boolean; choices?: Choice[]; [k: string]: unknown };
+/** after：前路銜接（六六 2026-10-24）。填了幾個選項 key＝這一趟前面選過其中任一個才演這一幕，否則跳過、順著往下；空＝人人都演。
+ *  寫在變數裡最常用：同一段變數，依前面怎麼選，開頭接不同的話。 */
+export type Scene = { id?: string; text?: string; end?: boolean; choices?: Choice[]; after?: string[]; [k: string]: unknown };
 export type Ending = {
   id: string; title: string; rare?: boolean; need?: Record<string, [number | null, number | null]>;
-  flags?: string[]; not_flags?: string[]; text?: string; insight?: string; npc_fate?: string; reward_lingshi?: number;
+  flags?: string[]; not_flags?: string[];
+  /** 這幾爻的變數這一趟都要演到（0＝初爻）；例：[5]＝上爻動、演了上爻的變數才可能走到 */
+  moves?: number[];
+  text?: string; insight?: string; npc_fate?: string; reward_lingshi?: number;
   player_title?: { label?: string; desc?: string; call_as?: string };
   hook?: { who?: string; ask?: string; memory?: string } | null;
 };
@@ -47,15 +53,21 @@ export type Walk = {
 } | { ok: false; err: string };
 
 const hasText = (s: Scene) => !!String(s.text ?? "").trim();
+/** 選項的 req 攤成一串道具名；空＝人人都看得到 */
+export const reqsOf = (c: Choice) => (Array.isArray(c.req) ? c.req : c.req ? [c.req] : []).filter(Boolean);
+/** 帶著其中任一樣就看得到 */
+export const reqOk = (c: Choice, items: string[]) => { const r = reqsOf(c); return !r.length || r.some((x) => items.includes(x)); };
+/** 前路銜接：沒填 after＝人人都演；填了＝前面選過其中一個才演 */
+export const sceneOn = (s: Scene, picked: string[]) => !(s.after ?? []).length || (s.after ?? []).some((k) => picked.includes(k));
 /** 這一爻動了、而且有變數幕，才會演變數 */
 export const changePlays = (doc: Doc, i: number, moving: number[]) =>
   moving.includes(i) && (doc.nodes[i]?.change?.scenes ?? []).some(hasText);
 
 /** 照劇本重演一趟。picks＝每個選擇點選的 key，依序。多送、少送、送了當下選不到的 key 都算錯。
  *  picks 也可以是一支函式（給測試：看當下能選的選項，回一個 key）。 */
-export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string)): Walk {
+export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[]) => string), trace?: (s: Scene) => void): Walk {
   const chooser = typeof picks === "function" ? picks : null, keys: string[] = chooser ? [] : picks as string[];
-  const st: Record<string, number> = {}, items: string[] = [], flags: string[] = [], changes: number[] = [];
+  const st: Record<string, number> = {}, items: string[] = [], flags: string[] = [], changes: number[] = [], picked: string[] = [];
   for (const [k, v] of Object.entries(doc.start ?? {})) st[k] = Number(v) || 0;
   let p = 0;
   const run = (list: Scene[]): string | null => {
@@ -63,14 +75,17 @@ export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[
     while (si >= 0 && si < list.length) {
       if (++guard > 500) return "劇本繞圈";
       const s = list[si];
+      if (!sceneOn(s, picked)) { si++; continue; }   // 前路不合：這一幕不演，連它的「到此結束」也不算
+      if (trace) trace(s);   // 見聞：這一幕演到了（場景、誰說話）
       // 看得到＝有字、道具帶著；選得了＝看得到而且錢夠。一個都選不了就當這一幕沒有選項（不會卡死；稿紙檢查會提醒）
-      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && (!c.req || items.includes(c.req))
+      const cs = (s.choices ?? []).filter((c) => String(c.label ?? "").trim() && reqOk(c, items)
         && (!c.cost || (st[MONEY] ?? 0) >= c.cost));
       if (cs.length) {
         if (chooser) keys.push(chooser(cs));
         const key = keys[p++];
         const c = cs.find((x) => x.key === key);
         if (!c) return `第 ${p} 個選擇對不上（${key ?? "沒送"}）`;
+        picked.push(c.key);
         for (const [k, v] of Object.entries(c.fx ?? {})) st[k] = (st[k] ?? 0) + (Number(v) || 0);
         if (c.cost) st[MONEY] = (st[MONEY] ?? 0) - c.cost;
         if (c.get && !items.includes(c.get)) items.push(c.get);
@@ -95,7 +110,7 @@ export function walk(doc: Doc, moving: number[], picks: string[] | ((cs: Choice[
     }
   }
   if (p !== keys.length) return { ok: false, err: "送來的選擇比劇本多" };
-  const ending = endingOf(doc, st, flags);
+  const ending = endingOf(doc, st, flags, changes);
   if (!ending) return { ok: false, err: "沒有任何結局符合（劇本少了保底）" };
   return { ok: true, st, items, flags, changes, ending };
 }
@@ -106,9 +121,10 @@ export const needOk = (need: Ending["need"], st: Record<string, number>) => Obje
   return (lo == null || (st[k] ?? 0) >= lo) && (hi == null || (st[k] ?? 0) <= hi);
 });
 
-export function endingOf(doc: Doc, st: Record<string, number>, flags: string[]): Ending | null {
+export function endingOf(doc: Doc, st: Record<string, number>, flags: string[], changes: number[] = []): Ending | null {
   const flagsOk = (en: Ending) => (en.flags ?? []).every((f) => flags.includes(f)) && !(en.not_flags ?? []).some((f) => flags.includes(f));
-  return doc.endings.find((en) => needOk(en.need, st) && flagsOk(en)) ?? null;
+  const movesOk = (en: Ending) => (en.moves ?? []).every((i) => changes.includes(i));
+  return doc.endings.find((en) => needOk(en.need, st) && flagsOk(en) && movesOk(en)) ?? null;
 }
 
 /** 成就清單。舊格式只有一個 achievement（綁結局），照樣認。 */
@@ -150,6 +166,7 @@ export function clientDoc(doc: Doc) {
   const sc = (s: Scene) => {
     const o: Record<string, unknown> = {};
     for (const k of ["id", "bg", "place", "portrait", "who", "npc", "speaker", "me", "text", "end"]) if (s[k] !== undefined && s[k] !== "") o[k] = s[k];
+    if (s.after?.length) o.after = s.after;   // 前路銜接：客戶端要照同一條跳過，選擇點才對得上
     if (s.choices?.length) o.choices = s.choices.filter((c) => String(c.label ?? "").trim())
       .map((c) => ({ key: c.key, label: c.label, ...((c as { hint?: string }).hint ? { hint: (c as { hint?: string }).hint } : {}), ...(c.to ? { to: c.to } : {}), ...(c.req ? { req: c.req } : {}), ...(c.get ? { get: c.get } : {}),
         // fx 下發：選了之後畫面上那一格數值要動（六六 2026-10-21）。選之前不顯示，結局表照樣不下發
