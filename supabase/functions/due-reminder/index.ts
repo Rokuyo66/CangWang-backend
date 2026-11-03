@@ -39,12 +39,20 @@ function summarize(reading: string): string {
   return t;
 }
 
-async function send(chatId: string, text: string, markup?: unknown) {
-  await fetch(`${TG}/sendMessage`, {
+// parse_mode 是 HTML：問句或結論裡一個「<」「&」（「薪水<3萬？」）就會讓 Telegram 整則拒收。
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** 送出成功回 true。呼叫端靠它決定要不要標記已通知——送失敗還標記，這則回訪就永遠不會再來。 */
+async function send(chatId: string, text: string, markup?: unknown): Promise<boolean> {
+  const res = await fetch(`${TG}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) }),
-  });
+  }).catch((e) => { console.error("tg send threw", e); return null; });
+  if (res && res.ok) return true;
+  // 403＝用戶封鎖了 bot，重送也沒用；其他錯誤（400 解析失敗、429、5xx）留給明天再試
+  if (res) console.error("tg send failed", res.status, (await res.text().catch(() => "")).slice(0, 200));
+  return res?.status === 403;
 }
 
 Deno.serve(async (req) => {
@@ -121,15 +129,16 @@ Deno.serve(async (req) => {
     const who = CHAR_LABELS[c.character_id] ?? "修行者";
     // 當時結論摘要：去 Markdown 記號，取結論段或前段，裁到約 160 字
     const recap = summarize(c.reading ?? "");
-    await send(idn.external_id,
-      `📜 <b>應期到了</b>\n\n你曾問${who}：「${c.question ?? ""}」\n《${c.gua_ben}》\n\n` +
-      (recap ? `<i>當時${who}說——</i>\n${recap}\n\n` : "") +
+    const ok = await send(idn.external_id,
+      `📜 <b>應期到了</b>\n\n你曾問${who}：「${esc(c.question ?? "")}」\n《${esc(c.gua_ben ?? "")}》\n\n` +
+      (recap ? `<i>當時${who}說——</i>\n${esc(recap)}\n\n` : "") +
       `這一天將盡，卦中所言的時節也到了。<b>後來，結果如何？</b>`,
       { inline_keyboard: [[
         { text: "✅ 應驗了", callback_data: `verdict:${f.cast_id}:1` },
         { text: "◐ 部分準", callback_data: `verdict:${f.cast_id}:2` },
         { text: "✕ 沒準", callback_data: `verdict:${f.cast_id}:3` },
       ]] });
+    if (!ok) continue;
     await db.from("feedback").update({ notified_at: new Date().toISOString() }).eq("cast_id", f.cast_id);
     sent++;
     await new Promise((r) => setTimeout(r, 50));

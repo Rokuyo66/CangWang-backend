@@ -452,10 +452,20 @@ export const RATE_PER_MIN = Number(Deno.env.get("RATE_PER_MIN") ?? "6");
 export async function rateLimited(db: SupabaseClient, userId: string): Promise<boolean> {
   try {
     const minute = new Date().toISOString().slice(0, 16);
-    const { data } = await db.from("rate_minute").select("count").eq("user_id", userId).eq("minute", minute).maybeSingle();
-    const n = data?.count ?? 0;
-    if (n >= RATE_PER_MIN) return true;
-    await db.from("rate_minute").upsert({ user_id: userId, minute, count: n + 1 }, { onConflict: "user_id,minute" });
+    // 原子加一（0113）：先讀再寫的話，同一瞬間的並發會讀到同一個 n，全部放行。
+    const { data: bumped, error: bumpErr } = await db.rpc("bump_rate_minute", { p_user: userId, p_minute: minute });
+    if (!bumpErr && typeof bumped === "number") {
+      if (bumped > RATE_PER_MIN) return true;
+    } else if (bumpErr && !isMissingFn(bumpErr)) {
+      console.error("bump_rate_minute failed", bumpErr.message);
+      return false;   // 與原本一致：限流查不到就放行，不因限流表壞掉而擋掉所有人
+    } else {
+      // 0113 還沒部署：退回舊寫法，至少擋得住循序的連發
+      const { data } = await db.from("rate_minute").select("count").eq("user_id", userId).eq("minute", minute).maybeSingle();
+      const n = data?.count ?? 0;
+      if (n >= RATE_PER_MIN) return true;
+      await db.from("rate_minute").upsert({ user_id: userId, minute, count: n + 1 }, { onConflict: "user_id,minute" });
+    }
     // 過期桶順手清（低頻抽樣，避免每請求都掃表）
     if (Math.random() < 0.02) {
       const cutoff = new Date(Date.now() - 3600_000).toISOString().slice(0, 16);
@@ -542,6 +552,42 @@ export function taipeiToday() {
   return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
+/** RPC 錯誤是不是「這支函式不存在」：PostgREST 回 PGRST202，直連 Postgres 是 42883。 */
+const isMissingFn = (e: { code?: string; message?: string }) =>
+  e.code === "PGRST202" || e.code === "42883" || /could not find the function|does not exist/i.test(e.message ?? "");
+
+/** 佔一格免費額度（原子，見 0113）。佔到回 true，額度已滿回 false。
+ *  判斷與加一必須是同一個動作：分成「讀 used → 判斷 → 寫 used+1」兩步的話，
+ *  同時進來的請求會讀到同一個 used，全部判成還有額度。
+ *  0113 還沒部署時（rpc 回錯）退回舊的讀後寫，行為與修補前相同，不會整支壞掉。 */
+export async function consumeQuota(db: SupabaseClient, key: string, limit: number, today: string): Promise<boolean> {
+  const { data, error } = await db.rpc("consume_free_quota", { p_key: key, p_limit: limit, p_day: today });
+  if (!error) return typeof data === "number";
+  // 只有「函式不存在」（0113 還沒部署）才退回舊寫法。其他錯誤（連線、逾時）不退回：
+  // 那會在最需要防護的時候默默失去原子性。佔不到就當額度已滿，呼叫端改走付費或擋下。
+  if (!isMissingFn(error)) {
+    console.error("consume_free_quota failed", error.message);
+    return false;
+  }
+  console.error("consume_free_quota missing (0113 not deployed), fallback read-then-write");
+  const { data: q } = await db.from("free_quota").select("used_today, last_reset").eq("key", key).maybeSingle();
+  const used = (q && q.last_reset === today) ? q.used_today : 0;
+  if (used >= limit) return false;
+  await db.from("free_quota").upsert({ key, used_today: used + 1, last_reset: today });
+  return true;
+}
+
+/** 退回 consumeQuota 佔的那一格（佔了卻沒用到：模型沒回、或判成免費的那一則）。 */
+export async function refundQuota(db: SupabaseClient, key: string, today: string): Promise<void> {
+  const { error } = await db.rpc("refund_free_quota", { p_key: key, p_day: today });
+  if (!error) return;
+  if (!isMissingFn(error)) { console.error("refund_free_quota failed", error.message); return; }
+  const { data: q } = await db.from("free_quota").select("used_today, last_reset").eq("key", key).maybeSingle();
+  if (q && q.last_reset === today && q.used_today > 0) {
+    await db.from("free_quota").upsert({ key, used_today: q.used_today - 1, last_reset: today });
+  }
+}
+
 /** 某人今日已用的免費卦數（隔日視同 0）。標價與計費必須讀同一支，
  *  否則按鈕上寫「免費」、按下去卻扣了靈石。 */
 export async function castFreeUsed(db: SupabaseClient, quotaKey: string) {
@@ -561,10 +607,10 @@ export async function castFreeLeft(db: SupabaseClient, quotaKey: string, plan: s
  *  前端才講得出「需 10 顆、你有 3 顆」，而不是只丟一句付費牆。 */
 export async function billCast(db: SupabaseClient, userId: string, quotaKey: string, plan = "free") {
   const freeCasts = PLAN_CASTS[plan] ?? FREE_CASTS_PER_DAY;
-  const { today, used } = await castFreeUsed(db, quotaKey);
-  if (used < freeCasts) {
-    await db.from("free_quota").upsert({ key: quotaKey, used_today: used + 1, last_reset: today });
-    return { ok: true, paid: 0, freeLeft: freeCasts - used - 1 };
+  const today = taipeiToday();
+  if (await consumeQuota(db, quotaKey, freeCasts, today)) {
+    const { used } = await castFreeUsed(db, quotaKey);
+    return { ok: true, paid: 0, freeLeft: Math.max(0, freeCasts - used) };
   }
   const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "extra_cast", p_amount: -COST.extra_cast });
   if (error) {
@@ -617,9 +663,9 @@ export async function billFollowup(db: SupabaseClient, userId: string, castId: s
     return { ok: true, paid: 0, waived: true };
   }
 
-  const { key, today, used } = await followupFreeUsed(db, userId);
-  if (used < (PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY)) {
-    await db.from("free_quota").upsert({ key, used_today: used + 1, last_reset: today });
+  const today = taipeiToday();
+  const key = `followfree:${userId}:${today}`;
+  if (await consumeQuota(db, key, PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY, today)) {
     await bump();
     return { ok: true, paid: 0 };
   }

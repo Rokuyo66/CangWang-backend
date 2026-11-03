@@ -449,6 +449,15 @@ async function ecpayReturn(req: Request): Promise<Response> {
   return new Response("1|OK", { status: 200 });
 }
 
+/** x-internal-key 比對：env 沒設或為空一律拒絕；長度相同才逐字比，比對時間不隨內容變。 */
+function internalKeyOk(got: string | null): boolean {
+  const want = Deno.env.get("INTERNAL_API_KEY") ?? "";
+  if (!want || !got || got.length !== want.length) return false;
+  let d = 0;
+  for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return d === 0;
+}
+
 async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
@@ -499,8 +508,13 @@ async function handle(req: Request): Promise<Response> {
   // 認證雙軌（硬性）。jwtUserId 在上面已經解過了，這裡只負責「解不出來就擋」。
   if (auth?.startsWith("Bearer ")) {
     if (!jwtUserId) return new Response("unauthorized", { status: 401, headers: CORS });
-  } else if (req.headers.get("x-internal-key") !== Deno.env.get("INTERNAL_API_KEY")) {
+  } else if (!internalKeyOk(req.headers.get("x-internal-key"))) {
     return new Response("forbidden", { status: 403, headers: CORS });
+  } else {
+    // 這條路信任 body.user_id——持有金鑰＝可以代表任何人。2026-11 查過：App、網頁、
+    // 桌面小工具都走 JWT，本 repo 與 CangWang-web 都沒有呼叫端。留一行紀錄，
+    // 日誌裡若一段時間都沒出現，這條路就可以整個拿掉、並刪掉 INTERNAL_API_KEY。
+    console.warn("INTERNAL_KEY_PATH", body.mode ?? "?", clientIp(req) ?? "-");
   }
 
   try {

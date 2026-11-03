@@ -12,7 +12,8 @@
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
 
 import { fakeDb } from "./fake-db.mts";
-const { billCast, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, FREE_CASTS_PER_DAY, PLAN_CASTS } =
+const { billCast, billFollowup, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, consumeQuota, refundQuota, rateLimited,
+  FREE_CASTS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, FREE_FOLLOWUPS_PER_DAY, RATE_PER_MIN } =
   await import("../supabase/functions/_shared/services.ts");
 // 價目搬到 _shared/prices.ts 之後，這裡讀的是現行值而非寫死的數字——
 // 調價不該讓這支測試失敗，它測的是「有沒有照價扣」，不是「價是多少」。
@@ -146,6 +147,48 @@ await t("接的是最新那一筆，不會去改已經接好的舊帳", async ()
   await linkLedgerRef(db, U, "extra_cast", "cast-2");
   const led = db._store.ledger.filter((x: any) => x.action === "extra_cast");
   eq(led.map((x: any) => x.ref_id).join(","), "cast-1,cast-2", "兩筆各自接各自的卦");
+});
+
+console.log("\n並發（0113 原子額度）\n");
+
+await t("同時送 20 卦：免費的剛好是額度數，其餘照價扣", async () => {
+  const db = dbWith(1000);
+  const free = PLAN_CASTS.free;
+  const rs = await Promise.all(Array.from({ length: 20 }, () => billCast(db, U, U, "free")));
+  eq(rs.filter((r) => r.ok && r.paid === 0).length, free, "免費卦數");
+  eq(rs.filter((r) => r.paid === COST.extra_cast).length, 20 - free, "付費卦數");
+  eq(db._store.profiles[0].lingshi, 1000 - (20 - free) * COST.extra_cast, "餘額");
+});
+
+await t("同時送 20 卦但餘額只夠 1 卦：只成交額度＋1 卦", async () => {
+  const db = dbWith(COST.extra_cast);
+  const free = PLAN_CASTS.free;
+  const rs = await Promise.all(Array.from({ length: 20 }, () => billCast(db, U, U, "free")));
+  eq(rs.filter((r) => r.ok).length, free + 1, "成交數");
+  eq(db._store.profiles[0].lingshi, 0, "餘額應剛好扣光、不為負");
+});
+
+await t("同時送 20 次追問：免費的剛好是額度數", async () => {
+  const db = fakeDb({ profiles: [{ id: U, lingshi: 0 }], casts: [{ id: "c1", user_id: U, followup_used: 0 }] });
+  const rs = await Promise.all(Array.from({ length: 20 }, () => billFollowup(db, U, "c1", "free")));
+  eq(rs.filter((r) => r.ok && r.paid === 0).length, PLAN_FOLLOWUPS.free ?? FREE_FOLLOWUPS_PER_DAY, "免費追問數");
+});
+
+await t("每分鐘限流：同時 20 次只放行上限數", async () => {
+  const db = fakeDb({});
+  const rs = await Promise.all(Array.from({ length: 20 }, () => rateLimited(db, U)));
+  eq(rs.filter((x) => !x).length, RATE_PER_MIN, "放行數");
+});
+
+await t("退回額度：只退當天、不退成負數", async () => {
+  const db = fakeDb({});
+  const day = taipeiToday();
+  ok(await consumeQuota(db, "k", 1, day), "第一格該佔到");
+  ok(!(await consumeQuota(db, "k", 1, day)), "第二格該被擋");
+  await refundQuota(db, "k", day);
+  await refundQuota(db, "k", day);
+  eq(db._store.free_quota[0].used_today, 0, "退兩次也只到 0");
+  ok(await consumeQuota(db, "k", 1, day), "退回之後又能佔");
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);

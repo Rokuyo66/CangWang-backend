@@ -3,7 +3,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { QUESTION_CRAFT } from "./rules.ts";
 import { s2t } from "./chat.ts";
-import { logUsage } from "./services.ts";
+import { consumeQuota, logUsage } from "./services.ts";
 import { noThinking } from "./model-params.ts";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
@@ -82,11 +82,8 @@ async function overDailyCap(db: SupabaseClient, userId: string): Promise<boolean
   try {
     const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
     const key = `refine:${userId}:${today}`;
-    const { data } = await db.from("free_quota").select("used_today, last_reset").eq("key", key).maybeSingle();
-    const used = (data && data.last_reset === today) ? data.used_today : 0;
-    if (used >= REFINE_PER_DAY) return true;
-    await db.from("free_quota").upsert({ key, used_today: used + 1, last_reset: today });
-    return false;
+    // 原子佔格（0113）：讀後寫的話，同時送 N 次改寫就有 N 次模型呼叫
+    return !(await consumeQuota(db, key, REFINE_PER_DAY, today));
   } catch (e) {
     console.error("refine quota check failed, pass", e);
     return false;
