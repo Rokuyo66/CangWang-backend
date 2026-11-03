@@ -2,6 +2,9 @@ supabase/.temp/
 .claude/settings.local.json
 .claude/*
 !.claude/skills/
+!.claude/agents/
+!.claude/settings.json
+!.claude/CLAUDE.md
 .mcp.json
 .codebase-memory/
 
