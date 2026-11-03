@@ -217,6 +217,12 @@ const OOC_STEER = "剛才那句跳級了——比你們現在這一層（見【�
 // 觀中人活在古風的觀裡，嘴裡與旁白裡不該冒出今時的器物。只收「毫無歧義是今時」的詞，
 // 古今通用的（訊息、車、茶）不收，免得誤判一直重生。
 export const MODERN_RE = /開車|騎車|塞車|停車場|汽車|機車|公車|捷運|高鐵|計程車|搭飛機|飛機|冰箱|沙發|電視|冷氣|暖氣機|電腦|筆電|手機|平板|網路|上網|網購|外送|超商|便利商店|咖啡|奶茶|微波|洗衣機|吹風機|電梯|插座|充電|滑手機|打電話|傳訊息|醫院掛號|掛號|急診室|健保|APP|App|app|wifi|WiFi|Wi-Fi/;
+// 辱罵（六六 2026-10-01：他鬧觀喵「打我啊」，觀喵回「下賤。」）。人設寫的是嘴刁，
+// 模型在古風語域裡撈出了罵人的字。這一道是底線不是人設：角色可以嫌、可以挖苦，不罵他。
+// 只收明確貶低人的字眼；「滾」「笨」這類玩笑裡常見的不收，免得重生狂跳針。
+// （10-01 曾在 ed4defe 拿掉、改交給 0081 的性格描述；六六 2026-11-03 決定恢復，兩道並存。）
+export const INSULT_RE = /下賤|賤人|賤貨|賤種|賤骨頭|犯賤|婊|畜生|廢物|蠢貨|白痴|白癡|智障|腦殘|去死|找死|不要臉|狗東西|混帳東西/;
+const INSULT_STEER = "剛才那句用了罵人、貶低人的字眼。你可以嫌他、挖苦他、不理他，但不罵他。重講一次，照你的性子，換掉那個字。";
 /** 今時器物：他自己先說了的詞，角色跟著提（「你說的冰箱是什麼」）不算出戲。 */
 export function modernSlip(reply: string, message: string): boolean {
   const re = new RegExp(MODERN_RE.source, "g");
@@ -903,6 +909,7 @@ const ROMANCE_TIERS: Record<string, string> = {
 // 只寫「他是怎樣的人、到這一層變成怎樣」，不寫「遇到什麼要怎麼回」——怎麼回讓模型自己從人推。
 const MIND: Record<string, (lv: number) => string> = {
   daoshi_m: (lv) => `【你這個人】你務實，聽人說話習慣先找到實際的問題，關心人的方式是給一個做得到的建議。情緒你讀不太懂。`
+    + (lv >= 2 ? `你從不留人；只有他說要走、卻沒說下回什麼時候來，你會攔一句，要他給個時候——那是你少數會開口要的東西。` : "")
     + (lv >= 3 ? `跟他處到這一步，你開始想懂他的情緒，只是還很笨拙。` : ""),
   // 師妹的溫柔跟熟悉度成反比（六六 2026-10-06）：越不熟越溫柔、溫柔到近乎是非不分——那是不說真心話；
   // 熟了才說真話，帶著高級的酸。
@@ -915,6 +922,19 @@ const MIND: Record<string, (lv: number) => string> = {
     : `【你這個人】他的事你開始放在心上，他低落時你會陪著他，安慰得不多，但你在。`
       + (lv >= 2 ? `你活得夠久，看人的道理多，熟了之後會跟他講。` : ""),
 };
+/* 語感樣本（六六 2026-11-03）：人設只寫「他是誰」（0080 who-not-how），說話的樣子放這裡。
+   進 head、緊接人設之後——每個角色的 head 本來就各一份快取，不會讓別人分岔。
+   寫成「語感」不是台詞庫：模型照抄、每句都套，比沒有更糟。
+   ⚠ 遵守 NARRATION_CRAFT：台詞開頭的「……」一則至多一次，所以樣本裡不放「……」開頭，免得把模型往那邊推。 */
+const VOICE_SAMPLES: Record<string, string> = {
+  daoshi_m: `【你說話的樣子】（語感參考，不是台詞庫：不要照抄，也不要每句都套）
+- 話短。被問住了，會複述他的話，或乾脆不答；情緒常接不上前一句。
+- 喜惡很明確，但不帶情緒：「不喜歡。」「不可以。」「不想去。」
+- 只有對他，你會不確定地反問：「可以嗎？」「這樣嗎？」
+- 對師傅：「師傅好眼力。」「貓不喝水是大事，我得做主。」
+- 收尾常很短：「知道了。」「下回見。」`,
+};
+
 export function mindLine(characterId: string | undefined, favor: number): string {
   const f = MIND[characterId ?? ""];
   return f ? "\n" + f(romanceLevel(characterId, favor)) : "";
@@ -952,7 +972,8 @@ function systemPrompt(persona: string, castLines: string, daoName?: string, memo
   const favorLine = `\n【目前道緣】${favor}（${favorTierName(favor)}）——你們在好感分層的第${TIER_NO[lv]}層，照那一層回應。`
     + (favor >= SULK_AT ? `\n${SULK_RULE}` : "");
   const mind = mindLine(characterId, favor);   // 思路與這一層解鎖了哪些邊界（見 MIND）
-  const head = `${persona}${romanceRule}
+  const samples = VOICE_SAMPLES[characterId ?? ""];
+  const head = `${persona}${samples ? "\n\n" + samples : ""}${romanceRule}
 
 ${SAFETY}
 
@@ -1402,6 +1423,7 @@ export async function chat(db: SupabaseClient, p: {
     else if (EXPLICIT_RE.test(reply)) steer = EXPLICIT_STEER;
     else if (ISOLATE_RE.test(reply)) steer = ISOLATE_STEER;
     else if (overLevel(p.characterId, favor, reply)) steer = OOC_STEER;
+    else if (INSULT_RE.test(reply)) steer = INSULT_STEER;
     else if (modernSlip(reply, p.message)) steer = MODERN_STEER;
     if (steer) {
       try {
@@ -1413,6 +1435,11 @@ export async function chat(db: SupabaseClient, p: {
       } catch (e) { console.error("regen steered fail", e); }
       // 重生後仍外洩拒絕稿或露骨（真‧硬跨線，極少見）→ 退一步用人設婉拒；小池輪替不跳針
       if (REFUSAL_RE.test(reply) || EXPLICIT_RE.test(reply)) reply = pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
+      // 重生後還在罵：拿掉含那個字的那一行；整則只剩那一行就留旁白，什麼都不剩才整則換掉
+      if (INSULT_RE.test(reply)) {
+        const kept = reply.split("\n").filter((l) => !INSULT_RE.test(l)).join("\n").trim();
+        reply = /[^\s＊]/.test(kept) ? kept : pick(DEFLECT[p.characterId] ?? DEFLECT.daoshi_f);
+      }
     }
   }
   const draft = tier === "canned" ? null : effMarks.draft;   // 罐頭層不擬題

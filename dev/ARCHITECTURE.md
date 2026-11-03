@@ -47,8 +47,11 @@
 | 站內信與日誌 | （index.ts 內）、`broadcast-command.ts` | `mail_*` | `mail`、`mail_state`、`changelog`、`broadcasts` |
 | 日運與小工具 | `fortune.ts`、`qian60.ts`、`jieqi.ts`、`widget*.ts` | `daily_fortune`、`widget`、`signin` | — |
 | 營運 | `services.ts`、`notify-admin.ts` | — | `ai_usage`、`rate_minute`、`daily_stats` |
+| 產品週報 | `weekly-report.ts`（排版，純函式） | —（`weekly-report`：週一排程、管家 bot 的 `/week`） | `admin_weekly_stats()`（0091／0094） |
 
-其他 Edge Function：`due-reminder`（應期提醒，排程）、`broadcast`、`webhook-tg`（Telegram bot）。
+觀主私人的信箱管家**不在這個專案**：程式在 `mailbot/`、部署到獨立的 Supabase 專案（見 `mailbot/README.md`），產品資料庫不存他的信。
+
+其他 Edge Function：`due-reminder`（應期提醒，排程）、`broadcast`、`webhook-tg`（Telegram bot）、`weekly-report`（產品週報，經觀主的管家 bot 送 TG）。
 排程（pg_cron）：`cleanup-expired-casts-weekly`、`daily-stats-snapshot`（在 migration 裡）；`due-reminder-daily`（應期提醒）**只設在線上、不在 migration 裡**——換環境會漏，待補進版控。
 
 ---
