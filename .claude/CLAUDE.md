@@ -8,7 +8,8 @@
 門檻：預估要讀 **3 個檔以上**，或不知道目標在哪 → 委派；否則主會話直接做。
 
 - 找結構、找位置 → `search`；找調用點、找引用 → `grep`。
-- 測試一律交給 `audit`（worktree 隔離，不受門檻限制）：
-  先執行 `git diff HEAD > <暫存目錄>/audit.patch`（暫存目錄須在 repo 之外），再把絕對路徑交給 audit。
+- 測試一律交給 `audit`（worktree 隔離，不受門檻限制），且要在 commit **之前**跑：
+  先執行 `git diff HEAD > <暫存目錄>/audit.patch`（暫存目錄須在 repo 之外），
+  再把 `git rev-parse HEAD` 的 SHA 和 patch 絕對路徑一起交給 audit。
 - 子代理只回結論（`路徑:行號`＋一句話）；主會話不重讀它們已讀過的檔。
 - 已知確切路徑的單一檔案，主會話直接 Read。
