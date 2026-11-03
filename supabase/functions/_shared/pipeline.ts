@@ -8,7 +8,7 @@ import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "./topic.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { bumpCast } from "./achievements.ts";
-import { callInterpret, billCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, refundCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
 import { threadPrior } from "./xinji.ts";
 import { loadPriorityBlock, loadUserNotes, reflectCast, inBackground } from "./reflect.ts";
@@ -167,13 +167,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   const dup = threadId ? null : await checkDuplicate(db, p.userId, p.question, p.questionRaw);
   if (dup) return { kind: "intercept" as const, message: interceptMessage(p.characterId, dup), prevCastId: dup.id };
 
-  // 2. 計費
-  //    擋下來時把「差多少」一併回：前端才說得出「加卦需 10 靈石，你有 3」，
-  //    而不是丟一句沒有數字的付費牆讓人自己猜。
-  const bill = await billCast(db, p.userId, p.quotaKey, plan);
-  if (!bill.ok) return { kind: "paywall" as const, need: bill.need ?? 0, lingshi: bill.lingshi ?? 0, freeLeft: 0 };
-
-  // 3. 排盤（網頁傳卦 or 三數 or 模擬擲卦，皆進同一文王卦引擎）
+  // 2. 排盤（網頁傳卦 or 三數 or 模擬擲卦，皆進同一文王卦引擎）
+  //    擺在計費之前：排盤是純計算、不花錢，萬一拋錯也還沒扣到任何東西。
   //    手動排盤帶自填占時 castDate，年月日時干支據此推；否則以當下台北時
   const { y, m, d, hour } = p.castDate ?? nowTaipei();
   const lines = (p.lines && p.lines.length === 6 && p.lines.every((v) => v >= 6 && v <= 9))
@@ -188,18 +183,43 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   const askedViaShi = p.yongQin === "世爻" ? true : p.yongViaShi;
   const askedViaYing = p.yongQin === "應爻" ? true : p.yongViaYing;
 
+  // 3. 計費
+  //    擋下來時把「差多少」一併回：前端才說得出「加卦需 10 靈石，你有 3」，
+  //    而不是丟一句沒有數字的付費牆讓人自己猜。
+  const bill = await billCast(db, p.userId, p.quotaKey, plan);
+  if (!bill.ok) return { kind: "paywall" as const, need: bill.need ?? 0, lingshi: bill.lingshi ?? 0, freeLeft: 0 };
+
+  // 扣了費、卻沒產出卦（解卦拋錯、入庫失敗）：錢退回，冪等 token 放掉，回 failed。
+  // 之前這裡沒有退路——模型一出錯，免費格或加卦的靈石就被吃掉，
+  // 而 cast_claims 永遠沒回填，同一個 token 重送只會一直回 in_progress（2026-11-03 六六實測被吃一卦）。
+  const failCast = async (stage: string, e?: unknown) => {
+    console.error(`cast failed at ${stage}, refunding`, p.userId, e);
+    await refundCast(db, p.userId, p.quotaKey, bill);
+    if (p.clientToken) {
+      const { error } = await db.from("cast_claims").delete().eq("token", p.clientToken).is("cast_id", null);
+      if (error) console.error("release cast_claim failed", p.clientToken, error.message);
+    }
+    return { kind: "failed" as const };
+  };
+
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
-  const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
-  // 心跡：這一卦掛在某件心事上，解卦的人要記得這件事之前問過什麼、準不準（已封頂，見 threadPrior）。
-  // 前情讀不到不擋解卦——那是加分項。
-  const prior = threadId ? await threadPrior(db, p.userId, threadId).catch((e) => { console.error("threadPrior failed", e); return ""; }) : "";
-  // 反芻的兩層產出：判法輕重（全站）與這個人的提醒（個人）。讀不到都不擋解卦，見 reflect.ts。
-  const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
-  const ai = await callInterpret(ch!.persona_prompt, ctext, {
-    ...(askedQin ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } } : {}),
-    ...(prior ? { prior } : {}),
-    priority, userNotes, topic,
-  });
+  let ai: Awaited<ReturnType<typeof callInterpret>>;
+  try {
+    const { data: ch } = await db.from("characters").select("persona_prompt, name").eq("id", p.characterId).single();
+    if (!ch) throw new Error(`character not found: ${p.characterId}`);
+    // 心跡：這一卦掛在某件心事上，解卦的人要記得這件事之前問過什麼、準不準（已封頂，見 threadPrior）。
+    // 前情讀不到不擋解卦——那是加分項。
+    const prior = threadId ? await threadPrior(db, p.userId, threadId).catch((e) => { console.error("threadPrior failed", e); return ""; }) : "";
+    // 反芻的兩層產出：判法輕重（全站）與這個人的提醒（個人）。讀不到都不擋解卦，見 reflect.ts。
+    const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
+    ai = await callInterpret(ch.persona_prompt, ctext, {
+      ...(askedQin ? { yong: { qin: askedQin, viaShi: askedViaShi, viaYing: askedViaYing, pos: pickUsePos(chart, askedQin, askedViaShi, askedViaYing) } } : {}),
+      ...(prior ? { prior } : {}),
+      priority, userNotes, topic,
+    });
+  } catch (e) {
+    return await failCast("interpret", e);
+  }
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
 
   // 用神落定：問事者已指定者為準；否則採解卦人依角色表取定並回報之 <yong>。
@@ -246,8 +266,10 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     // 舊 schema（0028 未跑）兜底：去掉新欄位重試。卦錢已扣，這一步絕不可失敗。
     console.error("cast insert with question_raw failed, retry without", insErr.message);
     const { question_raw: _a, question_raw_norm: _b, question_source: _c, thread_id: _d, cast_via: _e, cast_method: _f, topic: _g, ...legacy } = row;
-    ({ data: cast } = await db.from("casts").insert(legacy).select("id").single());
+    ({ data: cast, error: insErr } = await db.from("casts").insert(legacy).select("id").single());
   }
+  // 兩次都寫不進去：這一卦等於沒有，錢不能留著
+  if (!cast) return await failCast("insert", insErr);
   if (p.clientToken) {
     // 回填後，同 token 的後續請求就能直接拿到這一卦，而不是再等
     await db.from("cast_claims").update({ cast_id: cast!.id }).eq("token", p.clientToken);

@@ -1212,6 +1212,12 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     await saveSession({ ...ses, state: "idle" });
     return;
   }
+  if (r.kind === "failed") {
+    // pipeline 已退款、放掉冪等 token；問句不清掉，留給他重起
+    await send(chatId, "這一卦推演不順，已退回這次的費用，稍後再起一卦。");
+    await saveSession({ ...ses, state: "idle" });
+    return;
+  }
   await saveSession({ ...ses, state: "idle", pending_question: null, pending_raw: null, pending_source: null, pending_yong: null, last_cast_id: r.castId });
   const castNote = numbers ? "\n<i>※ 以三數總和定動爻（數字起卦法，源於梅花易數）</i>" : "";
   await send(chatId, `<pre>${esc(renderChartTG(r.chart))}</pre>` + castNote);

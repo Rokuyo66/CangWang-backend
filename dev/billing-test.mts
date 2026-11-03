@@ -12,7 +12,7 @@
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
 
 import { fakeDb } from "./fake-db.mts";
-const { billCast, billFollowup, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, consumeQuota, refundQuota, rateLimited,
+const { billCast, refundCast, billFollowup, castFreeLeft, castFreeUsed, taipeiToday, linkLedgerRef, consumeQuota, refundQuota, rateLimited,
   FREE_CASTS_PER_DAY, PLAN_CASTS, PLAN_FOLLOWUPS, FREE_FOLLOWUPS_PER_DAY, RATE_PER_MIN } =
   await import("../supabase/functions/_shared/services.ts");
 // 價目搬到 _shared/prices.ts 之後，這裡讀的是現行值而非寫死的數字——
@@ -189,6 +189,30 @@ await t("退回額度：只退當天、不退成負數", async () => {
   await refundQuota(db, "k", day);
   eq(db._store.free_quota[0].used_today, 0, "退兩次也只到 0");
   ok(await consumeQuota(db, "k", 1, day), "退回之後又能佔");
+});
+
+// 起卦扣了費卻沒解出來（模型拋錯、入庫失敗）：pipeline 呼叫 refundCast。
+// 2026-11-03 六六實測：免費格被吃掉、卦沒出來——這兩支守的就是那條路。
+await t("起卦失敗退款：免費格退回，靈石不動", async () => {
+  const db = dbWith(100);
+  const bill = await billCast(db, U, U, "free");
+  eq(bill.paid, 0, "第一卦該走免費");
+  await refundCast(db, U, U, bill);
+  eq((await castFreeUsed(db, U)).used, 0, "免費格應退回");
+  eq(db._store.profiles[0].lingshi, 100, "免費卦失敗不該動到靈石");
+  eq((db._store.ledger ?? []).length, 0, "不該多出流水");
+});
+
+await t("起卦失敗退款：加卦靈石原數退回，流水一扣一退", async () => {
+  const db = dbWith(100);
+  for (let i = 0; i < PLAN_CASTS.free; i++) await billCast(db, U, U, "free");
+  const bill = await billCast(db, U, U, "free");
+  eq(bill.paid, COST.extra_cast, "額度外該扣靈石");
+  await refundCast(db, U, U, bill);
+  eq(db._store.profiles[0].lingshi, 100, "餘額應回到原數");
+  eq((await castFreeUsed(db, U)).used, PLAN_CASTS.free, "付費卦退款不該動到免費格");
+  const acts = db._store.ledger.map((r: { action: string; amount: number }) => `${r.action}:${r.amount}`);
+  eq(acts.join(","), `extra_cast:${-COST.extra_cast},extra_cast_refund:${COST.extra_cast}`, "流水");
 });
 
 console.log(`\n${pass} 過 / ${fail} 敗\n`);
