@@ -4,13 +4,13 @@ supabase/.temp/
 !.claude/skills/
 !.claude/agents/
 !.claude/settings.json
-!.claude/CLAUDE.md
 .mcp.json
 .codebase-memory/
 
 # 只留本機、不進 repo
 *webhook*.txt
 CLAUDE.md
+!.claude/CLAUDE.md
 DEPLOY.md
 supabase/migrations/0017_reminders.sql
 dev/play.html
