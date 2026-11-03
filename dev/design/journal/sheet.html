@@ -68,7 +68,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .ch.on{border-left-color:var(--cinnabar);background:var(--paper-2)}
 .ch b{font-family:var(--f-display);font-weight:600}
 .ch small{grid-column:1/-1;color:var(--ink-faint);font-family:var(--f-mono);font-size:11px}
-.pill{font-size:11px;padding:0 7px;border-radius:9px;border:1px solid var(--hair);color:var(--ink-soft);white-space:nowrap;align-self:center}
+.pill{display:inline-flex;align-items:center;justify-content:center;line-height:1.6;font-size:11px;padding:0 7px;border-radius:9px;border:1px solid var(--hair);color:var(--ink-soft);white-space:nowrap;align-self:center}
 .pill.draft{color:var(--ink-faint)} .pill.review{color:var(--warn);border-color:var(--warn)}
 .pill.final{color:var(--ok);border-color:var(--ok)} .pill.temp{color:var(--cinnabar);border-color:var(--cinnabar)}
 .newch{display:grid;grid-template-columns:1fr 64px;gap:6px}
@@ -221,9 +221,9 @@ pre.out{background:var(--field);border:1px solid var(--edge);border-radius:4px;p
 .ec-r2{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12px;color:var(--ink-soft)}
 .ec-r2 select{max-width:280px}
 .ec-r3{display:flex;flex-wrap:wrap;gap:6px}
-.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);background:var(--paper);border:1px solid var(--hair);border-radius:999px;padding:2px 4px 2px 10px}
-.pill input{border:0;background:transparent;width:120px;padding:2px 4px}
-.pill:has(input:not(:placeholder-shown)){border-color:var(--gold);color:var(--ink)}
+.ec-r3 .pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);background:var(--paper);border:1px solid var(--hair);border-radius:999px;padding:2px 4px 2px 10px}
+.ec-r3 .pill input{border:0;background:transparent;width:120px;padding:2px 4px}
+.ec-r3 .pill:has(input:not(:placeholder-shown)){border-color:var(--gold);color:var(--ink)}
 .er textarea{resize:none;overflow:hidden}
 .ec-note{font-size:12px;color:var(--gold)}
 .itemscard table.itab{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
