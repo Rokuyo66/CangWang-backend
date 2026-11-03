@@ -14,6 +14,7 @@ import { CASTING_LINE } from "../_shared/rules.ts";
 import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "../_shared/topic.ts";
 import { tryHandleBroadcast } from "../_shared/broadcast-command.ts";
 import { chat, FAVOR_CAP } from "../_shared/chat.ts";
+import { EXPIRE_MS } from "../_shared/memkind.ts";
 import { refineQuestion } from "../_shared/qrefine.ts";
 import { detectCrisis, crisisMessage, logCrisis } from "../_shared/crisis.ts";
 import { parseModCallback, REASON_LABELS, esc as tgEsc } from "../_shared/notify-admin.ts";
@@ -473,6 +474,7 @@ async function onMessage(msg: { chat: { id: number }; from: { id: number; first_
       .select("memory_summary").eq("user_id", userId).eq("character_id", ses.character_id).maybeSingle();
     const { data: msgs } = await db.from("chat_messages")
       .select("role, body, created_at").eq("user_id", userId).eq("character_id", ses.character_id)
+      .gte("created_at", new Date(Date.now() - EXPIRE_MS).toISOString())   // 超過一天的閒聊已捨棄（memkind 的 EXPIRE_MS）
       .order("created_at", { ascending: false }).limit(10);
     const summary = ucMem?.memory_summary as string | undefined;
     if (!summary && !msgs?.length) { await send(chatId, "（與當前道緣還沒有聊天記憶。）"); return; }

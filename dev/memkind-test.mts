@@ -66,7 +66,13 @@ ok("上一場 50 則：收到只剩最近 32 則", condenseCount(bigOld, T0 + 6 
 const ended = series(70, T0);
 ok("最後一場也結束了：一併收", condenseCount(ended, T0 + 70 * 2 * 60_000 + 4 * 3600_000) === 38);
 const small = [...series(10, T0), ...series(30, T0 + 8 * 86400_000)];
-ok("零星幾句放了一週：照收", condenseCount(small, T0 + 8 * 86400_000 + 70 * 60_000) === 8);
+// 超過一天的明細一律收（2026-11-03）：一週前那 10 則全收，不再受 KEEP_TAIL 保留
+ok("零星幾句放了一週：照收（超過一天全收）", condenseCount(small, T0 + 8 * 86400_000 + 70 * 60_000) === 10);
+ok("一場剛結束、未滿一天：照舊不收", condenseCount(series(20, T0), T0 + 20 * 2 * 60_000 + 4 * 3600_000) === 0);
+ok("全部都超過一天：連最近 32 則一起收", condenseCount(series(40, T0), T0 + 2 * 86400_000) === 40);
+// 一場 40 則（每 2 分鐘一則，共 80 分鐘），此刻剛好讓前 20 則過期：同一場不切半，等整場過期
+const crossing = [...series(10, T0 - 3 * 86400_000), ...series(40, T0)];
+ok("跨一天線的那場不切半：只收前面完整的舊場", condenseCount(crossing, T0 + 86400_000 + 40 * 60_000) === 10);
 ok("一場聊太長（過 112 則）：先收舊的", condenseCount(series(120, T0), T0 + 120 * 2 * 60_000) === 88);
 
 // 起居注解析

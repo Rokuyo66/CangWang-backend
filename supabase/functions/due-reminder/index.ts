@@ -15,6 +15,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureDay } from "../_shared/days.ts";
 import { checkAiCost } from "../_shared/cost-alert.ts";
+import { sweepExpiredChats } from "../_shared/chat.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -105,6 +106,12 @@ Deno.serve(async (req) => {
   // 自己吞錯，排在生日信之後、應期推播之前（一句 RPC，不會拖住後面的上百次 TG 呼叫）。
   const aiCost = await checkAiCost(db);
   console.log("ai_cost 24h", aiCost);
+
+  // 閒聊明細：超過一天的收成回憶再刪（不聊的人也要清）。背景跑，不拖住下面的應期推播。
+  const sweep = sweepExpiredChats(db).then((r) => console.log("chat sweep", r))
+    .catch((e) => console.error("chat sweep threw", e instanceof Error ? e.message : String(e)));
+  // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+  if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(sweep);
 
   // 找：應期已到(<=今日)、未回評(verdict is null或0)、未推播過(notified_at is null)的卦
   const { data: dues, error } = await db.from("feedback")
