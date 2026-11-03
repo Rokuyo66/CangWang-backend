@@ -21,12 +21,16 @@ const hits = new Map<string, { start: number; n: number }>();
 
 /** 從請求標頭取來源 IP；取不到回 null（不限流，不擋人）。 */
 export function clientIp(req: Request): string | null {
+  // cf-connecting-ip 由 Cloudflare 填，客戶端蓋不掉；x-forwarded-for 的第一段卻是客戶端
+  // 自己送什麼就是什麼——優先讀它的話，每次換一個假 IP 就能繞過限流。只在沒有前者時退回。
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0].trim();
     if (first) return first;
   }
-  return req.headers.get("cf-connecting-ip") ?? req.headers.get("x-real-ip") ?? null;
+  return req.headers.get("x-real-ip") ?? null;
 }
 
 /** 這個 IP 這一分鐘是否超量。超量回 true。now 可注入，給測試用。 */

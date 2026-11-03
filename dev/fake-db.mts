@@ -188,6 +188,9 @@ const jsonb = (v) => JSON.parse(JSON.stringify(v));
 function rpc(store, name, args) {
   if (name === "hidden_quest_claim") return hiddenQuestClaim(store, args);
   if (name === "rule_stats") return ruleStats(store);
+  if (name === "consume_free_quota") return consumeFreeQuota(store, args);
+  if (name === "refund_free_quota") return refundFreeQuota(store, args);
+  if (name === "bump_rate_minute") return bumpRateMinute(store, args);
   if (name !== "apply_lingshi") return Promise.resolve({ data: null, error: { message: "unknown rpc: " + name } });
   const prof = (store.profiles ??= []).find((r) => r.id === args.p_user);
   if (!prof) return Promise.resolve({ data: null, error: { message: "no such user" } });
@@ -196,6 +199,35 @@ function rpc(store, name, args) {
   prof.lingshi = next;
   (store.ledger ??= []).push({ id: uid(), user_id: args.p_user, action: args.p_action, amount: args.p_amount, ref_id: args.p_ref ?? null, created_at: iso() });
   return Promise.resolve({ data: next, error: null });
+}
+
+/** 照 0113 的 consume_free_quota()：判斷與加一是同一步（這裡在同一個同步區段內完成，
+ *  中間沒有 await，所以並發的 Promise 不會交錯——與資料列鎖的效果相同）。滿了回 null。 */
+function consumeFreeQuota(store, { p_key, p_limit, p_day }) {
+  if (!(p_limit > 0)) return Promise.resolve({ data: null, error: null });
+  const rows = (store.free_quota ??= []);
+  const r = rows.find((x) => x.key === p_key);
+  if (!r) { rows.push({ key: p_key, used_today: 1, last_reset: p_day }); return Promise.resolve({ data: 1, error: null }); }
+  if (r.last_reset !== p_day) { r.used_today = 1; r.last_reset = p_day; return Promise.resolve({ data: 1, error: null }); }
+  if (r.used_today >= p_limit) return Promise.resolve({ data: null, error: null });
+  r.used_today += 1;
+  return Promise.resolve({ data: r.used_today, error: null });
+}
+
+/** 照 0113 的 refund_free_quota()：只退當天、不退成負數 */
+function refundFreeQuota(store, { p_key, p_day }) {
+  const r = (store.free_quota ??= []).find((x) => x.key === p_key);
+  if (r && r.last_reset === p_day && r.used_today > 0) r.used_today -= 1;
+  return Promise.resolve({ data: null, error: null });
+}
+
+/** 照 0113 的 bump_rate_minute()：加一並回傳加完的值 */
+function bumpRateMinute(store, { p_user, p_minute }) {
+  const rows = (store.rate_minute ??= []);
+  let r = rows.find((x) => x.user_id === p_user && x.minute === p_minute);
+  if (!r) { r = { user_id: p_user, minute: p_minute, count: 0 }; rows.push(r); }
+  r.count += 1;
+  return Promise.resolve({ data: r.count, error: null });
 }
 
 /** 照 0078 的 rule_stats()：主論據 1、輔論據 0.5；misapplied／unclear 不計 */
