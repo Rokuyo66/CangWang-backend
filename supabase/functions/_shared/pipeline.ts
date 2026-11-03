@@ -80,6 +80,11 @@ export function interceptMessage(characterId: string, prev: { question: string; 
     .replace("{q}", (prev.question ?? "").slice(0, 12));
 }
 
+/** 問句上限（字元）。正常的問題十幾二十字，200 字已經很寬。 */
+export const QUESTION_MAX_CHARS = 200;
+/** 擬題前原話的上限：那是一句閒聊，與 chat.ts 的 CHAT_MAX_CHARS 同值。 */
+export const QUESTION_RAW_MAX_CHARS = 600;
+
 /** 起卦＋解卦 全管線 */
 export async function castAndInterpret(db: SupabaseClient, p: {
   userId: string; quotaKey: string; characterId: string; question: string; channel: string;
@@ -98,6 +103,10 @@ export async function castAndInterpret(db: SupabaseClient, p: {
   topic?: string;                      // 問卦人自己點選的事類（need_topic 之後重送）；不帶則由問句分流
   topicAsk?: boolean;                  // 呼叫端看得懂 need_topic（網頁新版、TG）；舊版 App 不帶 → 分不出就只帶核心
 }) {
+  // -3. 長度上限：問句與原話都會整段進提示詞、存進 casts，之後追問與閒聊引述還會一再重送。
+  //     沒有上限的話，一則十萬字的問題只付一卦的錢。原話是閒聊擬題前的那句，與閒聊同一個上限。
+  p.question = String(p.question ?? "").slice(0, QUESTION_MAX_CHARS);
+  if (p.questionRaw != null) p.questionRaw = String(p.questionRaw).slice(0, QUESTION_RAW_MAX_CHARS);
   // -2. 危機攔截：擺在最前面，連冪等 token 都不佔——佔了又不回填 cast_id，
   //     同一個 token 的重試會永遠卡在 in_progress。不扣費、不起卦、不呼叫 AI。
   //     擬題前的原話一起看：模型把「我不想活了」改寫成一句合格問句之後，字面上的
@@ -306,6 +315,7 @@ export async function castAndInterpret(db: SupabaseClient, p: {
 export async function followupInterpret(db: SupabaseClient, p: {
   userId: string; castId: string; question: string;
 }) {
+  p.question = String(p.question ?? "").slice(0, QUESTION_MAX_CHARS);
   const { data: cast } = await db.from("casts")
     .select("id, character_id, question, chart, reading, lines, yong_qin, yong_via_shi, yong_via_ying, category, due_date")
     .eq("id", p.castId).eq("user_id", p.userId).single();

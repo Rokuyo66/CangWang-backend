@@ -2,7 +2,7 @@
 // 記憶住資料庫（卦歷摘要＋對話紀錄），與模型無關，跨層不失憶。
 import { whereNow, whereHint, tryHiddenFound, sinceDoings, hereLine, activeQuests, type Where } from "./whereabouts.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { logUsage, rateLimited } from "./services.ts";
+import { consumeQuota, logUsage, rateLimited, refundQuota } from "./services.ts";
 import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, logCrisis, CRISIS_OPENING } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
@@ -87,6 +87,9 @@ const FREE_GUARD = "\n\n【往事】你只記得上面列出的卦與往事。�
 // 故抬高上限對「寫短」的回覆不多花一個 token。
 // ⚠ 主力層閒聊的每則上限已改由節奏帳本決定（rhythm.ts 的 capFor）；capOf 只剩 callHaiku 的預設值。
 const REPLY_HEADROOM = 0.8;        // 目標佔硬上限的比例（留兩成收尾餘裕）
+// 單則訊息上限（字元）。沒有上限的話，一則十萬字照樣只算一句的錢，
+// 而且會留在聊天紀錄裡，之後每次呼叫都跟著重送。quotedFromReadings 本來就只看前 600 字。
+export const CHAT_MAX_CHARS = 600;
 const CHAT_TARGET_TOKENS = 400;    // Claude 主力層（未列於下表的角色用此值）
 // 各角色的輸出均值目標 T。不是每一則的上限：每則能說多長由節奏帳本決定（rhythm.ts），
 // 說長了之後幾則收回來，長期平均落在 T。大師兄/觀喵 180，師妹話多 280。
@@ -1231,6 +1234,7 @@ export async function chat(db: SupabaseClient, p: {
   userId: string; characterId: string; message: string;
   where?: string;                      // 此刻在哪、在做什麼（觀堂那行「在廊下喝茶」），旁白就地取材用
 }): Promise<ChatResult> {
+  p.message = String(p.message ?? "").slice(0, CHAT_MAX_CHARS);
   // 取好感
   const { data: uc } = await db.from("user_character")
     .upsert({ user_id: p.userId, character_id: p.characterId }, { onConflict: "user_id,character_id", ignoreDuplicates: false })
@@ -1320,7 +1324,13 @@ export async function chat(db: SupabaseClient, p: {
   const maxTok = capFor(rMode, target, serious); // 主力層這一則的上限（重生成也用）
   let outTok = 0;                                 // 採用的那一稿實際輸出，結算節奏帳用
 
-  if (withinFree || canPay) {
+  // 免費額度在呼叫模型「之前」原子地佔一格（0113）。原本是模型回完才寫回 used+1，
+  // 中間隔著整段模型延遲：同時送二十句，二十句讀到的都是同一個 used，全部算免費。
+  // 佔不到（被並發用掉了）就改走付費；佔到了卻沒產出回覆，下面會退回。
+  const freeHeld = withinFree && await consumeQuota(db, qkey, chatQuota, today);
+  const payLingshi = !freeHeld && canPay;
+
+  if (freeHeld || payLingshi) {
     // Haiku 主力；出錯時技術降級走免費層多模型
     try {
       const h = await callHaiku(system, ctx.turns, p.message, maxTok);
@@ -1344,25 +1354,29 @@ export async function chat(db: SupabaseClient, p: {
   if (reply && marks.probe) {
     // 探詢輪免費額度（每日上限，防有人靠誘導探詢無限白嫖）
     const pkey = `probefree:${p.userId}:${today}`;
-    const { data: pq } = await db.from("free_quota").select("used_today, last_reset").eq("key", pkey).maybeSingle();
-    const pUsed = (pq && pq.last_reset === today) ? pq.used_today : 0;
-    if (pUsed < FREE_PROBE_PER_DAY) {
-      await db.from("free_quota").upsert({ key: pkey, used_today: pUsed + 1, last_reset: today });
-      probeFree = true;
-    }
+    if (await consumeQuota(db, pkey, FREE_PROBE_PER_DAY, today)) probeFree = true;
   }
 
   // 計費：只要成功產出回覆（不論 Haiku 或降級層）都算一句——免費額度內記次，超過扣靈石。
   // 降級層回覆若不記次，Haiku 一掛用戶就能無限免費聊（舊漏洞）。
   // 例外：探詢輪（角色為問清楚而反問）在每日免費額度內完全不計——那幾句是為了讓卦問得準。
   if (reply && !probeFree) {
-    if (withinFree) {
-      used += 1;
-      await db.from("free_quota").upsert({ key: qkey, used_today: used, last_reset: today });
+    if (freeHeld) {
+      used += 1;   // 額度在呼叫前已佔，這裡只同步回傳用的數字
     } else {
-      await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST.chat });
-      lingshi -= COST.chat; cost = COST.chat;
+      // 扣款一定要看結果：canPay 是請求開頭讀的餘額，並發時早就被別的請求花掉了。
+      // 扣不動就不交付這則回覆——否則餘額只夠一句的人並發 N 句，拿到 N 句、只付一句。
+      const { error: payErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "chat", p_amount: -COST.chat });
+      if (payErr) {
+        console.warn("chat charge failed, withhold reply", p.userId, payErr.message);
+        reply = "";
+      } else {
+        lingshi -= COST.chat; cost = COST.chat;
+      }
     }
+  } else if (freeHeld) {
+    // 佔了額度卻不該算：模型沒回、或這一則是免費的探詢輪
+    await refundQuota(db, qkey, today);
   }
   if (!reply) {
     // 免費額度用完且靈石不足，或上游都失敗 → 罐頭（不扣費、不長好感）
@@ -1377,7 +1391,8 @@ export async function chat(db: SupabaseClient, p: {
   const recentPauses = recentPauseWords(ctx.turns);
   const polish = (t: string): string => mergeQuotes(dropEmptyPause(fixGuaciChars(s2t(normalizeNarration(trimIncomplete(scrubStrayEq(parseMarks(t).clean)), p.characterId))), recentPauses));
   reply = polish(reply);
-  let effMarks = marks;   // 重生後改用新稿的標記
+  // 重生後改用新稿的標記；罐頭（含扣款失敗被收回的那一則）不帶原稿的探詢／擬題標記
+  let effMarks = tier === "canned" ? parseMarks("") : marks;
 
   // 出戲防線（取代舊的固定罐頭 guardCharacterOOC，改「帶指令重生一次」，不跳針）：
   //  ①助理拒絕外洩 ②露骨情慾描寫 ③要他疏遠旁人 ④跳過好感層級（三人都查）⑤今時器物（古風出戲）。只折騰主力層，重生至多一次控成本。

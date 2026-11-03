@@ -18,6 +18,10 @@ t("取第一個 x-forwarded-for", () => {
   const r = new Request("https://x", { headers: { "x-forwarded-for": "1.2.3.4, 10.0.0.1" } });
   ok(clientIp(r) === "1.2.3.4", String(clientIp(r)));
 });
+t("cf-connecting-ip 優先：偽造的 x-forwarded-for 蓋不掉它", () => {
+  const r = new Request("https://x", { headers: { "x-forwarded-for": "6.6.6.6", "cf-connecting-ip": "1.2.3.4" } });
+  ok(clientIp(r) === "1.2.3.4", String(clientIp(r)));
+});
 t("沒有任何 IP 標頭就不限流", () => {
   const r = new Request("https://x");
   ok(clientIp(r) === null, "應為 null");
