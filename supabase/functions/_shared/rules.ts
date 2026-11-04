@@ -497,3 +497,27 @@ export function dueFromQuestion(question: string, castDay: string): string | nul
   const due = [...found][0];
   return due >= castDay ? due : null;
 }
+
+/** {y,m,d} → YYYY-MM-DD（台北日，與 castDay 同格式） */
+export const dayStr = (t: { y: number; m: number; d: number }) =>
+  `${t.y}-${String(t.m).padStart(2, "0")}-${String(t.d).padStart(2, "0")}`;
+
+/* ═══ 問句所指日期 → 距今幾天（六六 2026-11-04）═══
+ * 11/04 問「12/20 的家庭日」，解卦寫成「離占卦足足隔了一年多」——實際 46 天。
+ * 模型手上只有占期與一句「12/20」，年份與天數是它自己推的，推錯了。
+ * 跟應期日曆同一個做法：程式算好，模型照抄，不讓它自己推。
+ * 目標日一律以占期解析（12/20 是占的那一年的 12/20）；追問／展開／換評是事後才看，
+ * 傳 today 就改算「距今日」，已經過了的寫「已過」。認不出唯一日子就不加（回空字串）。 */
+export function questionDateNote(question: string, castDay: string, today?: string): string {
+  const due = dueFromQuestion(question, castDay);
+  if (!due) return "";
+  const ref = today ?? castDay;
+  const toUtc = (s: string) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  const days = Math.round((toUtc(due) - toUtc(ref)) / 86400_000);
+  const label = today ? "今日" : "占期";
+  const span = (n: number) => n === 0 ? "（就是當天）" : n < 14 ? "" : n < 60 ? `（約 ${Math.round(n / 7)} 週）` : `（約 ${Math.round(n / 30)} 個月）`;
+  const dist = days >= 0
+    ? `距${label} ${days} 天${span(days)}`
+    : `已過 ${-days} 天`;
+  return `\n\n【問句所指日期·排盤程式算定】${due.replace(/-/g, "/")}，${dist}。談這件事時間遠近、還有多久，一律照這個天數，不得自行推算年份或間隔。`;
+}
