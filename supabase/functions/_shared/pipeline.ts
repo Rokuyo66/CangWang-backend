@@ -3,7 +3,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { buildChart, castCoins, castByNumbers, guaName, pickUsePos } from "./core.ts";
 import { chartTextFull } from "./dongyao.ts";
 import type { Chart } from "./core.ts";
-import { normalizeQuestion, dueFromQuestion, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
+import { normalizeQuestion, dueFromQuestion, questionDateNote, dayStr, INTERCEPT, BREAKTHROUGH, REALMS, REALM_THRESHOLDS, BREAKTHROUGH_LINGSHI, FORTUNE_CATEGORY } from "./rules.ts";
 import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "./topic.ts";
 import { collectedGua, recordGua } from "./collection.ts";
@@ -175,7 +175,9 @@ export async function castAndInterpret(db: SupabaseClient, p: {
     ? p.lines
     : p.numbers ? castByNumbers(...p.numbers).lines : castCoins().lines;
   const chart = buildChart(lines, y, m, d, hour);
-  const ctext = chartTextFull(chart, p.question);
+  const castDay = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  // 問句自帶日期時，距占期幾天由程式算好交給模型照用（見 rules.ts questionDateNote）
+  const ctext = chartTextFull(chart, p.question) + questionDateNote(p.question, castDay);
   // 問事者指定的用神；取「世爻」「應爻」時六親須由盤面該爻決定——TG 擬題只給得出那兩個字，沒有盤面可判
   const askedQin = p.yongQin === "世爻" ? chart.ben[chart.shi - 1].qin
     : p.yongQin === "應爻" ? chart.ben[chart.ying - 1].qin
@@ -233,7 +235,6 @@ export async function castAndInterpret(db: SupabaseClient, p: {
 
   // 應期防呆：模型偶會把應期回填到占期之前（過去日期），此為無效應期，一律作廢改 null。
   // 占期即今日，任何早於占期的 due 都不可能是「應期」，避免曆上出現往回設定的紅點。
-  const castDay = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   if (ai.due && ai.due < castDay) {
     console.warn(`[due-guard] due before cast date, dropped: due=${ai.due} cast=${castDay}`);
     ai.due = null;
@@ -361,7 +362,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
   const yo = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
-  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }), {
+  const ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
     followup: {
       prevReading: cast.reading ?? "", question: p.question,
       history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
@@ -509,7 +510,7 @@ export async function commentCast(db: SupabaseClient, p: {
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.newCharacterId).single();
   const chart = cast.chart as Chart;
-  const ai = await callInterpret(ch!.persona_prompt, chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }), {
+  const ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
     comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
     ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
     priority: await loadPriorityBlock(db),
@@ -541,7 +542,7 @@ export async function deepenCast(db: SupabaseClient, p: {
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", cast.character_id).single();
   const chart = cast.chart as Chart;
-  const ctext = chartTextFull(chart, cast.question ?? "", { today: nowTaipei() });
+  const ctext = (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei())));
   const yong = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
   const topic = await castTopic(db, cast.id, cast.question);
   try {
