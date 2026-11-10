@@ -120,11 +120,12 @@ const TOKENIZER_SCALE = Number(Deno.env.get("TOKENIZER_SCALE") ?? "1.3");
 // 追問/評卦原留 Haiku 省成本，但實測會誤讀盤面（伏神爻位講錯、動爻稱靜爻）；
 // 卦是本體、全是收費功能，2026-07-21 起一律升 Sonnet 保正確。
 // INTERPRET_FORCE_MODEL：管理者測試用，設了則所有 interpret 呼叫強制用該模型。
-// 換 Sonnet 5.5（$2/$10，現行 4.6 是 $3/$15）：先用 dev/model-ab.mts 對同一批盤面並排比過，
-// 再設 INTERPRET_MODEL_CAST／LITE／DEEP=claude-sonnet-5-5，不必改程式（關思考的參數 noThinking 已備好）。
-const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-sonnet-4-6";
-const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-4-6";
-const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-4-6";
+// 2026-10-08 起線上以環境變數改用 Sonnet 5.5（$2/$10，4.6 是 $3/$15，dev/model-ab.mts 並排比過）。
+// 2026-11 預設值跟上線上：環境變數哪天沒帶到，也不會默默退回較貴的舊模型。
+// 要換別的模型照舊設 INTERPRET_MODEL_CAST／LITE／DEEP，關思考的參數由 noThinking 依模型給。
+const MODEL_LITE = Deno.env.get("INTERPRET_MODEL_LITE") ?? "claude-sonnet-5-5";
+const MODEL_DEEP = Deno.env.get("INTERPRET_MODEL_DEEP") ?? Deno.env.get("INTERPRET_MODEL") ?? "claude-sonnet-5-5";
+const MODEL_CAST = Deno.env.get("INTERPRET_MODEL_CAST") ?? "claude-sonnet-5-5";
 // 日運卦用 Haiku：等第與取籤都由程式算定，模型只負責把等第與籤意寫成角色聲線的短文，
 // 不承擔任何卦理判斷。這是免費且每人每日一次的功能，成本必須壓住。
 // 2026-10：Haiku 5.5 單價是 4.5 的十分之一（$0.10/$0.50），思考由 noThinking 關掉。
@@ -142,6 +143,25 @@ export function endsComplete(text: string): boolean {
   const t = (text ?? "").trimEnd();
   return !!t && SENT_END.includes(t[t.length - 1]);
 }
+
+/** 模型拒答（安全分類器）。與技術失敗分開：技術失敗換家重打、稍後再試會好；
+ *  拒答是題目本身的問題，同一句再問一百次還是會被擋，所以呼叫端要給不同的說明。 */
+// 欄位寫成明確宣告、不用 constructor 參數屬性：node 的 type stripping（dev/*-test.mts）不吃那種寫法
+export class RefusalError extends Error {
+  category: string;
+  model: string;
+  constructor(category: string, model: string) {
+    super(`anthropic refusal (${category})`);
+    this.name = "RefusalError";
+    this.category = category;
+    this.model = model;
+  }
+}
+export const isRefusal = (e: unknown): e is RefusalError => e instanceof RefusalError;
+
+/** 拒答時給問卦人的話（六六 2026-11-10 定稿）。不提分類器的類別：
+ *  那對問卦人沒有意義，也等於告訴人怎麼試探。 */
+export const REFUSAL_MSG = "這個問題觀中不便推演，費用已退回。若與醫療、法律、人身安全有關，請先找相關的專業人員；也可以換個角度，問你自己能掌握的那一部分。";
 
 export async function callInterpret(persona: string, chartText: string, opts: {
   followup?: {
@@ -323,6 +343,15 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     }
     if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
     const data = await res.json();
+    // 拒答（安全分類器）：HTTP 200、stop_reason "refusal"，正文可能是空的或只寫了一半。
+    // 不丟錯的話它會被當成一次成功的解卦——存進一張空卦紙、起卦費也不退。
+    // 丟錯就接上下面同一條備援鏈（KIMI → 本地 → 都不行才由呼叫端退費）。
+    // 占卜常碰健康、官司、感情危機這類題目，被誤判的機會不低，日誌要看得出是哪一類。
+    if (data.stop_reason === "refusal") {
+      const cat = data.stop_details?.category ?? "unknown";
+      console.warn("INTERPRET_REFUSAL", m, cat);
+      throw new RefusalError(cat, m);
+    }
     return {
       // 關閉思考的 Sonnet 5／Opus 5 偶爾會把 <thinking> 標籤寫進正文（官方已知行為），先剔除再進 parseTagged
       text: (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n")
@@ -362,15 +391,21 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     usedModel = l.model;
     return { text: l.text, stopReason: null, rawIn: l.tokensIn ?? undefined, rawOut: l.tokensOut ?? undefined };
   };
+  // 拒答不走備援（六六 2026-11-10）：KIMI 是第三方，被擋的題目多半是健康、官司、人身安全，
+  // 不該再轉送出去；本地模型沒有安全過濾，交給它等於繞過那道擋。直接丟給呼叫端退費並說明。
   try {
     r = await callModel(model);
   } catch (e) {
+    if (isRefusal(e)) throw e;
     if (!fallbackModel || fallbackModel === model) r = await viaLocal(e);
     else {
       console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
       usedModel = fallbackModel;
       try { r = await callModel(fallbackModel); }
-      catch (e2) { r = await viaLocal(e2); }
+      catch (e2) {
+        if (isRefusal(e2)) throw e2;
+        r = await viaLocal(e2);
+      }
     }
   }
   const { text: rawText, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;
@@ -638,6 +673,27 @@ export async function refundCast(db: SupabaseClient, userId: string, quotaKey: s
   }
 }
 
+/** 追問失敗（模型掛了、拒答）時把 billFollowup 收的退回去：
+ *  付了靈石就退靈石，吃的是免費額度就退一格，casts.followup_used 也減回來。
+ *  反問免費的那一次（waived）沒收錢，只需把次數減回。 */
+export async function refundFollowup(db: SupabaseClient, userId: string, castId: string,
+  bill: { paid: number; waived?: boolean; day?: string }) {
+  try {
+    if (bill.paid > 0) {
+      const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "followup_refund", p_amount: bill.paid, p_ref: castId });
+      if (error) console.error("refundFollowup lingshi failed", userId, error.message);
+    } else if (!bill.waived) {
+      // 退到扣的那一天：AI 呼叫跨過台北午夜時，「今天」已經是另一把 key
+      const day = bill.day ?? taipeiToday();
+      await refundQuota(db, `followfree:${userId}:${day}`, day);
+    }
+    const { data: c } = await db.from("casts").select("followup_used").eq("id", castId).maybeSingle();
+    if (c && c.followup_used > 0) await db.from("casts").update({ followup_used: c.followup_used - 1 }).eq("id", castId);
+  } catch (e) {
+    console.error("refundFollowup failed", userId, e);
+  }
+}
+
 /** 把剛扣的那筆流水接回它買到的東西。
  *  加卦的扣款發生在卦存進資料庫之前（扣不動就不該去呼叫 AI），所以那一刻還沒有 cast id
  *  可以當 p_ref——ledger 那一列的 ref_id 只能事後補。不補的話，收支列表上的「加卦 −10」
@@ -685,7 +741,7 @@ export async function billFollowup(db: SupabaseClient, userId: string, castId: s
   const key = `followfree:${userId}:${today}`;
   if (await consumeQuota(db, key, PLAN_FOLLOWUPS[plan] ?? FREE_FOLLOWUPS_PER_DAY, today)) {
     await bump();
-    return { ok: true, paid: 0 };
+    return { ok: true, paid: 0, day: today };
   }
   const { error } = await db.rpc("apply_lingshi", { p_user: userId, p_action: "followup", p_amount: -COST.followup, p_ref: castId });
   if (error) return { ok: false, paid: 0, reason: "lingshi" };

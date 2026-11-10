@@ -8,7 +8,7 @@ import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "./topic.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { bumpCast } from "./achievements.ts";
-import { callInterpret, billCast, refundCast, billFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, refundCast, billFollowup, refundFollowup, isRefusal, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
 import { threadPrior } from "./xinji.ts";
 import { loadPriorityBlock, loadUserNotes, reflectCast, inBackground } from "./reflect.ts";
@@ -201,7 +201,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
       const { error } = await db.from("cast_claims").delete().eq("token", p.clientToken).is("cast_id", null);
       if (error) console.error("release cast_claim failed", p.clientToken, error.message);
     }
-    return { kind: "failed" as const };
+    // refused：模型拒答（題目本身的問題，再問同一句也沒用），呼叫端據此換說法
+    return { kind: "failed" as const, refused: isRefusal(e) };
   };
 
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
@@ -362,13 +363,22 @@ export async function followupInterpret(db: SupabaseClient, p: {
   const chart = cast.chart as Chart;
   const [priority, userNotes] = await Promise.all([loadPriorityBlock(db), loadUserNotes(db, p.userId)]);
   const yo = yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying);
-  const ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
-    followup: {
-      prevReading: cast.reading ?? "", question: p.question,
-      history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
-    },
-    ...yo, priority, userNotes, topic: await castTopic(db, cast.id, cast.question),
-  });
+  // 收費在呼叫之前（扣不動就不該打 AI），所以呼叫失敗（模型掛了、拒答）要退回去——
+  // 原本這裡沒有 catch，AI 一出錯，這一次追問的錢就白扣了。
+  let ai: Awaited<ReturnType<typeof callInterpret>>;
+  try {
+    ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
+      followup: {
+        prevReading: cast.reading ?? "", question: p.question,
+        history: prev.history, pendingAsk: prev.pendingAsk, askLeft: Math.max(0, MAX_ASKS_PER_CAST - prev.asks),
+      },
+      ...yo, priority, userNotes, topic: await castTopic(db, cast.id, cast.question),
+    });
+  } catch (e) {
+    console.error("followup failed, refunding", p.userId, p.castId, e);
+    await refundFollowup(db, p.userId, p.castId, bill);
+    return { kind: "failed" as const, refused: isRefusal(e) };
+  }
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   // 額度用完還硬問的，程式這一層再擋一次：模型不一定守得住【反問額度】
   const ask = prev.asks < MAX_ASKS_PER_CAST ? (ai.ask ?? null) : null;
@@ -510,12 +520,21 @@ export async function commentCast(db: SupabaseClient, p: {
   const { data: prevCh } = await db.from("characters").select("name").eq("id", cast.character_id).maybeSingle();
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.newCharacterId).single();
   const chart = cast.chart as Chart;
-  const ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
-    comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
-    ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
-    priority: await loadPriorityBlock(db),
-    topic: await castTopic(db, cast.id, cast.question),
-  });
+  // 與追問同理：先扣才打 AI，打不成（模型掛了、拒答）就退回
+  let ai: Awaited<ReturnType<typeof callInterpret>>;
+  try {
+    ai = await callInterpret(ch!.persona_prompt, (chartTextFull(chart, cast.question ?? "", { today: nowTaipei() }) + questionDateNote(cast.question ?? "", dayStr(chart.date), dayStr(nowTaipei()))), {
+      comment: { prevReading: cast.reading ?? "", prevAuthor: prevCh?.name ?? "另一位修行者" },
+      ...yongOpts(chart, cast.yong_qin, cast.yong_via_shi, cast.yong_via_ying),
+      priority: await loadPriorityBlock(db),
+      topic: await castTopic(db, cast.id, cast.question),
+    });
+  } catch (e) {
+    console.error("comment failed, refunding", p.userId, p.castId, e);
+    const { error: rfErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment_refund", p_amount: COST.comment, p_ref: p.castId });
+    if (rfErr) console.error("comment refund failed", p.userId, rfErr.message);
+    return { kind: "failed" as const, refused: isRefusal(e) };
+  }
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
 }
@@ -570,6 +589,6 @@ export async function deepenCast(db: SupabaseClient, p: {
   } catch (e) {
     console.error("deepen failed", e);
     await refund();
-    return { kind: "incomplete" as const };
+    return { kind: "incomplete" as const, refused: isRefusal(e) };
   }
 }
