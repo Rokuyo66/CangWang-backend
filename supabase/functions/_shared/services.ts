@@ -144,6 +144,25 @@ export function endsComplete(text: string): boolean {
   return !!t && SENT_END.includes(t[t.length - 1]);
 }
 
+/** 模型拒答（安全分類器）。與技術失敗分開：技術失敗換家重打、稍後再試會好；
+ *  拒答是題目本身的問題，同一句再問一百次還是會被擋，所以呼叫端要給不同的說明。 */
+// 欄位寫成明確宣告、不用 constructor 參數屬性：node 的 type stripping（dev/*-test.mts）不吃那種寫法
+export class RefusalError extends Error {
+  category: string;
+  model: string;
+  constructor(category: string, model: string) {
+    super(`anthropic refusal (${category})`);
+    this.name = "RefusalError";
+    this.category = category;
+    this.model = model;
+  }
+}
+export const isRefusal = (e: unknown): e is RefusalError => e instanceof RefusalError;
+
+/** 拒答時給問卦人的話（六六 2026-11-10 定稿）。不提分類器的類別：
+ *  那對問卦人沒有意義，也等於告訴人怎麼試探。 */
+export const REFUSAL_MSG = "這個問題觀中不便推演，費用已退回。若與醫療、法律、人身安全有關，請先找相關的專業人員；也可以換個角度，問你自己能掌握的那一部分。";
+
 export async function callInterpret(persona: string, chartText: string, opts: {
   followup?: {
     prevReading: string; question: string;
@@ -331,7 +350,7 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     if (data.stop_reason === "refusal") {
       const cat = data.stop_details?.category ?? "unknown";
       console.warn("INTERPRET_REFUSAL", m, cat);
-      throw new Error(`anthropic refusal (${cat})`);
+      throw new RefusalError(cat, m);
     }
     return {
       // 關閉思考的 Sonnet 5／Opus 5 偶爾會把 <thinking> 標籤寫進正文（官方已知行為），先剔除再進 parseTagged
@@ -372,15 +391,21 @@ export async function callInterpret(persona: string, chartText: string, opts: {
     usedModel = l.model;
     return { text: l.text, stopReason: null, rawIn: l.tokensIn ?? undefined, rawOut: l.tokensOut ?? undefined };
   };
+  // 拒答不走備援（六六 2026-11-10）：KIMI 是第三方，被擋的題目多半是健康、官司、人身安全，
+  // 不該再轉送出去；本地模型沒有安全過濾，交給它等於繞過那道擋。直接丟給呼叫端退費並說明。
   try {
     r = await callModel(model);
   } catch (e) {
+    if (isRefusal(e)) throw e;
     if (!fallbackModel || fallbackModel === model) r = await viaLocal(e);
     else {
       console.error(`interpret [${model}] fail, fallback → ${fallbackModel}:`, e instanceof Error ? e.message : String(e));
       usedModel = fallbackModel;
       try { r = await callModel(fallbackModel); }
-      catch (e2) { r = await viaLocal(e2); }
+      catch (e2) {
+        if (isRefusal(e2)) throw e2;
+        r = await viaLocal(e2);
+      }
     }
   }
   const { text: rawText, stopReason, rawIn, rawOut, cacheWrite, cacheRead } = r;

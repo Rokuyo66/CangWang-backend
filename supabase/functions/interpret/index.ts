@@ -28,7 +28,7 @@ import {
   timeline, threadDetail, openThread, attachCast, setThreadStatus, deleteThread,
   suggestThread, replyToNote, markNotesRead, monthlyReview, monthlyRefresh, monthlyIndex, threadQuotaOf, afterCast, hallMention,
 } from "../_shared/xinji.ts";
-import { callInterpret, logUsage } from "../_shared/services.ts";
+import { callInterpret, logUsage, REFUSAL_MSG } from "../_shared/services.ts";
 import {
   stickerShelf, buyPack, placeSticker, moveSticker, removeSticker, stickerLayout, layoutOf,
 } from "../_shared/stickers.ts";
@@ -2057,9 +2057,20 @@ async function handle(req: Request): Promise<Response> {
     // ⚠ 前端加上 crisis 分支之後，這裡就該改回原樣的 kind:"crisis"。
     if ((result as { kind: string }).kind === "crisis")
       return Response.json({ kind: "err", crisis: true, msg: (result as { message: string }).message }, { headers: CORS });
-    // 起卦扣了費卻沒解出來：pipeline 已退款、放掉 token。走 err 管道（理由同上：前端認得）
-    if ((result as { kind: string }).kind === "failed")
-      return Response.json({ kind: "err", msg: "這一卦推演不順，已退回這次的費用，稍後再起一卦。" }, { headers: CORS });
+    // 扣了費卻沒解出來（起卦、追問、換評）：pipeline 已退款。走 err 管道（理由同上：前端認得）。
+    // refused＝模型拒答：題目本身的問題，「稍後再試」沒用，改說明原因（REFUSAL_MSG）；
+    // refused:true 另外掛著，新版前端據此把「再試」換成「換個問法」。
+    if ((result as { kind: string }).kind === "failed") {
+      const refused = !!(result as { refused?: boolean }).refused;
+      const msg = refused ? REFUSAL_MSG
+        : body.mode === "followup" ? "這次追問沒有成功，已退回費用，稍後再試。"
+        : body.mode === "comment" ? "這次換評沒有成功，已退回費用，稍後再試。"
+        : "這一卦推演不順，已退回這次的費用，稍後再起一卦。";
+      return Response.json({ kind: "err", refused, msg }, { headers: CORS });
+    }
+    // 展開被拒答：照舊回 incomplete（舊前端認得、會說已退回），新前端讀 msg
+    if ((result as { kind: string }).kind === "incomplete" && (result as { refused?: boolean }).refused)
+      return Response.json({ kind: "incomplete", refused: true, msg: REFUSAL_MSG }, { headers: CORS });
     // 日運卦不可追問／展開／換評（今日氣象非問事卦，續談會與正式卦互相打臉）
     if ((result as { kind: string }).kind === "no_followup")
       return Response.json({ kind: "err", msg: "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。" }, { headers: CORS });

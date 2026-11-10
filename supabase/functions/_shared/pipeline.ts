@@ -8,7 +8,7 @@ import { detectCrisisAny, crisisMessage, logCrisis } from "./crisis.ts";
 import { routeTopic, normTopic, TOPIC_LABELS, type Topic } from "./topic.ts";
 import { collectedGua, recordGua } from "./collection.ts";
 import { bumpCast } from "./achievements.ts";
-import { callInterpret, billCast, refundCast, billFollowup, refundFollowup, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
+import { callInterpret, billCast, refundCast, billFollowup, refundFollowup, isRefusal, planOf, linkLedgerRef, endsComplete, logUsage, rateLimited } from "./services.ts";
 import { COST } from "./prices.ts";
 import { threadPrior } from "./xinji.ts";
 import { loadPriorityBlock, loadUserNotes, reflectCast, inBackground } from "./reflect.ts";
@@ -201,7 +201,8 @@ export async function castAndInterpret(db: SupabaseClient, p: {
       const { error } = await db.from("cast_claims").delete().eq("token", p.clientToken).is("cast_id", null);
       if (error) console.error("release cast_claim failed", p.clientToken, error.message);
     }
-    return { kind: "failed" as const };
+    // refused：模型拒答（題目本身的問題，再問同一句也沒用），呼叫端據此換說法
+    return { kind: "failed" as const, refused: isRefusal(e) };
   };
 
   // 4. 解卦（用神含引擎鎖定之爻位，與前端顯示同一套 pickUsePos）
@@ -376,7 +377,7 @@ export async function followupInterpret(db: SupabaseClient, p: {
   } catch (e) {
     console.error("followup failed, refunding", p.userId, p.castId, e);
     await refundFollowup(db, p.userId, p.castId, bill);
-    throw e;
+    return { kind: "failed" as const, refused: isRefusal(e) };
   }
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   // 額度用完還硬問的，程式這一層再擋一次：模型不一定守得住【反問額度】
@@ -532,7 +533,7 @@ export async function commentCast(db: SupabaseClient, p: {
     console.error("comment failed, refunding", p.userId, p.castId, e);
     const { error: rfErr } = await db.rpc("apply_lingshi", { p_user: p.userId, p_action: "comment_refund", p_amount: COST.comment, p_ref: p.castId });
     if (rfErr) console.error("comment refund failed", p.userId, rfErr.message);
-    throw e;
+    return { kind: "failed" as const, refused: isRefusal(e) };
   }
   await logUsage(db, { userId: p.userId, mode: ai.mode, model: ai.model, usage: ai.usage, estimated: ai.estimated, ms: ai.ms });
   return { kind: "ok" as const, comment: ai.reading, paid: COST.comment };
@@ -588,6 +589,6 @@ export async function deepenCast(db: SupabaseClient, p: {
   } catch (e) {
     console.error("deepen failed", e);
     await refund();
-    return { kind: "incomplete" as const };
+    return { kind: "incomplete" as const, refused: isRefusal(e) };
   }
 }

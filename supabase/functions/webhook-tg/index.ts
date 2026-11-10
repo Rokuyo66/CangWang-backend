@@ -1,7 +1,7 @@
 // webhook-tg/index.ts — Telegram adapter
 // 流程：/start 入觀 → 選角 → 輸入問事 → [擲卦] → 盤面＋解卦 → 建議追問按鈕 / 手動追問
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { renderChartTG, mdToTG } from "../_shared/services.ts";
+import { renderChartTG, mdToTG, REFUSAL_MSG } from "../_shared/services.ts";
 import { ALL_GUA_NAMES } from "../_shared/core.ts";
 import { syncGuaFromCasts } from "../_shared/collection.ts";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, nowTaipei, reflectAfterReview } from "../_shared/pipeline.ts";
@@ -921,6 +921,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     await send(chatId, `（${CHAR_LABELS[newChar]}接過卦來看了看……）`);
     await typing(chatId);
     const r = await commentCast(db, { userId, castId: ses.last_cast_id, newCharacterId: newChar });
+    if (r.kind === "failed") { await send(chatId, r.refused ? REFUSAL_MSG : "這次換評沒有成功，已退回費用，稍後再試。"); return; }
     if (r.kind === "no_followup") { await send(chatId, "今日運勢只論當日氣象，不另作推演。要細問，另起一卦。"); return; }
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
     if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
@@ -941,7 +942,7 @@ async function onCallback(cb: { id: string; from: { id: number; first_name?: str
     if (r.kind === "not_found") { await send(chatId, "找不到這一卦。"); return; }
     if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再試。"); return; }
     if (r.kind === "incomplete") {
-      await send(chatId, "此次推演未能完整收束，靈石已如數退回。請稍後再展開一次。");
+      await send(chatId, r.refused ? REFUSAL_MSG : "此次推演未能完整收束，靈石已如數退回。請稍後再展開一次。");
       return;
     }
     if (r.kind === "paywall") {
@@ -1215,8 +1216,8 @@ async function runCast(chatId: number, userId: string, tgId: string, ses: Record
     return;
   }
   if (r.kind === "failed") {
-    // pipeline 已退款、放掉冪等 token；問句不清掉，留給他重起
-    await send(chatId, "這一卦推演不順，已退回這次的費用，稍後再起一卦。");
+    // pipeline 已退款、放掉冪等 token；問句不清掉，留給他重起（拒答則說明原因，再起同一句沒用）
+    await send(chatId, r.refused ? REFUSAL_MSG : "這一卦推演不順，已退回這次的費用，稍後再起一卦。");
     await saveSession({ ...ses, state: "idle" });
     return;
   }
@@ -1244,6 +1245,7 @@ async function doFollowup(chatId: number, userId: string, castId: string, questi
   await send(chatId, "推演中……");
   await typing(chatId);
   const r = await followupInterpret(db, { userId, castId, question });
+  if (r.kind === "failed") { await send(chatId, r.refused ? REFUSAL_MSG : "這次追問沒有成功，已退回費用，稍後再試。"); return; }
   if (r.kind === "crisis") { await send(chatId, esc(r.message)); return; }
   if (r.kind === "rate_limited") { await send(chatId, "手速太快了，稍歇片刻再問。"); return; }
   if (r.kind === "paywall") {

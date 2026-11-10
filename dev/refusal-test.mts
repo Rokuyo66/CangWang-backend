@@ -7,7 +7,9 @@
 //
 // 跑法：node dev/refusal-test.mts
 
-(globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
+// env 可在測試中途改：KIMI_API_KEY 是呼叫當下才讀的（決定有沒有備援）
+const ENV: Record<string, string | undefined> = {};
+(globalThis as Record<string, unknown>).Deno ??= { env: { get: (k: string) => ENV[k] } };
 
 let calls = 0;
 let reply: Record<string, unknown> = {};
@@ -17,7 +19,7 @@ globalThis.fetch = (async () => {
 }) as typeof fetch;
 
 import { fakeDb } from "./fake-db.mts";
-const { callInterpret, billFollowup, refundFollowup, PLAN_FOLLOWUPS, taipeiToday } =
+const { callInterpret, billFollowup, refundFollowup, isRefusal, REFUSAL_MSG, PLAN_FOLLOWUPS, taipeiToday } =
   await import("../supabase/functions/_shared/services.ts");
 const { COST } = await import("../supabase/functions/_shared/prices.ts");
 
@@ -48,6 +50,48 @@ await t("只寫了一半就拒答，也丟錯（不交付半張卦紙）", async
   let threw = false;
   try { await callInterpret("persona", "chart", {}); } catch { threw = true; }
   ok(threw, "應該丟錯");
+});
+
+await t("拒答丟的是 RefusalError，帶類別", async () => {
+  reply = { content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "bio" } };
+  let threw: unknown = null;
+  try { await callInterpret("persona", "chart", {}); } catch (e) { threw = e; }
+  ok(isRefusal(threw), "應能被 isRefusal 認出");
+  eq((threw as { category: string }).category, "bio", "類別");
+});
+
+await t("設了 KIMI 備援，拒答也不轉送：只打一次模型", async () => {
+  ENV.KIMI_API_KEY = "test";
+  try {
+    reply = { content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "general_harms" } };
+    const before = calls;
+    let threw: unknown = null;
+    try { await callInterpret("persona", "chart", {}); } catch (e) { threw = e; }
+    ok(isRefusal(threw), "應丟拒答");
+    eq(calls - before, 1, "fetch 次數（不該再打 KIMI）");
+  } finally { delete ENV.KIMI_API_KEY; }
+});
+
+await t("技術失敗照舊走備援：設了 KIMI 就會再打一次", async () => {
+  ENV.KIMI_API_KEY = "test";
+  const saved = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = (async () => {
+    n++;
+    if (n === 1) return new Response("overloaded", { status: 529 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "此卦吉。" }, finish_reason: "stop" }], usage: {} }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const r = await callInterpret("persona", "chart", { deepen: { briefReading: "" } });
+    eq(n, 2, "fetch 次數（主模型＋KIMI）");
+    ok(String(r.reading).includes("此卦吉"), `reading：${r.reading}`);
+  } finally { globalThis.fetch = saved; delete ENV.KIMI_API_KEY; }
+});
+
+await t("拒答說明不提分類器類別、有說退費", () => {
+  ok(!/harm|bio|cyber|類別/i.test(REFUSAL_MSG), "不該出現類別");
+  ok(/退回/.test(REFUSAL_MSG), "要說退費");
 });
 
 await t("正常回覆照常回傳", async () => {
