@@ -6,6 +6,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAfterReview } from "../_shared/pipeline.ts";
 import { dailyFortune } from "../_shared/fortune.ts";
 import { jieqiOf } from "../_shared/jieqi.ts";
+import { QIAN60 } from "../_shared/qian60.ts";
+import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { widgetMonth, widgetState } from "../_shared/widget-state.ts";
 import { chat, chatFavorCap, chatQuotaOf, condenseMemory, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
@@ -1567,9 +1569,23 @@ async function handle(req: Request): Promise<Response> {
     // 重溫單卦（含追問串）
     if (body.mode === "cast_detail") {
       const { data: c } = await db.from("casts")
-        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, feedback(verdict, note)")
+        .select("id, question, chart, reading, deep_reading, gua_ben, gua_bian, created_at, due_date, character_id, yong_qin, yong_via_shi, yong_via_ying, category, digest, feedback(verdict, note)")
         .eq("id", body.cast_id).eq("user_id", uid).maybeSingle();
       if (!c) return Response.json({ kind: "not_found" }, { headers: CORS });
+      // 日運卦重溫：籤詩當初沒入庫，只留 digest「今日運勢·{等第}·第{n}籤{干支}」。
+      // 從 digest 取等第與籤號、再查 QIAN60 補詩——不拿 chart 重算 fortuneTier：
+      // 卦理規則改過（10-31 v3），重算會讓舊日的吉凶跟當天抽到的對不上。解析不出來就不給，前端照舊畫。
+      let fortune: Record<string, unknown> | null = null;
+      if (c.category === FORTUNE_CATEGORY) {
+        const m = /^今日運勢·([^·]+)·第(\d+)籤/.exec(String(c.digest ?? ""));
+        const q = m ? QIAN60.find((x) => x.n === Number(m[2])) : undefined;
+        if (m && q) {
+          const t = new Date(new Date(c.created_at as string).getTime() + 8 * 3600_000);   // 台北曆日
+          let jieqi: unknown = null;
+          try { jieqi = jieqiOf(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()); } catch { /* 節氣算不出不影響籤 */ }
+          fortune = { tierLabel: m[1], qian: { n: q.n, gz: q.gz, poem: q.poem, allusion: q.allusion }, jieqi };
+        }
+      }
       // ask：那一答末尾的反問（已含在 answer 裡，另給一份讓前端畫樣式）；revised：那一答做了修正
       const fuq = (cols: string) => db.from("followups").select(cols)
         .eq("cast_id", body.cast_id).order("created_at", { ascending: true });
@@ -1577,7 +1593,7 @@ async function handle(req: Request): Promise<Response> {
       if (fusErr) ({ data: fuRaw } = await fuq("question, answer, created_at"));   // 0078 未跑的兜底
       const fus = ((fuRaw ?? []) as unknown as Record<string, unknown>[])
         .map(({ revision, ...f }) => ({ ...f, ask: f.ask ?? null, revised: !!revision }));
-      return Response.json({ kind: "ok", cast: c, followups: fus }, { headers: CORS });
+      return Response.json({ kind: "ok", cast: c, followups: fus, fortune }, { headers: CORS });
     }
 
     // 應期回評：1準 2部分 3不準（回評後修為+50，紅點消）＋選填評語（可匿名公開到觀前石牆）
