@@ -163,6 +163,68 @@ export async function buildPeriodCheckout(o: PeriodOrder): Promise<{ action: str
   return { action: ECPAY_CHECKOUT_URL, fields };
 }
 
+export type OneTimeOrder = {
+  merchantTradeNo: string;
+  amount: number;
+  itemName: string;
+  tradeDesc: string;
+  returnUrl: string;       // 付款結果（伺服器對伺服器）——唯一可信的入帳依據
+  clientBackUrl?: string;  // 「返回商店」導回哪裡（純前端，不可信）
+};
+
+/** 組一次付清（信用卡）的結帳參數（含簽章）。用於靈石儲值。
+ *
+ *  【刻意另寫一支，不拿 buildPeriodCheckout 改參數】只要混進任何一個 Period* 欄位，
+ *  綠界就會把它當成定期定額，下個月照扣——對一次付清的單，那是最糟的一種錯。
+ *
+ *  【只開信用卡】ChoosePayment=ALL 會放出 ATM／超商代碼這類離線付款：它們先送一包
+ *  「取號成功」（RtnCode≠1）的結果，真正付款要等幾天後另一包。目前的回呼把 RtnCode≠1
+ *  當失敗處理，混進來會出現「單先被標 failed、錢後到」的時序。要開離線付款時，
+ *  得先接 PaymentInfoURL 並把取號結果與失敗分開，不是改這裡一個字就好。 */
+export async function buildOneTimeCheckout(o: OneTimeOrder): Promise<{ action: string; fields: Record<string, string> }> {
+  const params: Record<string, string | number> = {
+    MerchantID: MERCHANT_ID,
+    MerchantTradeNo: o.merchantTradeNo,
+    MerchantTradeDate: ecpayNow(),
+    PaymentType: "aio",
+    TotalAmount: Math.round(o.amount),
+    TradeDesc: o.tradeDesc,
+    ItemName: o.itemName,
+    ReturnURL: o.returnUrl,
+    ChoosePayment: "Credit",
+    EncryptType: 1,
+    NeedExtraPaidInfo: "N",
+    ...(o.clientBackUrl ? { ClientBackURL: o.clientBackUrl } : {}),
+  };
+  const fields: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params)) fields[k] = String(v);
+  fields.CheckMacValue = await checkMacValue(params);
+  return { action: ECPAY_CHECKOUT_URL, fields };
+}
+
+/** 一次付清的回呼要怎麼處置。與 classifyCallback 同樣**不驗簽章**（呼叫端先過 verifyCallback）。
+ *
+ *  與訂閱那支差在兩點：沒有「第幾期」；而且要比對金額——訂閱那條路以我們的 orders.amount
+ *  為準不看回傳值，但一次付清的單只有這一包，TradeAmt 對不上就代表有東西不對勁
+ *  （測試單打到正式環境、或單號撞了），寧可不發石、留給人工對帳。 */
+export type OneTimeVerdict =
+  | { act: "grant" }
+  | { act: "ignore"; why: string }
+  | { act: "fail"; why: string }
+  | { act: "mismatch"; why: string };
+
+export function classifyOneTime(p: Record<string, string>, expectAmount: number): OneTimeVerdict {
+  if (String(p.SimulatePaid ?? "0") === "1") return { act: "ignore", why: "SimulatePaid" };
+  if (String(p.RtnCode ?? "") !== "1") {
+    return { act: "fail", why: `${p.RtnCode ?? "?"} ${p.RtnMsg ?? ""}`.trim() };
+  }
+  const got = Number(p.TradeAmt ?? "");
+  if (!Number.isFinite(got) || got !== expectAmount) {
+    return { act: "mismatch", why: `TradeAmt=${p.TradeAmt ?? "?"} expect=${expectAmount}` };
+  }
+  return { act: "grant" };
+}
+
 /** 回呼要怎麼處置。抽成純函式是為了測得到——這幾個分支每一個都對應到
  *  一種「錢進來了牒沒發」或「牒發了錢沒進來」，而它們在線上都不會叫。
  *

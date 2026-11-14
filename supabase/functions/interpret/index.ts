@@ -21,7 +21,7 @@ import { achBoard, achClaim, achLitCount, bumpReview } from "../_shared/achievem
 import { jwBoard } from "../_shared/jianwen.ts";
 import { planOf, followupFreeLeft, castFreeLeft, guideSeenOf, markGuideSeen, deleteAccount, DELETE_PHRASE, PLAN_FOLLOWUPS, PLAN_CASTS } from "../_shared/services.ts";
 import { COST, refreshPrices, priceTable, SIGN_REWARDS } from "../_shared/prices.ts";
-import { buildPeriodCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback } from "../_shared/ecpay.ts";
+import { buildPeriodCheckout, buildOneTimeCheckout, merchantTradeNo, verifyCallback, ecpayConfigured, classifyCallback, classifyOneTime } from "../_shared/ecpay.ts";
 import { listCases, startCase, caseStateOf, actOnCase, keepRun, deleteRun, type CaseResult } from "../_shared/case-run.ts";
 import { gateOf, listEvents, openEvent } from "../_shared/events.ts";
 import { voiceReminder, CHAR_IDS } from "../_shared/reminder-voice.ts";
@@ -391,6 +391,14 @@ async function ecpayReturn(req: Request): Promise<Response> {
   const tradeNo = String(p.MerchantTradeNo ?? "");
   const { data: order } = await db.from("orders")
     .select("id, user_id, plan, amount, status").eq("merchant_trade_no", tradeNo).maybeSingle();
+  // 不是訂閱單，就看是不是靈石儲值單（0117）。⚠ 這一步必須在下面「找不到訂單→回 1|OK」
+  // 之前：漏了它，儲值單的回呼會被當成找不到、回 1|OK 叫綠界別再送——錢收了、石沒發。
+  // 以查表分流而不靠單號前綴，單號規則日後改了也不會悄悄掉單。
+  if (!order) {
+    const { data: lo } = await db.from("lingshi_orders")
+      .select("id, user_id, amount, lingshi, status").eq("merchant_trade_no", tradeNo).maybeSingle();
+    if (lo) return await ecpayTopupReturn(p, lo as TopupOrder);
+  }
   if (!order) {
     // 簽章對得上卻找不到訂單：這不可能是偽造的（他簽得出來就表示他有金鑰），
     // 比較可能是我們這側的訂單沒寫進去，或是測試環境的單送到正式環境來了。
@@ -450,6 +458,47 @@ async function ecpayReturn(req: Request): Promise<Response> {
   console.log("ECPAY_OK", tradeNo, "期", verdict.execTime,
     (r as { duplicate?: boolean } | null)?.duplicate ? "(重送)" : "");
   return new Response("1|OK", { status: 200 });
+}
+
+/* 靈石儲值單的回呼（一次付清）。簽章已在 ecpayReturn 驗過才會走到這裡。
+   回什麼的規則與訂閱那支相同：收下了就 1|OK；只有我們這側壞掉才回非 1|OK 讓它重送。 */
+type TopupOrder = { id: string; user_id: string; amount: number; lingshi: number; status: string };
+async function ecpayTopupReturn(p: Record<string, string>, lo: TopupOrder): Promise<Response> {
+  const tradeNo = String(p.MerchantTradeNo ?? "");
+  const ok = () => new Response("1|OK", { status: 200 });
+
+  if (lo.status === "paid") { console.log("ECPAY_TOPUP_DUP", tradeNo); return ok(); }
+
+  const v = classifyOneTime(p, lo.amount);
+  if (v.act === "ignore") { console.warn("ECPAY_TOPUP_IGNORED", tradeNo, v.why); return ok(); }
+  if (v.act === "mismatch") {
+    // 簽章對、金額不對：不發石、不重送（重送一百次金額也不會變），留給人工對帳。
+    console.error("ECPAY_TOPUP_AMOUNT_MISMATCH", tradeNo, v.why);
+    // 標成 mismatch 而不是只留一行日誌：查 select * from lingshi_orders where status='mismatch' 就撈得到待處理的單。
+    await db.from("lingshi_orders").update({ status: "mismatch", raw: p }).eq("id", lo.id).neq("status", "paid");
+    return ok();
+  }
+  if (v.act === "fail") {
+    console.warn("ECPAY_TOPUP_FAILED", tradeNo, v.why);
+    if (lo.status === "pending") {
+      await db.from("lingshi_orders").update({ status: "failed", raw: p }).eq("id", lo.id).eq("status", "pending");
+    }
+    return ok();
+  }
+
+  const { data: r, error } = await db.rpc("apply_lingshi_purchase", {
+    p_order: lo.id,
+    p_ecpay_trade_no: String(p.TradeNo ?? tradeNo),
+    p_amount: lo.amount,
+    p_raw: p,
+  });
+  if (error) {
+    console.error("ECPAY_TOPUP_APPLY_FAILED", tradeNo, error.message);
+    return new Response("0|ServerError", { status: 200 });   // 讓綠界稍後重送；RPC 冪等
+  }
+  console.log("ECPAY_TOPUP_OK", tradeNo, lo.lingshi,
+    (r as { duplicate?: boolean } | null)?.duplicate ? "(重送)" : "");
+  return ok();
 }
 
 /** x-internal-key 比對：env 沒設或為空一律拒絕；長度相同才逐字比，比對時間不隨內容變。 */
@@ -778,6 +827,57 @@ async function handle(req: Request): Promise<Response> {
         execTimes: ECPAY_EXEC_TIMES,
       });
       return Response.json({ kind: "ok", order_id: order.id, action, fields }, { headers: CORS });
+    }
+
+
+    /* ═══ 靈石儲值（0117）═══════════════════════════════════════
+       一次付清、只收信用卡。價目是 lingshi_packs 那張表；金額與石數在開單當下
+       快照進 lingshi_orders，回呼入帳一律以那一列為準。
+       ⚠ App 版不得顯示入口（Google Play／App Store 規定數位商品走 IAP），由前端擋。 */
+    if (body.mode === "lingshi_pack_list") {
+      const { data: packs } = await db.from("lingshi_packs")
+        .select("id, label, twd, lingshi, bonus, best, sort").eq("active", true).order("sort");
+      return Response.json({ kind: "ok", packs: packs ?? [], payable: ecpayConfigured() }, { headers: CORS });
+    }
+
+    if (body.mode === "lingshi_buy") {
+      if (!ecpayConfigured()) return Response.json({ kind: "err", msg: "金流尚未開通" }, { headers: CORS });
+      // 數位內容不適用七日鑑賞期，須事先取得同意（消保法・通訊交易解除權合理例外）。
+      // 前端要有勾選；這裡再擋一次，免得改版時漏掉那個框。
+      if (body.agree !== true) return Response.json({ kind: "err", msg: "請先同意購買須知" }, { headers: CORS });
+      const { data: pk } = await db.from("lingshi_packs")
+        .select("id, label, twd, lingshi, active").eq("id", String(body.pack ?? "")).maybeSingle();
+      const pack = pk as { id: string; label: string; twd: number; lingshi: number; active: boolean } | null;
+      if (!pack || !pack.active) return Response.json({ kind: "err", msg: "沒有這個靈石包" }, { headers: CORS });
+
+      const tradeNo = merchantTradeNo("LS");
+      const { data: order, error: orderErr } = await db.from("lingshi_orders").insert({
+        user_id: uid, pack: pack.id, merchant_trade_no: tradeNo,
+        amount: pack.twd, lingshi: pack.lingshi, status: "pending",
+      }).select("id").single();
+      if (orderErr || !order) {
+        console.error("lingshi_buy insert failed", orderErr?.message);
+        return Response.json({ kind: "err", msg: "訂單開不起來，請稍後再試" }, { headers: CORS });
+      }
+      const { action, fields } = await buildOneTimeCheckout({
+        merchantTradeNo: tradeNo,
+        amount: pack.twd,
+        itemName: `幾知觀・${pack.label}`,
+        tradeDesc: "靈石儲值",
+        returnUrl: `${SUPABASE_URL}/functions/v1/interpret?ecpay=return`,
+        clientBackUrl: ecpayClientBack(),
+      });
+      return Response.json({ kind: "ok", order_id: order.id, trade_no: tradeNo, action, fields }, { headers: CORS });
+    }
+
+    // 從綠界導回後，回呼可能還沒到。前端拿 order_id 輪詢這支幾秒，顯示「入帳中／已入帳」。
+    // 只查自己的單；看不到別人的。
+    if (body.mode === "lingshi_order_status") {
+      const { data: o } = await db.from("lingshi_orders")
+        .select("id, status, lingshi, amount, paid_at").eq("id", String(body.order_id ?? "")).eq("user_id", uid).maybeSingle();
+      if (!o) return Response.json({ kind: "err", msg: "查無此單" }, { headers: CORS });
+      const { data: prof } = await db.from("profiles").select("lingshi").eq("id", uid).maybeSingle();
+      return Response.json({ kind: "ok", order: o, lingshi: prof?.lingshi ?? null }, { headers: CORS });
     }
 
 
