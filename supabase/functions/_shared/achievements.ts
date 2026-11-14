@@ -30,8 +30,10 @@ export const ACH: AchDef[] = [
   { id: "method_manual", cat: "ask", name: "觀象玩辭", desc: "第一次手動排盤。居則觀其象而玩其辭。",     reward: 10, rule: { kind: "count", key: "method:manual", n: 1 } },
   { id: "review_1",      cat: "ask", name: "彰往察來", desc: "第一次回報應期準不準。",                   reward: 10, rule: { kind: "count", key: "review", n: 1 } },
 
-  /* 道緣：角色事件綁道緣與修為，開得慢——先放一條，完成任一則就能領。 */
-  { id: "dy_daoshi_m", cat: "dy", name: "麗澤", desc: "陪大師兄走完一則角色事件。麗澤，兌；君子以朋友講習。", reward: 30, rule: { kind: "event", character: "daoshi_m" } },
+  /* 道緣：角色事件綁道緣與修為，開得慢——一位角色一條，完成他的任一則就能領。 */
+  { id: "dy_daoshi_m", cat: "dy", name: "麗澤", desc: "陪大師兄走完一則角色事件。麗澤，兌；君子以朋友講習。", reward: 10, rule: { kind: "event", character: "daoshi_m" } },
+  { id: "dy_daoshi_f", cat: "dy", name: "甘節", desc: "陪師妹走完一則角色事件。節：甘節，吉——規矩守著，甜頭也留著。", reward: 10, rule: { kind: "event", character: "daoshi_f" } },
+  { id: "dy_lingshou", cat: "dy", name: "觀頤", desc: "陪觀貓走完一則角色事件。頤：觀頤，自求口實——先把這位餵飽再說。", reward: 10, rule: { kind: "event", character: "lingshou" } },
 ];
 
 export type AchState = "locked" | "lit" | "claimed";
