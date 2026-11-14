@@ -20,7 +20,7 @@ export const LEDGER_LABELS: Record<string, string> = {
   deepen: "展開", deepen_refund: "展開退款", comment: "換評", comment_refund: "換評退款",
   breakthrough: "突破", feedback: "回評",
   post_hot: "熱門貼文", comment_hot: "熱門回文", buy_theme: "解鎖配色",
-  tts: "朗讀", subscription: "玉牒致贈", sticker_pack: "貼圖",
+  tts: "朗讀", subscription: "玉牒致贈", sticker_pack: "貼圖", lingshi_topup: "儲值",
   admin_grant: "後台發放",
   event_reward: "道緣事件",   // 了結一章的靈石（0065 event_complete）
   jianghu_replay: "江湖再訪", jianghu_ending: "江湖結局", jianghu_ach: "江湖成就",   // 0095
