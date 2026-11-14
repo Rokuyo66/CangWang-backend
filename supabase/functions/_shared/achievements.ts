@@ -32,6 +32,7 @@ export const ACH: AchDef[] = [
 
   /* 道緣：角色事件綁道緣與修為，開得慢——先放一條，完成任一則就能領。 */
   { id: "dy_daoshi_m", cat: "dy", name: "麗澤", desc: "陪大師兄走完一則角色事件。麗澤，兌；君子以朋友講習。", reward: 30, rule: { kind: "event", character: "daoshi_m" } },
+  { id: "dy_lingshou", cat: "dy", name: "觀頤", desc: "陪觀貓走完一則角色事件。頤：觀頤，自求口實——先把這位餵飽再說。", reward: 30, rule: { kind: "event", character: "lingshou" } },
 ];
 
 export type AchState = "locked" | "lit" | "claimed";
