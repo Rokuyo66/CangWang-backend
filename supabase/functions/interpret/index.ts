@@ -527,97 +527,105 @@ async function handle(req: Request): Promise<Response> {
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
-      const { data: prof, error: profErr } = await db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes, title_tag").eq("id", uid).maybeSingle();
-      // 這一列讀不到（欄位對不上、連線壞了）時，下面每一個欄位都會靜靜地退回預設值。
-      // 別的欄位退回預設頂多是畫面數字不對，guide_seen_at 退回 null 卻等於「沒看過引導」，
-      // 於是讀取失敗會被演成「每次登入都重講一次規矩」。至少要留下一行看得見的紀錄。
-      if (profErr) console.error("profile read failed", uid, profErr.message);
-      const { data: ucs } = await db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid);
-      const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
-      (ucs ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
-        favors[u.character_id] = u.favor; realms[u.character_id] = u.realm; cults[u.character_id] = u.cultivation;
-        if (u.avatar) charAvatars[u.character_id] = u.avatar;
-      });
+      // 並行（六六 2026-11-16 回報：登入要等）：函式在 eu-central-1、資料庫在東京，每一次查詢來回兩三百毫秒。
+      // 原本二十來個 await 一個接一個，加起來就是好幾秒。現在分兩輪：
+      //   第一輪：互不相依的全部一起發；第二輪：要用到 profiles 那一列或方案（plan）的再一起發。
+      // 新增欄位時請放進其中一輪，不要再寫成單獨一行 await。
       const today = new Date().toISOString().slice(0, 10);
-      const { data: dues } = await db.from("casts").select("id, due_date, feedback(verdict)")
-        .eq("user_id", uid).not("due_date", "is", null).lte("due_date", today);
-      const dueUnreviewed = (dues ?? []).filter((c: { feedback: unknown }) => {
-        const f = Array.isArray(c.feedback) ? c.feedback[0] : c.feedback;
-        return !f || (f as { verdict: number | null })?.verdict == null;
-      }).length;
-      // 方案先取：免費聊天、起卦、追問三項額度都依方案分級，下面每一段都要用它。
-      // （曾經把這行擺在第一個使用點之後，profile 整支因暫時性死區 500，
-      //   前端登入後 refreshProfile 失敗、畫面翻不到已登入狀態——宣告必須在最前。）
-      const plan = await planOf(db, uid);
-      const followFreeLeft = await followupFreeLeft(db, uid, plan);
-      // 今日免費卦剩餘：排盤頁的「入觀解卦」要據此標出白揭或償香火。
-      // 額度鍵與 billCast 同一把（登入者即 uid），標價才不會與實際扣費打架。
-      const castLeft = await castFreeLeft(db, uid, plan);
-      // 今日聊天免費剩餘
       const cday = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-      const { data: cq } = await db.from("free_quota").select("used_today, last_reset").eq("key", `chatfree:${uid}:${cday}`).maybeSingle();
-      const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
-      const chatFreeLeft = Math.max(0, chatQuotaOf(plan) - cused);
-      const signedToday = prof?.last_sign_date === cday;
-      // 收集獎勵待領數（卦曆鈕紅點用）：集滿達成但尚未領取
-      const { eligible } = await computeCollection(db, uid);
-      const claimedArr = (prof?.claimed_rewards ?? []) as string[];
-      const claimableRewards = rewardState(eligible, claimedArr).claimable.length;
-      // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
-      const { count: pnCount } = await db.from("plaza_notices")
-        .select("comment_id", { count: "exact", head: true }).eq("user_id", uid);
-      const plazaUnreadCount = pnCount ?? 0;
-      // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
-      const fortuneDone = prof?.last_fortune_date === cday;
-      // 今日日運卦的卦名：觀堂那一條抽過之後改成「卦名，江湖尋訪」（六六 2026-10-21；江湖的本卦＝今日日運卦）
-      const fortuneGua = fortuneDone ? await (async () => {
-        try {
-          const { data } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid).eq("category", "日運")
-            .order("created_at", { ascending: false }).limit(1).maybeSingle();
-          return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
-        } catch (_) { return null; }
-      })() : null;
-      // 江湖尋訪（0095）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
-      const jianghu = fortuneDone ? await jianghuToday(db, uid) : null;
-      // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
-      // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
-      const guideSeen = profErr ? true : await guideSeenOf(db, uid, prof?.guide_seen_at);
-      const [fy, fm, fd] = cday.split("-").map(Number);
-      // 心跡：導覽紅點與額度標示。兩個 count(head) 而已——為了兩個數字讓前端
-      // 在每次開 App 時多打一支 xinji_timeline，是把便宜的東西做貴。
-      const { count: xjOpen } = await db.from("threads")
-        .select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open");
-      const { count: xjNotes } = await db.from("thread_notes")
-        .select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null);
-      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jianghu, jieqi: jieqiOf(fy, fm, fd),
-        plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
-        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
-        followupCost: COST.followup, prices: priceTable(),
-        // 朗讀鈕上要標「免費剩 N 次」或「💎66」，而那要在按下去之前就知道。
-        // 只帶免費次數，不帶完整用量：這一包已經夠大了，其餘等真的按下去再回。
-        ttsFreeLeft: await ttsFreeLeftOf(uid, plan),
-        // 信箱未讀數。與心跡、廣場的紅點一樣由 profile 一起帶回來——
-        // 為了一個數字另打一支 API，是把便宜的東西做貴。
-        mailUnread: Number((await db.rpc("mail_unread", { p_user: uid })).data ?? 0),
+      const [profRes, ucsRes, duesRes, plan, cqRes, coll, pnRes, xjOpenRes, xjNotesRes, mailRes, logLatest, missNudge, achLit, keep] = await Promise.all([
+        db.from("profiles").select("lingshi, display_name, last_sign_date, selected_avatar, signin_total, claimed_rewards, plaza_unread, last_fortune_date, guide_seen_at, owned_themes, title_tag").eq("id", uid).maybeSingle(),
+        db.from("user_character").select("character_id, favor, realm, cultivation, avatar").eq("user_id", uid),
+        db.from("casts").select("id, due_date, feedback(verdict)").eq("user_id", uid).not("due_date", "is", null).lte("due_date", today),
+        // 方案：免費聊天、起卦、追問三項額度都依方案分級（第二輪要用）
+        planOf(db, uid),
+        // 今日聊天免費剩餘
+        db.from("free_quota").select("used_today, last_reset").eq("key", `chatfree:${uid}:${cday}`).maybeSingle(),
+        // 收集獎勵待領數（卦曆鈕紅點用）：集滿達成但尚未領取
+        computeCollection(db, uid),
+        // 廣場未讀：改由 plaza_notices 逐則統計（profiles.plaza_unread 已退場，不再寫入）
+        db.from("plaza_notices").select("comment_id", { count: "exact", head: true }).eq("user_id", uid),
+        // 心跡：導覽紅點與額度標示。兩個 count(head) 而已——為了兩個數字讓前端
+        // 在每次開 App 時多打一支 xinji_timeline，是把便宜的東西做貴。
+        db.from("threads").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "open"),
+        db.from("thread_notes").select("id", { count: "exact", head: true }).eq("user_id", uid).is("read_at", null),
+        // 信箱未讀數。與心跡、廣場的紅點一樣由 profile 一起帶回來
+        db.rpc("mail_unread", { p_user: uid }),
         // 雲中客的更新日誌（changelog，0074）最新那一則的記號「day#id」。日誌全站一份、不算未讀；
         // 前端拿它比對這台裝置看過的那一則，新的就在信封與「觀中誌」那格點一下紅點（六六 2026-10-20）。
-        logLatest: await (async () => {
+        (async () => {
           try {
             const { data, error } = await db.from("changelog").select("id, day")
               .order("day", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
             return error || !data ? null : `${data.day}#${data.id}`;
           } catch (_) { return null; }
         })(),
+        // 應期最近一直「沒準」：最常替他起卦的那一位跳出對話彈窗提醒（_shared/miss-nudge.ts）。null＝不用提醒
+        missNudgeOf(db, uid),
+        // 成就榜（問事、道緣）有幾個亮著還沒領：道籍那一格與「成就」頁籤的紅點（0106）
+        achLitCount(db, uid),
+        // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
+        castKeepOf(db, uid),
+      ]);
+      const { data: prof, error: profErr } = profRes;
+      // 這一列讀不到（欄位對不上、連線壞了）時，下面每一個欄位都會靜靜地退回預設值。
+      // 別的欄位退回預設頂多是畫面數字不對，guide_seen_at 退回 null 卻等於「沒看過引導」，
+      // 於是讀取失敗會被演成「每次登入都重講一次規矩」。至少要留下一行看得見的紀錄。
+      if (profErr) console.error("profile read failed", uid, profErr.message);
+      const favors: Record<string, number> = {}, realms: Record<string, string> = {}, cults: Record<string, number> = {}, charAvatars: Record<string, string> = {};
+      (ucsRes.data ?? []).forEach((u: { character_id: string; favor: number; realm: string; cultivation: number; avatar: string | null }) => {
+        favors[u.character_id] = u.favor; realms[u.character_id] = u.realm; cults[u.character_id] = u.cultivation;
+        if (u.avatar) charAvatars[u.character_id] = u.avatar;
+      });
+      const dueUnreviewed = (duesRes.data ?? []).filter((c: { feedback: unknown }) => {
+        const f = Array.isArray(c.feedback) ? c.feedback[0] : c.feedback;
+        return !f || (f as { verdict: number | null })?.verdict == null;
+      }).length;
+      const cq = cqRes.data;
+      const cused = (cq && cq.last_reset === cday) ? cq.used_today : 0;
+      const chatFreeLeft = Math.max(0, chatQuotaOf(plan) - cused);
+      const signedToday = prof?.last_sign_date === cday;
+      const claimedArr = (prof?.claimed_rewards ?? []) as string[];
+      const claimableRewards = rewardState(coll.eligible, claimedArr).claimable.length;
+      const plazaUnreadCount = pnRes.count ?? 0;
+      // 日運：今日是否已抽＋當日節氣句（前端畫每日提醒卡用）
+      const fortuneDone = prof?.last_fortune_date === cday;
+      const [followFreeLeft, castLeft, ttsFreeLeft, fortuneGua, jianghu, guideSeen] = await Promise.all([
+        followupFreeLeft(db, uid, plan),
+        // 今日免費卦剩餘：排盤頁的「入觀解卦」要據此標出白揭或償香火。
+        // 額度鍵與 billCast 同一把（登入者即 uid），標價才不會與實際扣費打架。
+        castFreeLeft(db, uid, plan),
+        // 朗讀鈕上要標「免費剩 N 次」或「💎66」，而那要在按下去之前就知道。
+        ttsFreeLeftOf(uid, plan),
+        // 今日日運卦的卦名：觀堂那一條抽過之後改成「卦名，江湖尋訪」（六六 2026-10-21；江湖的本卦＝今日日運卦）
+        fortuneDone ? (async () => {
+          try {
+            const { data } = await db.from("casts").select("gua_ben, gua_bian").eq("user_id", uid).eq("category", "日運")
+              .order("created_at", { ascending: false }).limit(1).maybeSingle();
+            return data ? { ben: data.gua_ben as string, bian: (data.gua_bian as string | null) ?? null } : null;
+          } catch (_) { return null; }
+        })() : Promise.resolve(null),
+        // 江湖尋訪（0095）：今天的卦有沒有劇本、今天走過沒、再走一趟幾顆
+        fortuneDone ? jianghuToday(db, uid) : Promise.resolve(null),
+        // 初次引導：讀不到 profiles 那一列時一律當作看過——寧可少講一次，
+        // 也不要因為一次讀取失敗就把七句話重講給早就聽過的人。
+        profErr ? Promise.resolve(true) : guideSeenOf(db, uid, prof?.guide_seen_at),
+      ]);
+      const [fy, fm, fd] = cday.split("-").map(Number);
+      return Response.json({ kind: "ok", uid, isAdmin: !!ADMIN_USER_ID && uid === ADMIN_USER_ID, lingshi: prof?.lingshi ?? 0, display_name: prof?.display_name ?? null, favors, realms, cults, charAvatars, dueUnreviewed, chatFreeLeft, chatCost: COST.chat, signedToday, selected_avatar: prof?.selected_avatar ?? null, ahUnlocked: ahUnlockedCount(prof?.signin_total ?? 0), claimableRewards, claimedRewards: claimedArr, plazaUnread: plazaUnreadCount, fortuneDone, fortuneGua, jianghu, jieqi: jieqiOf(fy, fm, fd),
+        plan, followFreeLeft, followFreePerDay: PLAN_FOLLOWUPS[plan] ?? PLAN_FOLLOWUPS.free,
+        castFreePerDay: PLAN_CASTS[plan] ?? PLAN_CASTS.free, castFreeLeft: castLeft, castCost: COST.extra_cast,
+        followupCost: COST.followup, prices: priceTable(),
+        ttsFreeLeft,
+        mailUnread: Number(mailRes.data ?? 0),
+        logLatest,
         artV: ART_VERSION,
         chatFreePerDay: chatQuotaOf(plan), guideSeen,
-        // 應期最近一直「沒準」：最常替他起卦的那一位跳出對話彈窗提醒（_shared/miss-nudge.ts）。null＝不用提醒
-        missNudge: await missNudgeOf(db, uid),
-        // 成就榜（問事、道緣）有幾個亮著還沒領：道籍那一格與「成就」頁籤的紅點（0106）
-        achLit: await achLitCount(db, uid),
+        missNudge,
+        achLit,
         ownedThemes: (prof?.owned_themes ?? []) as string[], themePrices: THEME_PRICES,
-        xinjiOpen: xjOpen ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotes ?? 0,
-        // 卦保存幾天（null＝永久）與斷牒緩衝截止。搜尋頁、卦曆的到期提醒都看這個（0087）
-        ...(await castKeepOf(db, uid).then((k) => ({ castKeepDays: k.days, castKeepGraceUntil: k.graceUntil }))),
+        xinjiOpen: xjOpenRes.count ?? 0, xinjiMax: threadQuotaOf(plan), xinjiUnread: xjNotesRes.count ?? 0,
+        castKeepDays: keep.days, castKeepGraceUntil: keep.graceUntil,
         title_tag: prof?.title_tag ?? null }, { headers: CORS });
     }
 
