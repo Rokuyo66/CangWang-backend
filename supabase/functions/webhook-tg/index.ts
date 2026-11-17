@@ -1276,8 +1276,7 @@ Deno.serve(async (req) => {
   // Telegram 的 update 就是一包 JSON POST，誰都送得出來，於是任何人都能冒充任意
   // chat_id 下指令、起卦、花別人的靈石。而且這種狀態沒有任何徵兆，功能一切正常。
   //
-  // 改成 fail-closed：secret 沒設就一律 403，與 interpret 的 x-internal-key
-  // （那條的 `!== Deno.env.get(...)` 在 env 缺席時剛好是拒絕）同一種姿態。
+  // 改成 fail-closed：secret 沒設就一律 403，與 due-reminder／broadcast 的 x-internal-secret 同一種姿態。
   // 代價是「忘了設 env」會變成 bot 整支不回話——那正是我們要的：
   // 看得見的壞，好過看不見的開。
   const secret = Deno.env.get("TG_WEBHOOK_SECRET");

@@ -212,7 +212,8 @@ supabase functions deploy due-reminder  --project-ref ajogafvzlhqwlxwkfcpn --no-
 **`--no-verify-jwt` 三支都不能省。**
 
 這三支都自己驗身分，而且進來的人都不帶 Supabase 的登入憑證：
-`interpret` 有兩條路（網頁帶 JWT、Telegram bot 帶自訂標頭 `x-internal-key`）、
+`interpret` 自己驗 JWT，另有綠界回呼（驗 CheckMacValue）與廣場三支免登入的唯讀端點
+（Telegram bot 不打這支，是直接呼叫共用模組；舊的 `x-internal-key` 路徑 2026-11-17 已移除）、
 `webhook-tg` 認的是 Telegram 的 `x-telegram-bot-api-secret-token`、
 `due-reminder` 認的是排程送來的 `x-internal-secret`。
 
