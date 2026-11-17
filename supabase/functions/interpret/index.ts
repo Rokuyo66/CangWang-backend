@@ -1,6 +1,8 @@
 // interpret/index.ts — HTTP 端點
-//  · 網頁公開層：Authorization: Bearer <Supabase Auth JWT>（瀏覽器用，安全）
-//  · TG/Mini App 後端內部呼叫：x-internal-key（沿用，向後相容）
+//  · 身分只認 Authorization: Bearer <Supabase Auth JWT>（App、網頁、桌面小工具）
+//  · 例外：綠界回呼（驗 CheckMacValue）與廣場三支免認證唯讀端點
+//  · 原本的 x-internal-key 路徑（信任 body.user_id）2026-11-17 移除：
+//    11-03 起記 INTERNAL_KEY_PATH 兩週一筆都沒有，TG 是直接呼叫 _shared 模組、不打這支
 import { whereaboutsAll } from "../_shared/whereabouts.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { castAndInterpret, followupInterpret, deepenCast, commentCast, reflectAfterReview } from "../_shared/pipeline.ts";
@@ -145,7 +147,7 @@ if (!ALLOWED_ORIGINS.length) ALLOWED_ORIGINS.push(...DEFAULT_ORIGINS);
 // 由最外層依當次請求覆寫——見檔尾 Deno.serve 的包裝。
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-internal-key",
+  "Access-Control-Allow-Headers": "authorization, content-type, apikey",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -354,7 +356,7 @@ async function postDetailResponse(postId: unknown, viewerId: string | null = nul
    一、【不是 JSON】綠界送的是 application/x-www-form-urlencoded。
        所以它必須攔在 req.json() 之前——下面那一行 body = await req.json()
        會直接對它拋出，而拋出的結果是綠界收不到 1|OK、然後一直重送。
-   二、【不是我們的使用者】沒有 JWT、沒有 x-internal-key。驗證完全靠
+   二、【不是我們的使用者】沒有 JWT。驗證完全靠
        CheckMacValue，那是唯一能證明「這包真的是綠界送的」的東西。
        ⚠ 少了它，任何人都能 POST 一包 RtnCode=1 過來拿一個月的藏往。
    3、【回的不是 JSON】綠界只認字面的 1|OK。回別的（包括 {"ok":true}）
@@ -452,15 +454,6 @@ async function ecpayReturn(req: Request): Promise<Response> {
   return new Response("1|OK", { status: 200 });
 }
 
-/** x-internal-key 比對：env 沒設或為空一律拒絕；長度相同才逐字比，比對時間不隨內容變。 */
-function internalKeyOk(got: string | null): boolean {
-  const want = Deno.env.get("INTERNAL_API_KEY") ?? "";
-  if (!want || !got || got.length !== want.length) return false;
-  let d = 0;
-  for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
-  return d === 0;
-}
-
 async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: CORS });
@@ -500,7 +493,7 @@ async function handle(req: Request): Promise<Response> {
 
   // 版本閘門：只擋需登入的功能。到這一行為止的 wall／post_list／post_detail 都已放行，
   // 所以舊版 App 仍可排盤、複製卦象（純本機）與觀看廣場，只是不能登入、不能發言。
-  // MIN_APP_BUILD 未設或為 0 時完全不啟用。TG（x-internal-key）沒有版本概念，不受此限。
+  // MIN_APP_BUILD 未設或為 0 時完全不啟用。（TG 不走這支，沒有版本概念的問題。）
   if (req.headers.get("authorization") && MIN_APP_BUILD > 0) {
     const b = Number(body.app_build ?? 0);
     if (b < MIN_APP_BUILD) {
@@ -508,22 +501,13 @@ async function handle(req: Request): Promise<Response> {
     }
   }
 
-  // 認證雙軌（硬性）。jwtUserId 在上面已經解過了，這裡只負責「解不出來就擋」。
-  if (auth?.startsWith("Bearer ")) {
-    if (!jwtUserId) return new Response("unauthorized", { status: 401, headers: CORS });
-  } else if (!internalKeyOk(req.headers.get("x-internal-key"))) {
-    return new Response("forbidden", { status: 403, headers: CORS });
-  } else {
-    // 這條路信任 body.user_id——持有金鑰＝可以代表任何人。2026-11 查過：App、網頁、
-    // 桌面小工具都走 JWT，本 repo 與 CangWang-web 都沒有呼叫端。留一行紀錄，
-    // 日誌裡若一段時間都沒出現，這條路就可以整個拿掉、並刪掉 INTERNAL_API_KEY。
-    console.warn("INTERNAL_KEY_PATH", body.mode ?? "?", clientIp(req) ?? "-");
-  }
+  // 認證（硬性）：只認 JWT。jwtUserId 在上面已經解過了，這裡只負責「解不出來就擋」。
+  // 原本另有一條 x-internal-key 路徑，持有金鑰就能以 body.user_id 代表任何人（2026-11-17 移除）。
+  if (!jwtUserId) return new Response("unauthorized", { status: 401, headers: CORS });
 
   try {
-    // 網頁(JWT)路徑：user_id 一律用 JWT 解出的，忽略前端傳的 body.user_id（安全鐵則）
-    const uid = jwtUserId ?? body.user_id;
-    if (!uid) return new Response("no user", { status: 400, headers: CORS });
+    // user_id 一律用 JWT 解出的，前端傳的 body.user_id 不看（安全鐵則）
+    const uid: string = jwtUserId;
 
     // 查個人狀態：靈石、暱稱、各角色好感/境界、應期未回評數（紅點）
     if (body.mode === "profile") {
@@ -1769,8 +1753,7 @@ async function handle(req: Request): Promise<Response> {
     //
     // 兩件事在這一層擋死，不交給前端：
     //
-    // 一、只走 JWT。x-internal-key 那條路的 user_id 是呼叫端說了算（見上方認證雙軌），
-    //     拿它來刪帳號等於「有這把金鑰的人可以刪掉任何人」。TG 用戶要刪帳號走
+    // 一、只走 JWT（整支現在都只認 JWT；這裡另留一道，免得哪天又開了別的認證路徑）。TG 用戶要刪帳號走
     //     bot 的 /deleteme——那條路的身分是 Telegram 的 webhook secret 認的，
     //     tg_id 不由呼叫端指定。
     // 二、確認字樣要逐字相符（DELETE_PHRASE 在 services.ts，與 TG 的 /deleteme 同一份）。
@@ -2055,8 +2038,8 @@ async function handle(req: Request): Promise<Response> {
           // 額度鍵與 user_id 同一條鐵則：登入者一律以 JWT 解出的帳號記帳。
           // 之前是 body.quota_key ?? uid，等於把「這次算誰的額度」交給前端說了算——
           // 每次換一個 quota_key 送上來，每一卦都會是當日第一卦，免費額度形同不存在。
-          // body.quota_key 只留給內部金鑰路徑（TG 用 tg:<id> 記在對話上）。
-          userId: uid, quotaKey: jwtUserId ? uid : (body.quota_key ?? uid),
+          // 內部金鑰路徑移除後 body.quota_key 不再有任何用途（TG 直接呼叫 pipeline、自帶 tg:<id>）。
+          userId: uid, quotaKey: uid,
           characterId: body.character_id ?? "daoshi_m",
           question: body.question, channel: body.channel ?? "web",
           numbers: body.numbers, lines: body.lines, // ← 網頁傳已起好的卦
