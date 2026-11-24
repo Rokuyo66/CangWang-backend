@@ -26,6 +26,13 @@ if (!state.backdrop && state.bdBase) state.backdrop = JSON.parse(JSON.stringify(
 const { _說明: _wgNote, ...wgBg } = (tokens.widget && tokens.widget.bg) || {};
 state.wgBase = Object.keys(wgBg).length ? wgBg : null;
 if (!state.widget && state.wgBase) state.widget = JSON.parse(JSON.stringify(state.wgBase));
+// 套用紀錄：沒有待套用（全等於基準），歷史最後一筆卻是「存檔」不是「套用」＝套用時漏記了一筆
+{
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const clean = same(state.themes, state.baseline) && (!state.bdBase || same(state.backdrop, state.bdBase)) && (!state.wgBase || same(state.widget, state.wgBase));
+  const last = (state.history || []).at(-1);
+  if (clean && last && !last.applied) console.warn(`⚠ state.json 沒有待套用，但歷史最後一筆（${last.at}）是存檔、不是套用紀錄：在 history 補一筆 { at, applied: true, note }（見 dev/design/README.md 改規範的流程第 3 步）`);
+}
 // 墊圖示範用的那張桌案圖（Sence/10.Table.webp 縮成 600 寬）：artifact 只能載自己帶的圖，內嵌成 data URI
 const bdImg = "data:image/webp;base64," + readFileSync(join(here, "backdrop-sample.webp")).toString("base64");
 
