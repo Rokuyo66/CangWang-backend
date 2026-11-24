@@ -16,6 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureDay } from "../_shared/days.ts";
 import { checkAiCost } from "../_shared/cost-alert.ts";
 import { sweepExpiredChats } from "../_shared/chat.ts";
+import { ensureMonthQuests } from "../_shared/monthly-quest.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const TG = `https://api.telegram.org/bot${Deno.env.get("TG_BOT_TOKEN")}`;
@@ -82,6 +83,8 @@ Deno.serve(async (req) => {
   // 起居注：今天觀裡的日子先寫好，第一個來聊天的人就不必等背景補寫。
   // ensureDay 自己吞錯，寫不成也不影響下面的生日信與應期推播。
   const dayWritten = await ensureDay(db);
+  // 每月的非常規事件：這個月還沒寫就寫（已有就只是一次查詢）。同樣自己吞錯。
+  const monthQuests = await ensureMonthQuests(db);
 
   const birthdays: string[] = [];
   try {
@@ -121,8 +124,8 @@ Deno.serve(async (req) => {
     .is("notified_at", null)
     .limit(200);
 
-  if (error) return new Response(JSON.stringify({ error: error.message, birthdays, dayWritten }), { status: 500 });
-  if (!dues?.length) return new Response(JSON.stringify({ sent: 0, birthdays, dayWritten, msg: "無到期卦" }));
+  if (error) return new Response(JSON.stringify({ error: error.message, birthdays, dayWritten, monthQuests }), { status: 500 });
+  if (!dues?.length) return new Response(JSON.stringify({ sent: 0, birthdays, dayWritten, monthQuests, msg: "無到期卦" }));
 
   let sent = 0;
   for (const f of dues) {
@@ -151,5 +154,5 @@ Deno.serve(async (req) => {
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  return new Response(JSON.stringify({ sent, birthdays, dayWritten }));
+  return new Response(JSON.stringify({ sent, birthdays, dayWritten, monthQuests }));
 });
