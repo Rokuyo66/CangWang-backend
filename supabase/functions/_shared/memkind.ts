@@ -12,6 +12,9 @@
 //   ・舊資料沒有類別：讀的時候用字判一下（情緒、壓力、生病……當狀態）
 
 export type MemKind = "trait" | "event" | "state";
+// 主詞是角色自己的那則是角色的話，不是他的事（915d459，2026-11-24 併入）
+// 只認「角色＋說話／判斷的動詞」：「師兄昨天來找他借書」可能是他生活裡的真人，不能整則丟掉（審查 2026-11-24）
+const SELF_SUBJECT = /^(?:(?:師妹|大師兄|師兄|觀喵|觀貓|喵師傅)(?:說|指|認為|判斷|覺得|提醒|勸|問|答|叮囑|告訴|猜|推測|看出)|你)/;
 export const STATE_FRESH_DAYS = 7;
 
 const LABEL: Record<string, MemKind> = { 其人: "trait", 事件: "event", 狀態: "state" };
@@ -99,7 +102,8 @@ export function parseMemoryLines(text: string, batchLastIso?: string): { body: s
     // 其人不綁日子；事件、狀態沒填就當這批對話最後那天
     out.push({ body: m[3].trim().slice(0, 200), kind, happened_on: kind === "trait" ? null : day ?? fallbackDay });
   }
-  return out.slice(0, 4);
+  // 主詞是角色自己的（「師妹指他……」「師兄說……」）是角色的話，不是他的事——不收
+  return out.filter((it) => !SELF_SUBJECT.test(it.body)).slice(0, 2);
 }
 
 /* ── 什麼時候形成回憶（六六 2026-10-05：統整太頻繁，每則回憶都很短）──
@@ -143,4 +147,57 @@ export function condenseCount(msgs: { created_at?: string }[], now = Date.now())
   if (finished >= STALE_MIN && now - at(0) >= STALE_MS) return Math.min(finished, MAX_BATCH);
   if (eligible >= HARD_CAP) return Math.min(eligible, MAX_BATCH);
   return 0;
+}
+
+/* ── 一直繞回同一件事（六六 2026-10-12：師妹卡在那碗湯；915d459，2026-11-24 併入）──
+   超過一天的明細已不回灌（EXPIRE_MS），這裡管的是同一天、同一場裡的打轉：
+   取角色最近 4 則裡至少 3 則都出現的三字詞（只收中文、不含虛字），他最近說的話裡沒有的才算。 */
+const FUNC = /[你我他她牠的了是不在有就也都這那個麼嗎呢吧啊和與而又很太更再還]/;
+export function repeatedTopics(turns: { role: string; body: string }[], message = ""): string[] {
+  const mine = turns.filter((t) => t.role === "assistant").slice(-4).map((t) => t.body);
+  if (mine.length < 3) return [];
+  const his = turns.filter((t) => t.role === "user").slice(-3).map((t) => t.body).join("") + message;
+  const count = new Map<string, number>();
+  for (const b of mine) {
+    const seen = new Set<string>();
+    for (let i = 0; i + 3 <= b.length; i++) {
+      const g = b.slice(i, i + 3);
+      if (!/^[一-鿿]{3}$/.test(g) || FUNC.test(g) || seen.has(g)) continue;
+      seen.add(g);
+      count.set(g, (count.get(g) ?? 0) + 1);
+    }
+  }
+  const hits = [...count].filter(([g, n]) => n >= 3 && !his.includes(g)).map(([g]) => g);
+  // 相鄰的三字詞（「薑棗水」「棗水喝」）只留第一個
+  const out: string[] = [];
+  for (const g of hits) if (!out.some((o) => o.includes(g.slice(0, 2)) || o.includes(g.slice(1)))) out.push(g);
+  return out.slice(0, 2);
+}
+
+/* ── 同一件事不另開一格（六六 2026-10-12：武曲星坐命兩天內佔了兩格）──
+   新寫的一則跟最近的某一則講的是同一件事（字面重疊夠多、類別相同），就把那一則改寫成新的，不另插一列。
+   改寫會蓋掉舊的那則，誤併救不回來，所以門檻比 915d459 原本的 0.35 高（2026-11-24）。 */
+const bigrams = (t: string) => { const s = new Set<string>(); const c = t.replace(/[^一-鿿A-Za-z0-9]/g, ""); for (let i = 0; i + 2 <= c.length; i++) s.add(c.slice(i, i + 2)); return s; };
+export function overlap(a: string, b: string): number {
+  const A = bigrams(a), B = bigrams(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const g of A) if (B.has(g)) n++;
+  return n / Math.min(A.size, B.size);
+}
+export const SAME_THING = 0.65;   // 0.5 時「感冒頭痛」與「加班頭痛」會被當同一件（0.56）
+// 太短的句子（二字組少於 MIN_BIGRAMS）只要字都出現在某則長記憶裡就會拿到滿分，一律不併（審查 2026-11-24）
+const MIN_BIGRAMS = 8;
+/** 該併進哪一則（回傳 id），沒有就 null。只看兩週內、沒釘選的；類別要相同（舊資料沒類別就當同類）。 */
+export function mergeTarget(item: { body: string; kind: MemKind | null }, rows: { id: string; body: string; kind?: string | null; created_at?: string; pinned_at?: string | null }[], now = Date.now()): string | null {
+  if (bigrams(item.body).size < MIN_BIGRAMS) return null;
+  let best: string | null = null, top = SAME_THING;
+  for (const r of rows) {
+    if (bigrams(r.body).size < MIN_BIGRAMS) continue;
+    if (r.pinned_at) continue;
+    if (now - Date.parse(r.created_at ?? "") > 14 * 86400_000) continue;
+    if (item.kind && r.kind && item.kind !== r.kind) continue;
+    const o = overlap(item.body, r.body);
+    if (o >= top) { top = o; best = r.id; }
+  }
+  return best;
 }

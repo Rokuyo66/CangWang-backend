@@ -6,7 +6,7 @@
 // 跑法：node dev/memkind-test.mts
 
 (globalThis as Record<string, unknown>).Deno ??= { env: { get: () => undefined } };
-const { kindOf, isDormant, arrangeMemories, parseMemoryLines, datedDialog, condenseCount } = await import("../supabase/functions/_shared/memkind.ts");
+const { kindOf, isDormant, arrangeMemories, parseMemoryLines, datedDialog, condenseCount, repeatedTopics, mergeTarget } = await import("../supabase/functions/_shared/memkind.ts");
 const { parseDay, twDay } = await import("../supabase/functions/_shared/days.ts");
 
 let pass = 0, fail = 0;
@@ -16,14 +16,15 @@ const age = (iso?: string) => iso ? `〔${iso.slice(5, 10)}〕` : "";
 
 // 分類輸出解析
 const out = parseMemoryLines("事件｜9/28｜台股大跌三千，他虧了不少\n狀態｜9/28｜那天壓力很大，隔天股票漲回來才平復\n其人｜-｜自稱六六，做遊戲 UI", "2026-09-30T10:00:00Z");
-ok("解析出三則", out.length === 3);
+ok("解析出兩則（上限）", out.length === 2);
 ok("事件帶發生那天", out[0].kind === "event" && out[0].happened_on === "2026-09-28");
 ok("狀態帶發生那天", out[1].kind === "state" && out[1].happened_on === "2026-09-28");
-ok("其人不綁日子", out[2].kind === "trait" && out[2].happened_on === null);
+ok("其人不綁日子", parseMemoryLines("其人｜-｜自稱六六，做遊戲 UI", "2026-09-30T10:00:00Z")[0].happened_on === null);
 ok("跨年：12/31 在 1/2 的批次裡是去年", parseMemoryLines("事件|12/31|跨年", "2027-01-02T04:00:00Z")[0].happened_on === "2026-12-31");
 ok("認不出格式照存", parseMemoryLines("他說他養了一隻貓", "2026-09-30T10:00:00Z")[0].kind === null);
 ok("無新記憶 → 空", parseMemoryLines("無新記憶", "2026-09-30T10:00:00Z").length === 0);
-ok("最多四則", parseMemoryLines("事件|1/1|a\n事件|1/2|b\n事件|1/3|c\n事件|1/4|d\n事件|1/5|e", "2026-09-30T10:00:00Z").length === 4);
+ok("最多兩則", parseMemoryLines("事件|1/1|a\n事件|1/2|b\n事件|1/3|c", "2026-09-30T10:00:00Z").length === 2);
+ok("主詞是角色的不收", parseMemoryLines("事件|10/10|師妹指他一週查帳戶六次\n事件|10/10|他說武曲星坐命", "2026-10-10T10:00:00Z").map((x) => x.body).join() === "他說武曲星坐命");
 
 // 舊資料判類：截圖那一則會被當狀態
 const old = { body: "護道人最近因為台股大跌三千承受巨大壓力，情緒波動大，後來股票漲回來了才平復", created_at: "2026-09-30T08:00:00Z" };
@@ -74,6 +75,30 @@ ok("全部都超過一天：連最近 32 則一起收", condenseCount(series(40,
 const crossing = [...series(10, T0 - 3 * 86400_000), ...series(40, T0)];
 ok("跨一天線的那場不切半：只收前面完整的舊場", condenseCount(crossing, T0 + 86400_000 + 40 * 60_000) === 10);
 ok("一場聊太長（過 112 則）：先收舊的", condenseCount(series(120, T0), T0 + 120 * 2 * 60_000) === 88);
+
+// 同一件事併進原本那一則（915d459；門檻 0.65）
+const nowM = Date.parse("2026-10-12T10:00:00+08:00");
+const rowsM = [
+  { id: "a", body: "自稱武曲星坐命，認為不花時間研究的錢賺來心虛，不是偏財命。", kind: "trait", created_at: "2026-10-10T02:00:00Z" },
+  { id: "b", body: "他養了一隻叫童童的貓，老了但還很健康。", kind: "event", created_at: "2026-10-09T02:00:00Z" },
+  { id: "c", body: "他說今天感冒了，頭很痛。", kind: "state", created_at: "2026-10-11T02:00:00Z" },
+];
+ok("同一件事 → 併進 a", mergeTarget({ body: "他說自己武曲星坐命，認為不花時間研究賺來的錢心虛，覺得自己不是偏財命。", kind: "trait" }, rowsM, nowM) === "a");
+ok("不同件事 → 新開", mergeTarget({ body: "他早上自己洗了床單。", kind: "event" }, rowsM, nowM) === null);
+ok("類別不同不併", mergeTarget({ body: "自稱武曲星坐命，認為不花時間研究的錢賺來心虛", kind: "event" }, rowsM, nowM) === null);
+ok("句型像、事不同（感冒 vs 加班）不併", mergeTarget({ body: "他說今天加班到很晚，頭很痛。", kind: "state" }, rowsM, nowM) === null);
+ok("短句不併（字都在長記憶裡也不算）", mergeTarget({ body: "他說今天頭很痛。", kind: "state" }, [{ id: "d", body: "他說今天感冒了，頭很痛，去看了醫生。", kind: "state", created_at: "2026-10-11T02:00:00Z" }], nowM) === null);
+ok("師兄是他生活裡的人：照收", parseMemoryLines("事件|10/10|師兄昨天來找他借書", "2026-10-10T10:00:00Z").length === 1);
+ok("釘選的不併", mergeTarget({ body: "他說自己武曲星坐命，認為不花時間研究賺來的錢心虛，覺得自己不是偏財命。", kind: "trait" }, rowsM.map((r) => ({ ...r, pinned_at: "2026-10-10T00:00:00Z" })), nowM) === null);
+
+// 一直繞回同一件事
+const loopT = [
+  { role: "user", body: "今天好累" }, { role: "assistant", body: "「先把那碗薑棗水喝了。」" },
+  { role: "user", body: "我早上洗了床單" }, { role: "assistant", body: "「那碗薑棗水是不是也該自己端去喝？」" },
+  { role: "user", body: "我的事都自己處理" }, { role: "assistant", body: "「先把薑棗水喝了再說。」" },
+];
+ok("繞回薑棗水 → 點名", repeatedTopics(loopT, "今天天氣不錯").join() === "薑棗水");
+ok("他自己提了就不算", repeatedTopics(loopT, "薑棗水好甜").length === 0);
 
 // 起居注解析
 const day = parseDay("【大師兄】\n・後院的木樁裂了，他削了一根新的\n・師傅又踩了卦紙\n【師妹】\n・醃了一罈蘿蔔\n【觀貓】\n・在屋脊上睡了一下午");
