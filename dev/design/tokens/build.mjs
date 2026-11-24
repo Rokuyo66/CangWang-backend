@@ -28,7 +28,8 @@ const webArg = args.includes("--web") ? args[args.indexOf("--web") + 1] : null;
 const WEB = webArg ? resolve(process.cwd(), webArg) : null;
 if (WEB && !existsSync(join(WEB, "build.mjs"))) throw new Error(`--web ${webArg}：找不到前端 repo（沒有 build.mjs）`);
 
-const raw = readFileSync(join(BACK, "dev/design/tokens.json"), "utf8");
+// 換行先正規化：core.autocrlf=true 的機器讀到的是 CRLF，不正規化的話 token 檔指紋 V 會跟著機器變
+const raw = readFileSync(join(BACK, "dev/design/tokens.json"), "utf8").replace(/\r\n/g, "\n");
 const T = JSON.parse(raw);
 const sha = (s) => createHash("sha1").update(s).digest("hex").slice(0, 8);
 const V = sha(raw);
@@ -131,6 +132,19 @@ const gen = {
     return L.join("\n");
   },
 
+  // 前端：場景層三色（src/base/00-tokens-themes.css 的 :root；事件對話幕、劇情、江湖、談心舞台共用，不跟主題換色）
+  webScene: () => {
+    const S = T.scene, L = ["  :root{"];
+    const rgb = (c) => {
+      const m = /^#([0-9a-f]{6})$/i.exec(c);
+      if (!m) throw new Error(`場景層色要是 #RRGGBB：${c}`);
+      return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)).join(",");
+    };
+    for (const [k, n] of [["bg", "墨底"], ["ink", "暖白字"], ["gold", "金"]]) L.push(`    --stage-${k}:${S[k]}; --stage-${k}-rgb:${rgb(S[k])};   /* ${n} */`);
+    L.push("  }");
+    return L.join("\n");
+  },
+
   // 前端：給 JS 用的同一份數字（src/app/design-tokens.js 整檔）
   webJs: () => {
     const o = { version: T.version, themes: Object.fromEntries(THEMES.map((t) => [meta(t).key, { name: meta(t).name, dark: !!meta(t).dark }])),
@@ -191,7 +205,7 @@ const TARGETS = [
   { side: "back", file: "dev/design/motion/prototype.html", c: "/*", regions: { "proto-motion": gen.protoCss } },
   { side: "back", file: "dev/design/motion/prototype.html", c: "//", regions: { "proto-motion-js": gen.protoJs } },
   { side: "back", file: "dev/widget/entry.ts", c: "//", regions: { "widget-colors": gen.widgetTs } },
-  { side: "web", file: "src/base/00-tokens-themes.css", c: "/*", regions: Object.fromEntries(THEMES.map((t) => [`theme-${t}`, () => gen.theme(t)])) },
+  { side: "web", file: "src/base/00-tokens-themes.css", c: "/*", regions: { ...Object.fromEntries(THEMES.map((t) => [`theme-${t}`, () => gen.theme(t)])), scene: gen.webScene } },
   { side: "web", file: "src/styles/motion.css", c: "/*", regions: { motion: gen.webMotion, buttons: gen.webButtons, seg: gen.webSeg } },
   { side: "web", file: "src/styles/hall.css", c: "/*", regions: { backdrop: gen.webBackdrop } },
   { side: "web", file: "src/app/design-tokens.js", c: "//", regions: { "design-js": gen.webJs } },
@@ -216,13 +230,17 @@ let drift = 0, wrote = 0;
 for (const tg of TARGETS) {
   if (tg.side === "web" && !WEB) continue;
   const path = join(tg.side === "web" ? WEB : BACK, tg.file);
-  const before = readFileSync(path, "utf8");
+  // 換行先正規化成 LF 再比對：autocrlf 機器的 checkout 是 CRLF，不正規化的話 --check 一律誤報不一致。
+  // 寫回時照原檔的換行（原本是 CRLF 就寫回 CRLF），不在工作區留下混雜的行尾
+  const disk = readFileSync(path, "utf8");
+  const crlf = disk.includes("\r\n");
+  const before = disk.replace(/\r\n/g, "\n");
   let after = before;
   for (const [name, fn] of Object.entries(tg.regions)) after = writeRegion(after, name, fn(), tg.c, tg.file);
   if (after === before) continue;
   drift++;
   if (CHECK) { console.log(`✗ ${tg.side === "web" ? "前端" : "後端"} ${tg.file}：與 tokens.json 不一致`); continue; }
-  writeFileSync(path, after); wrote++;
+  writeFileSync(path, crlf ? after.replace(/\n/g, "\r\n") : after); wrote++;
   console.log(`✎ ${tg.side === "web" ? "前端" : "後端"} ${tg.file}`);
 }
 if (CHECK) { console.log(drift ? `\n有 ${drift} 個落點跟 tokens.json 對不上：跑一次不帶 --check 的就會寫齊。` : "✅ 所有落點都跟 tokens.json 一致"); process.exit(drift ? 1 : 0); }
