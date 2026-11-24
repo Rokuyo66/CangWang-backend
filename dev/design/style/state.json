@@ -934,6 +934,11 @@
       "at": "2026-10-23T17:00:00Z",
       "applied": true,
       "note": "小工具背板上下加深線（15:55 存的五種尺寸）已寫進 tokens.json widget.bg → App Scenes.java，基準更新；出 APK 才看得到"
+    },
+    {
+      "at": "2026-11-24T06:37:04Z",
+      "applied": true,
+      "note": "墊圖三項（觀堂清楚段濃度 80→75、字多頁淺色濃度 30→35、深色濃度 42→50；10-23 15:19 存的）已寫進 tokens.json backdrop → 前端 styles/hall.css，基準更新"
     }
   ],
   "savedAt": "2026-10-23T15:55:42.074Z",
