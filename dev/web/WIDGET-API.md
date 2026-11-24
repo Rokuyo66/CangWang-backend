@@ -172,8 +172,13 @@ body `{"mode":"widget"}`。錯誤一律 200 ＋ `{kind:"err", msg:"…"}`。
 所以「目前選哪一套」是小工具自己的偏好設定（存在宿主端），不存後端；
 後端只回「哪幾套解得開」。
 
+> **2026-11-24 更正：下表是 08 月的初稿色，已作廢，不要照抄。** 小工具五套配色現在只有一個來源：
+> `dev/design/tokens.json` 的 `widget.map`（每個欄位取哪個主題色）＋ `themes.values`，
+> 由 `dev/design/tokens/build.mjs` 寫進 App 的 `Palette.java` 與原型 `dev/widget/entry.ts` 的 `APP_COLORS`。
+> 背板濃淡在 `widget.bg`（規範頁「七　小工具」可拉）。材質那一欄的構想仍有效，色碼一律以 token 為準。
+
 色票在前端（原型 `dev/widget/entry.ts` 的 `PALETTES`），後端一個色碼都不管。
-每套七色 ＋ 一層可選材質：
+每套七色 ＋ 一層可選材質（初稿，色碼已作廢）：
 
 | key | 名 | 底 | 卡 | 墨 | 印記 | 材質 |
 |---|---|---|---|---|---|---|

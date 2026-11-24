@@ -2,14 +2,14 @@
 
 **這個資料夾是全站美術的唯一依據。** 前端（`Rokuyo66/CangWang-web`）沒有自己的一份。
 
-**所有數字只有一份：`tokens.json`。** 五套主題色碼、色碼說明、按鈕四型與兩段開關的算式、動態 token（時長、曲線、厚度、幅度）、小工具配色對照，全在這一檔。
+**所有數字只有一份：`tokens.json`。** 五套主題色碼、場景層三色、色碼說明、按鈕四型與兩段開關的算式、動態 token（時長、曲線、厚度、幅度）、小工具配色對照，全在這一檔。
 改規範＝改這一檔＋跑一次生成器，下表每一個落點一起變（見下方「改規範的流程」）。
 
 | | 位置 |
 | --- | --- |
 | **token（唯一真相）** | `tokens.json`；生成器 `tokens/build.mjs` |
 | **美術規範（總）** | `style/`：五套主題色碼（可即時改、可存檔）、按鈕、版面與留白（App／手機／網頁三組數字）、App 與網頁差異，並嵌入下面的動態規範。原始檔 `style/index.html`（清單與算式讀 `tokens.json`），`style/state.json` 只放「改了還沒套用」的值與歷史，`node dev/design/style/build.mjs` 產出 `style/spec.html`。發佈在 https://claude.ai/artifact/SiQre47unz6og8MP5Yu3Nt |
-| **墊圖** | 規範頁「六　墊圖」：頁面最上面那張襯底的場景圖，兩組數字（`scene` 觀堂、`text` 字多的頁），基準在 `tokens.json` 的 `backdrop`。**前端還沒吃這組 token**（觀堂與桌案底圖都還是 `styles/hall.css` 的 `.hall-bg` 寫死的數字）；第一次套用時補一個生成器落點 |
+| **墊圖** | 規範頁「六　墊圖」：頁面最上面那張襯底的場景圖，兩組數字（`scene` 觀堂、`text` 字多的頁），基準在 `tokens.json` 的 `backdrop`，生成器寫進前端 `styles/hall.css` 的 `backdrop` 區（`--bd-*`）；觀堂吃 `.hall-bg`、字多的頁吃 `styles/desk-bg.css` |
 | **動態＋元件規範（主）** | `motion/prototype.html`：可點的原型（token 讀 `tokens.json`）。Token、按下與放開（有厚度的元件）、通用 TAG 頁籤、彈框與頁面、待機、強調、規則卡。同一份發佈在 https://claude.ai/artifact/EqkEtiWmrMhEPfn8VMjAZL |
 | 道緣事件劇本格式 | `journal/EVENT-SCRIPT.md`（試演台：前端網址加 `?preview=editor`） |
 | 心跡／手帳 | `xinji/`、`journal/` |
@@ -29,7 +29,9 @@
 
 1. **改 `tokens.json`。** 規範頁上調好、存檔的值，照頁面「待套用」那一區的說明寫進來（讀 artifact 用 Artifact 工具的 `read`，狀態在 `<script id="spec-state">`）。
 2. **跑生成器**：`node dev/design/tokens/build.mjs --web <前端 repo 路徑>`。下表的落點一起寫好。
-3. `style/state.json` 的 `themes`／`buttons` 設成跟 `tokens.json` 一樣（沒有待套用），`node dev/design/style/build.mjs` 重產規範頁，重新發佈兩份 artifact。
+3. `style/state.json` 的 `themes`／`buttons` 設成跟 `tokens.json` 一樣（沒有待套用），**並在 `history` 最後補一筆套用紀錄**
+   `{ "at": <時間>, "applied": true, "note": "<幾項、哪些>已套用（commit …），基準更新" }`——不補的話規範頁的歷史看起來像還掛著（2026-10-21 那次就漏過）。
+   `node dev/design/style/build.mjs` 重產規範頁（沒有待套用、最後一筆卻不是套用紀錄，它會提醒），重新發佈兩份 artifact。
 4. 前端 `npm run build`。**生成區被手改過、或不是同一次產生的，build 直接失敗**——這就是「改一處全站一起變」的保證。
 5. 兩個 repo 各自推送；前端淺色與夜觀各截一張與規範並排比對。
 
@@ -42,6 +44,7 @@
 | 落點 | 生成區 | 內容 |
 | --- | --- | --- |
 | 前端 `src/base/00-tokens-themes.css` | `theme-xuan` … `theme-porcelain` | 五套主題色碼 |
+| 前端 `src/base/00-tokens-themes.css` | `scene` | 場景層三色（`--stage-bg`／`--stage-ink`／`--stage-gold` 與各自的 `-rgb`；事件對話幕、劇情、江湖、談心舞台，不跟主題換色） |
 | 前端 `src/styles/motion.css` | `motion` | 動態 token（`--m-*`） |
 | 前端 `src/styles/motion.css` | `buttons` | 按鈕四型（`.btn`、`.primary`、`.second`、`.fill`） |
 | 前端 `src/styles/motion.css` | `seg` | 兩段開關六色（`--seg-*`，淺色一條、深色一條） |
@@ -57,9 +60,11 @@
 
 ### 待收編（元件自己的數字，還沒進 token）
 
-規範的核心 token 已統一。以下是元件各自寫死的時長，改的時候順手收進 `tokens.json`（新增一個 duration）再讓元件吃它：
+規範的核心 token 已統一。2026-11-24 收進了元件時長（hop／pop／dot／glint／seq／seqStep／collapse／slide）與場景層三色（`scene`）。
+以下還是各自寫死的，改的時候順手收進 `tokens.json` 再讓元件吃它：
 
-- 前端 `ui/motion.js`：談心浮窗收起 240ms、頁籤底塊滑動 340ms
-- 前端 `styles/*.css`：圖示跳一下 620ms、強調彈出 420ms、紅點 520ms、靈石掠光 800ms 等約 15 處 `calc(…ms * var(--m-k))`
+- 場景層的**展示端**：規範頁 `style/index.html` 的 `.scene-sample`、動態原型 `motion/prototype.html` 的 `.evx`／事件對話幕仍寫死 `#0d0b08`／`#ECE3D3`／`#C9A86A`（前端已改吃 `--stage-*`）。
+  場景漸層（前端 `src/ui/scene.js` 各地點的底）是美術素材，不收。
+- 心跡分類色（感情／財／事業／其他）還沒有 token，見 `xinji/README.md`。
 - 前端 `src/base/00-tokens-themes.css` 的 `--t-dur`／`--t-dur-panel`／`--t-ease`／`--t-shift`（整頁切換的舊 token，與動態 token 並存；手機 App 由 `motion.css` 對齊成規範值）
 - 尺寸 token（`--screen-pad`、`--tap-min`、`--radius-pill`…）目前在前端 `00-tokens-themes.css` 與 `18-mobile.css`，規範頁「版面與留白」是另抄的一份——下一步也收進 `tokens.json`
