@@ -1,3 +1,12 @@
+# 動前端畫面之前（硬規則）
+
+本 repo 的 session 不會自動載入前端 repo 的 CLAUDE.md。只要要寫或改 `CangWang-web`（含它的 worktree，如 `D:/CangWang-web-*`）裡任何看得見的東西——HTML、CSS、版面、獨立頁、圖示、小工具示意圖——**先讀這兩份，再動手**：
+
+1. `D:/CangWang-web/CLAUDE.md` 的「〇、美術規範是唯一依據」整節
+2. 本 repo 的 `dev/design/README.md`（設計 token 的唯一來源是 `dev/design/tokens.json`；前端 CSS 裡 `@design:begin … @design:end` 是生成區，不准手抄、不准手改）
+
+色碼、按鈕、主題、圖示、小工具外觀一律從規範與現成生成檔取，不自己發明。使用者層的 `design-gate` hook 會在沒讀過規範時擋下 Write／Edit；用 Bash 改檔會繞過它，所以同樣遵守。
+
 # 模型分工
 
 - 主會話（Sonnet）：寫碼與決策。難題交給 advisor（Opus）。
