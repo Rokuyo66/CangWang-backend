@@ -20,10 +20,14 @@ ok("解析出兩則（上限）", out.length === 2);
 ok("事件帶發生那天", out[0].kind === "event" && out[0].happened_on === "2026-09-28");
 ok("狀態帶發生那天", out[1].kind === "state" && out[1].happened_on === "2026-09-28");
 ok("其人不綁日子", parseMemoryLines("其人｜-｜自稱六六，做遊戲 UI", "2026-09-30T10:00:00Z")[0].happened_on === null);
-ok("跨年：12/31 在 1/2 的批次裡是去年", parseMemoryLines("事件|12/31|跨年", "2027-01-02T04:00:00Z")[0].happened_on === "2026-12-31");
-ok("認不出格式照存", parseMemoryLines("他說他養了一隻貓", "2026-09-30T10:00:00Z")[0].kind === null);
+ok("跨年：12/31 在 1/2 的批次裡是去年", parseMemoryLines("事件|12/31|他和家人在台北跨年","2027-01-02T04:00:00Z")[0].happened_on === "2026-12-31");
+ok("認不出格式不收", parseMemoryLines("他說他養了一隻貓", "2026-09-30T10:00:00Z").length === 0);
+ok("單字垃圾與半句不收（ｋ、有新記憶）", parseMemoryLines("事件｜11/21｜大園新房驗屋，他終於走進自己的新家\nｋ\n有新記憶", "2026-11-22T10:00:00Z").length === 1);
+ok("冒號分隔與粗體編號也收", parseMemoryLines("1. **事件：11/21：要辦的事：水龍頭已修好**", "2026-11-22T10:00:00Z").map((x) => x.body).join() === "要辦的事：水龍頭已修好");
+ok("四字真事收", parseMemoryLines("其人|-|他養了貓", "2026-11-22T10:00:00Z").length === 1);
+ok("格式對但內容太短不收", parseMemoryLines("事件|11/21|ｋ", "2026-11-22T10:00:00Z").length === 0);
 ok("無新記憶 → 空", parseMemoryLines("無新記憶", "2026-09-30T10:00:00Z").length === 0);
-ok("最多兩則", parseMemoryLines("事件|1/1|a\n事件|1/2|b\n事件|1/3|c", "2026-09-30T10:00:00Z").length === 2);
+ok("最多兩則", parseMemoryLines("事件|1/1|他第一件事的內容\n事件|1/2|他第二件事的內容\n事件|1/3|他第三件事的內容", "2026-09-30T10:00:00Z").length === 2);
 ok("主詞是角色的不收", parseMemoryLines("事件|10/10|師妹指他一週查帳戶六次\n事件|10/10|他說武曲星坐命", "2026-10-10T10:00:00Z").map((x) => x.body).join() === "他說武曲星坐命");
 
 // 舊資料判類：截圖那一則會被當狀態
@@ -107,5 +111,25 @@ ok("同一人多件合成一段", day.daoshi_m === "後院的木樁裂了，他�
 ok("觀貓也認成觀喵", day.lingshou === "在屋脊上睡了一下午");
 ok("台北日期", twDay(Date.parse("2026-09-30T17:00:00Z")) === "2026-10-01");
 
-console.log(`\n${pass} 過 / ${fail} 敗`);
+// ── 喚醒式（2026-11-27）──
+{
+  const { wakeMatches, alwaysOn } = await import("../supabase/functions/_shared/memkind.ts");
+  const notes = [
+    { id: "a", body: "大園新房的驗屋定在11/7，設計丈量也約在同一天，他想終於走進自己的新家看看" },
+    { id: "b", body: "CRDO炒股出現尾盤下殺，他說差點追高，好在沒追" },
+    { id: "c", body: "護道人出門前要辦四件事：水龍頭、包裝紙、衛生紙、買思麗安" },
+  ];
+  ok("短句「好的」不喚醒", wakeMatches(notes, "好的").length === 0);
+  ok("兩個字「新家」不喚醒", wakeMatches(notes, "新家").length === 0);
+  ok("單字 k 不喚醒", wakeMatches(notes, "k").length === 0);
+  ok("聊到驗屋新房 → 喚醒那則", wakeMatches(notes, "大園新房驗屋那天結果還好").map((n) => n.id).join() === "a");
+  ok("英文代號也喚醒", wakeMatches(notes, "今天CRDO又下殺了").map((n) => n.id).join() === "b");
+  ok("只有通用詞（護道人今天覺得）不喚醒", wakeMatches(notes, "護道人今天覺得自己怎麼了").length === 0);
+  ok("其人永遠在", alwaysOn({ body: "自稱身弱辛丑", kind: "trait" }));
+  ok("事件要喚醒", !alwaysOn({ body: "驗屋定在11/7", kind: "event" }));
+  ok("釘選的事件永遠在", alwaysOn({ body: "驗屋定在11/7", kind: "event", pinned_at: "2026-11-01T00:00:00Z" }));
+}
+
+console.log(`
+${pass} 過 / ${fail} 敗`);
 if (fail) process.exit(1);
