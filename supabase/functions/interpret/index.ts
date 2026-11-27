@@ -11,7 +11,7 @@ import { jieqiOf } from "../_shared/jieqi.ts";
 import { QIAN60 } from "../_shared/qian60.ts";
 import { FORTUNE_CATEGORY } from "../_shared/rules.ts";
 import { widgetMonth, widgetState } from "../_shared/widget-state.ts";
-import { chat, chatFavorCap, chatQuotaOf, condenseMemory, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
+import { chat, chatFavorCap, chatQuotaOf, condenseMemory, reviewMemories, FAVOR_CAP, memoryQuotaOf, pinQuotaOf } from "../_shared/chat.ts";
 import {
   computeCollection, claimedRewards, rewardState, CHAR_REWARDS, PLAYER_REWARDS,
 } from "../_shared/collection.ts";
@@ -1389,6 +1389,10 @@ async function handle(req: Request): Promise<Response> {
         // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
         if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(t);
       }
+      // 每月一次：被認真聊過的短期筆記升格成回憶（沒到期只是一次 RPC）
+      const rv = reviewMemories(db, uid, body.character_id).catch((e) => console.error("memory review failed", e));
+      // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(rv);
       return Response.json({ kind: "ok", messages: (msgs ?? []).reverse() }, { headers: CORS });
     }
 

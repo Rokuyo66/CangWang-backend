@@ -43,8 +43,9 @@ export function isDormant(m: MemRow, now = Date.now()): boolean {
 }
 
 /** 注入用：分三段。age 是日子戳（chat.ts 的 memAge），由外面給以免循環引用。 */
-export function arrangeMemories(rows: MemRow[], age: (iso?: string) => string, now = Date.now()): string {
-  const live = rows.filter((m) => !isDormant(m, now));
+export function arrangeMemories(rows: MemRow[], age: (iso?: string) => string, now = Date.now(), keepDormant = false): string {
+  // keepDormant：被他這句話喚醒的舊狀態照樣給（他自己提起了，角色不能裝不知道）
+  const live = keepDormant ? rows : rows.filter((m) => !isDormant(m, now));
   const by = (k: MemKind) => live.filter((m) => kindOf(m) === k)
     .sort((a, b) => Date.parse(dayOf(b) ?? "") - Date.parse(dayOf(a) ?? ""));
   const out: string[] = [];
@@ -77,17 +78,21 @@ function md(iso?: string): string {
   return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : "";
 }
 
-/** 解析彙整輸出：每行「類別｜M/D｜內容」。認不出格式的行照舊存成一則（類別留空，讀時再判）。
+/** 解析彙整輸出：每行「類別｜M/D｜內容」。認不出格式的行一律丟掉（六六 2026-11-27：曾把一個「ｋ」、半句「有新記憶」存成回憶）。
  *  M/D 補年份：取不晚於這批對話最後一天的那一年（跨年的 12/31 不會被當成明年）。 */
+const MIN_BODY = 4;   // 「他養了貓」四個字也是一件事；「ｋ」「有新記憶」不是（後者沒有類別欄，本來就收不進來）
 export function parseMemoryLines(text: string, batchLastIso?: string): { body: string; kind: MemKind | null; happened_on: string | null }[] {
   const last = tw(batchLastIso) ?? new Date(Date.now() + 8 * 3600_000);
   const fallbackDay = last.toISOString().slice(0, 10);
   const out: { body: string; kind: MemKind | null; happened_on: string | null }[] = [];
   for (const raw of (text ?? "").split("\n")) {
-    const line = raw.replace(/^[・\-*•\s]+/, "").trim();
+    // 模型偶爾加編號、粗體：先剝掉，格式小錯不該讓一則真事掉了
+    const line = raw.replace(/\*\*/g, "").replace(/^[・\-*•\s]+/, "").replace(/^\d+\s*[.、．)]\s*/, "").trim();
     if (!line || /^無新記憶[。.]?$/.test(line)) continue;
-    const m = line.match(/^(其人|事件|狀態)\s*[|｜]\s*([^|｜]*?)\s*[|｜]\s*(.+)$/);
-    if (!m) { out.push({ body: line.slice(0, 160), kind: null, happened_on: fallbackDay }); continue; }
+    // 分隔符也認冒號（「事件：11/21：……」）；日子欄取最短，內容裡的冒號不受影響
+    const m = line.match(/^(其人|事件|狀態)\s*[|｜:：]\s*([^|｜:：]*?)\s*[|｜:：]\s*(.+)$/);
+    if (!m) continue;
+    if (m[3].trim().length < MIN_BODY) continue;   // 太短的不是一件事
     const kind = LABEL[m[1]];
     let day: string | null = null;
     const dm = m[2].match(/^(\d{1,2})\s*[/／月]\s*(\d{1,2})/);
@@ -201,3 +206,38 @@ export function mergeTarget(item: { body: string; kind: MemKind | null }, rows: 
   }
   return best;
 }
+
+/* ── 喚醒與升格（六六 2026-11-27：「記得是要記得，但不要卡到陰一樣一直自己提起來」）──
+   ・回憶不再整包塞進每句對話。他這個人（其人）與釘選的照常在；事件、狀態、短期筆記只有他這句話
+     （連同前兩句）聊到了才帶進去。
+   ・比對不用 overlap()：它除以較小的那一邊，「好的」「新家」兩個字就能拿滿分。
+     這裡數的是「共同的內容二字組」有幾個，扣掉每則筆記都有的（護道、他說、今天……），至少 WAKE_MIN_SHARED 個才算。
+   ・被喚醒那次角色回了多少 token 記在筆記上；每月看一次，累積到 PROMOTE_TOKENS 的才升格成回憶。 */
+export const WAKE_MIN_SHARED = 3;
+export const WAKE_MAX = 3;
+export const PROMOTE_TOKENS = 800;      // 主力層一句回覆中位數約 210 token（2026-11 ai_usage）＝認真聊過約四次
+export const NOTE_TTL_DAYS = 30;
+const COMMON_BIGRAMS = new Set([
+  "護道", "道人", "他說", "說自", "自己", "今天", "昨天", "明天", "覺得", "一個", "什麼", "沒有", "時候", "因為", "所以",
+  "就是", "還是", "可以", "這個", "那個", "知道", "現在", "後來", "已經", "不是", "我們", "你們", "他們", "師父", "師傅",
+  "怎麼", "這樣", "那樣", "真的", "一下", "一直", "不會", "不要", "要不", "然後", "如果", "感覺", "事情", "一點",
+]);
+function contentBigrams(t: string): Set<string> {
+  const s = new Set<string>();
+  const c = t.toLowerCase().replace(/[^一-鿿a-z0-9]/g, "");
+  for (let i = 0; i + 2 <= c.length; i++) { const g = c.slice(i, i + 2); if (!COMMON_BIGRAMS.has(g)) s.add(g); }
+  return s;
+}
+/** 他這句話（連同前兩句）喚醒了哪幾則；沒有就回空陣列。 */
+export function wakeMatches<T extends { body: string }>(rows: T[], probe: string, max = WAKE_MAX): T[] {
+  const P = contentBigrams(probe);
+  if (P.size < WAKE_MIN_SHARED) return [];
+  return rows
+    .map((r) => { let n = 0; for (const g of contentBigrams(r.body)) if (P.has(g)) n++; return { r, n }; })
+    .filter((x) => x.n >= WAKE_MIN_SHARED)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, max)
+    .map((x) => x.r);
+}
+/** 永遠在的回憶：釘選的、他這個人。其餘（事件、狀態）要被喚醒才給。 */
+export const alwaysOn = (m: MemRow, now = Date.now()) => (!!m.pinned_at || kindOf(m) === "trait") && !isDormant(m, now);

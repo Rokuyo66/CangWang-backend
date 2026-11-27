@@ -7,7 +7,7 @@ import { QUESTION_CRAFT, SAFETY, fixGuaciChars } from "./rules.ts";
 import { detectCrisis, logCrisis, CRISIS_OPENING } from "./crisis.ts";
 import { ensureDay, lifeHint } from "./days.ts";
 import { tianshiLine } from "./tianshi.ts";
-import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, EXPIRE_MS, repeatedTopics, mergeTarget, type MemRow } from "./memkind.ts";
+import { arrangeMemories, datedDialog, parseMemoryLines, condenseCount, EXPIRE_MS, repeatedTopics, mergeTarget, wakeMatches, alwaysOn, NOTE_TTL_DAYS, PROMOTE_TOKENS, type MemRow } from "./memkind.ts";
 import { openBalance, modeOf, capFor, settle, isSerious, rhythmHint } from "./rhythm.ts";
 // 心跡那一邊的比對與額度只寫一份。在這裡再寫一次的話，「這件事你在記了」
 // 與心跡自己算出來的會慢慢不一樣，而兩邊都不會報錯。
@@ -552,7 +552,7 @@ export function gapText(ms: number): string {
   return "一個多月";
 }
 
-async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free") {
+async function buildContext(db: SupabaseClient, userId: string, characterId: string, plan = "free", message = "") {
   const { data: prof } = await db.from("profiles").select("cast_digest, dao_name").eq("id", userId).single();
   const { data: recentCasts } = await db.from("casts")
     .select("id, question, gua_ben, digest, created_at")
@@ -589,6 +589,16 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   } catch (e) {
     console.error("character_memories 讀取失敗，退回 memory_summary", e);
   }
+  // 短期筆記（0121）：近 NOTE_TTL_DAYS 天的，只在被喚醒時帶進去。表還沒建就當沒有。
+  let notes: (MemRow & { id: string })[] = [];
+  try {
+    const { data, error } = await db.from("memory_notes")
+      .select("id, body, kind, happened_on, created_at")
+      .eq("user_id", userId).eq("character_id", characterId)
+      .gte("created_at", new Date(Date.now() - NOTE_TTL_DAYS * 86400_000).toISOString())
+      .order("created_at", { ascending: false }).limit(60);
+    if (!error) notes = (data ?? []) as typeof notes;
+  } catch { /* 0121 未上 */ }
   const { data: history } = await db.from("chat_messages")
     .select("role, body, created_at").eq("user_id", userId).eq("character_id", characterId)
     .order("created_at", { ascending: false }).limit((PLAN_TURNS[plan] ?? HISTORY_TURNS) * 2);
@@ -621,11 +631,17 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   let probeStreak = 0;
   for (const r of markRows ?? []) { if ((r as { mark?: string }).mark === "probe") probeStreak++; else break; }
   // 有列就用列，沒列才退回舊的單段摘要。
-  // 分三段注入（memkind.ts）：他這個人／發生過的事／那時的狀態；過時的狀態程式直接不給。
-  const memText = memRows && memRows.length
-    ? arrangeMemories(memRows, (iso) => memAge(iso))
+  // 分三段注入（memkind.ts）：他這個人／發生過的事／那時的狀態。
+  // 喚醒式（2026-11-27）：釘選與其人永遠在；事件、狀態與短期筆記要他這句話（連同前兩句）聊到才給。
+  const probe = [...hist.filter((t) => t.role === "user").slice(-2).map((t) => t.body), message].join("\n");
+  const always = (memRows ?? []).filter((m) => alwaysOn(m));
+  const wokenMem = wakeMatches((memRows ?? []).filter((m) => !alwaysOn(m)), probe);
+  const wokenNotes = wakeMatches(notes, probe);
+  const memText = (memRows && memRows.length) || notes.length
+    ? arrangeMemories([...always, ...wokenMem, ...wokenNotes], (iso) => memAge(iso), Date.now(), true)
     : (ucMem?.memory_summary as string ?? "");
   const cleanMemory = scrubBilling(memText) || undefined;
+  const wokenNoteIds = wokenNotes.map((n) => n.id);
   // 自訂提醒：本角色負責、且今日已進入提醒窗（date - lead_days ≤ 今日 ≤ date）
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
   const { data: rems } = await db.from("reminders")
@@ -638,7 +654,7 @@ async function buildContext(db: SupabaseClient, userId: string, characterId: str
   }).map((r) => `・${r.date}${r.time ? " " + r.time : ""}　${r.title}`).join("\n");
   // 心事：他記進心跡、還在記掛的事（至多 5 件、每件一行，見 xinji.threadsBrief）。讀不到就當沒有。
   const threadLines = await threadsBrief(db, userId).catch((e) => { console.error("threadsBrief failed", e); return ""; });
-  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt };
+  return { castLines, turns, daoName: prof?.dao_name, memorySummary: cleanMemory, reminderLines, probeStreak, threadLines, lastAt, wokenNoteIds };
 }
 
 // 滾動記憶彙整：把結束了的對話場次濃縮成長期記憶、再刪明細（何時收見 memkind.ts 的 condenseCount）。
@@ -650,6 +666,38 @@ export async function condenseMemory(db: SupabaseClient, userId: string, charact
   if (!lockErr && got === false) return;
   try { await condenseLocked(db, userId, characterId); }
   finally { if (!lockErr) await db.rpc("condense_release", { p_user: userId, p_char: characterId }).then(() => {}, () => {}); }
+}
+
+/** 每月升格（0121）：他打開閒聊時看一次。距上次超過 30 天才跑（claim_memory_review 搶門，第一次只立基準）。
+ *  被認真聊過（累積 wake_tokens ≥ PROMOTE_TOKENS）的筆記搬進 character_memories；沒升格、超過 NOTE_TTL_DAYS 的筆記刪掉。
+ *  不叫模型：筆記本身已是整理過的一句。 */
+export async function reviewMemories(db: SupabaseClient, userId: string, characterId: string) {
+  const { data: claim, error: cErr } = await db.rpc("claim_memory_review", { p_user: userId, p_char: characterId, p_days: NOTE_TTL_DAYS });
+  if (cErr || claim !== "due") return;
+  const { data: notes } = await db.from("memory_notes")
+    .select("id, body, kind, happened_on, created_at, wake_tokens")
+    .eq("user_id", userId).eq("character_id", characterId);
+  const ripe = (notes ?? []).filter((n) => (n.wake_tokens ?? 0) >= PROMOTE_TOKENS)
+    .sort((a, b) => (b.wake_tokens ?? 0) - (a.wake_tokens ?? 0));
+  if (ripe.length) {
+    const { data: mems } = await db.from("character_memories")
+      .select("id, body, kind, created_at, pinned_at, happened_on").eq("user_id", userId).eq("character_id", characterId)
+      .order("created_at", { ascending: false }).limit(40);
+    const pool = [...(mems ?? [])] as { id: string; body: string; kind?: string | null; created_at?: string; pinned_at?: string | null }[];
+    const moved: string[] = [];
+    for (const n of ripe) {
+      const item = { body: n.body as string, kind: (n.kind ?? null) as "trait" | "event" | "state" | null };
+      const target = mergeTarget(item, pool);
+      const { error } = target
+        ? await db.from("character_memories").update({ body: n.body, kind: n.kind, happened_on: n.happened_on }).eq("id", target).eq("user_id", userId)
+        : await db.from("character_memories").insert({ user_id: userId, character_id: characterId, source: "chat", body: n.body, kind: n.kind, happened_on: n.happened_on });
+      if (!error) moved.push(n.id as string);
+      else console.error("promote note failed", error.message);
+    }
+    if (moved.length) await db.from("memory_notes").delete().in("id", moved);
+  }
+  await db.from("memory_notes").delete().eq("user_id", userId).eq("character_id", characterId)
+    .lt("created_at", new Date(Date.now() - NOTE_TTL_DAYS * 86400_000).toISOString());
 }
 
 async function condenseLocked(db: SupabaseClient, userId: string, characterId: string) {
@@ -671,30 +719,42 @@ async function condenseLocked(db: SupabaseClient, userId: string, characterId: s
       .order("created_at", { ascending: false }).limit(12);
     if (!error) { hasRows = true; recent = (data ?? []) as typeof recent; known = recent.map((m) => `・${m.body}`).join("\n"); }
   } catch { /* 表還不存在，走下面的舊路 */ }
+  // 短期筆記（0121）：新寫的先跟筆記去重、併進同一則（累積的 token 留著）。表不在就退回直接寫回憶。
+  let noteRecent: typeof recent = [];
+  let notesOn = false;
+  try {
+    const { data, error } = await db.from("memory_notes")
+      .select("id, body, kind, created_at, happened_on").eq("user_id", userId).eq("character_id", characterId)
+      .order("created_at", { ascending: false }).limit(20);
+    if (!error) { notesOn = true; noteRecent = (data ?? []) as typeof recent; }
+  } catch { /* 0121 未上 */ }
   if (!hasRows) {
     const { data: uc } = await db.from("user_character")
       .select("memory_summary").eq("user_id", userId).eq("character_id", characterId).maybeSingle();
     known = scrubBilling((uc?.memory_summary as string | undefined) ?? "");
   }
+  if (noteRecent.length) known = [known, noteRecent.map((m) => `・${m.body}`).join("\n")].filter(Boolean).join("\n");
 
   // 逐日標〔M/D〕：記憶的日子要是「發生那天」，不是彙整那天（彙整常在好幾天之後才跑）
   const dialog = datedDialog(oldMsgs, (m) => `${m.role === "user" ? "護道人" : "你"}：${m.role === "assistant" ? scrubStrayEq(scrubBilling(m.body)) : m.body}`);
   // 0032 起改成「一則一列」，所以這裡要的是**一則新記憶**，不是重寫整段。
   // 重寫整段會讓每次彙整都產出一列近乎重複的內容，列數爆而資訊不增。
-  const sys = `你在維護與某位『護道人』的長期記憶，記憶是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡值得長期記住、而【已記得的】還沒有的事。
+  const sys = `你在替某位『護道人』記筆記，筆記是一則一則累積的。讀【已記得的】與【新增對話】（〔M/D〕標的是那段對話發生的日子），寫下這段對話裡他說了的、【已記得的】還沒有的事。
+這是短期筆記：之後只有真的被一再聊起的才會留成長期回憶，所以照實記下他講的事即可，不必挑「夠不夠深刻」。
+不記的：一來一往的寒暄、沒內容的應答、單一天的待辦清單、單日盤勢漲跌、他問了什麼卦。
 
-每則一行，格式：類別｜日子｜內容。最多兩則，同一件事只寫一則；沒有值得記的新東西，只輸出四個字：無新記憶
+每則一行，格式：類別｜日子｜內容。最多兩則，同一件事只寫一則；沒有新東西，只輸出四個字：無新記憶
 類別只能三選一，一則只放一種，不同性質就拆成不同行：
 ・其人：他這個人——自稱、身分、在意的人事物、長久的偏好與習慣、你們關係裡的關鍵轉折。必須是他親口說過、或在不同日子一再表現的。日子寫 -
 ・事件：那天發生的事（他遇到什麼、做了什麼、你們之間發生了什麼）。日子寫對話裡標的那天，如 9/28
-・狀態：會過去的——情緒、身體、壓力、忙碌、人在哪。日子寫那天；有後續（好了、平復了）就一起寫進去
+・狀態：會過去的——情緒、身體、壓力、處境。日子寫那天；有後續（好了、平復了）就一起寫進去
 
 規則：
 ①每則的主詞是他（護道人），寫他說了什麼、做了什麼、遇到什麼。事實只以他實際說過的話為準。你（角色）說過的話、你的推論、判斷、猜測，一律不寫——「你判斷他其實是……」這種句子絕不能出現
 ②不把一時的情緒或一次的抱怨寫成他的看法或性格；「普遍」「總是」「一向」只在他親口這樣說時才用
 ③【已記得的】裡已經有的不重寫；同一件事有了新發展，就把來龍去脈寫成完整的一則（舊的那則會被它取代）；你曾講過未經他證實的往事或個股，絕不寫進記憶
 ④每則八十字以內，寫清楚來龍去脈（誰、什麼事、後來怎樣），繁體中文，只寫事，不加前言、說明、條列符號
-⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不值得記，除非它牽出了別的事`;
+⑤一兩天就好的小事（小感冒、一頓沒吃好）通常不記，除非它牽出了別的事`;
   const usr = `【已記得的】\n${known || "（尚無）"}\n\n【新增對話．由舊到新】\n${dialog}`;
   const batchLast = (oldMsgs[oldMsgs.length - 1] as { created_at?: string }).created_at;
 
@@ -712,9 +772,35 @@ async function condenseLocked(db: SupabaseClient, userId: string, characterId: s
   const nothingNew = /^無新記憶[。.]?$/.test(summary.trim());
 
   const items = nothingNew ? [] : parseMemoryLines(summary, batchLast);
+  // 整批被濾掉（格式不對、太短）就當作無新記憶照刪明細；留 log 以免模型改了格式我們不知道
+  if (!nothingNew && !items.length) console.warn("condense output dropped", summary.slice(0, 200));
   if (items.length) {
     let wrote = false;
-    try {
+    // 0121 起寫進短期筆記；同一件事併進原本那則筆記（只改內容，累積的 token 不動）
+    if (notesOn) {
+      try {
+        const fresh: typeof items = [];
+        const used = new Set<string>();
+        for (const it of items) {
+          const id = mergeTarget(it, noteRecent.filter((r) => !used.has(r.id)));
+          if (!id) { fresh.push(it); continue; }
+          used.add(id);
+          const prev = noteRecent.find((r) => r.id === id)?.happened_on ?? null;
+          const happened_on = prev && it.happened_on ? (prev < it.happened_on ? prev : it.happened_on) : (it.happened_on ?? prev);
+          // 0 列命中（那則剛被每月升格搬走）也當失敗，改插新的一則，內容不能靜默丟掉
+          const { data: upRows, error: upErr } = await db.from("memory_notes").update({ body: it.body, kind: it.kind, happened_on }).eq("id", id).eq("user_id", userId).select("id");
+          if (upErr || !upRows?.length) fresh.push(it);
+        }
+        const { error } = fresh.length
+          ? await db.from("memory_notes").insert(fresh.map((it) => ({ user_id: userId, character_id: characterId, ...it })))
+          : { error: null };
+        wrote = !error;
+        if (error) console.error("memory_notes insert failed", error.message);
+      } catch (e) { console.error("memory_notes write failed", e); }
+      // 筆記表在、卻寫不進去：不改寫進永久回憶（那會繞過每月升格），明細留著下次再收
+      if (!wrote) { console.error("condense: notes write failed, keep messages"); return; }
+    }
+    if (!wrote) try {
       // 同一件事併進原本那一則（改寫成新的），不另開一格（memkind.ts 的 mergeTarget）
       const fresh: typeof items = [];
       // 同一批的兩則若都對上同一列，第二則不再蓋它（否則先寫的那則就沒了）；發生日保留較早的那天
@@ -1059,7 +1145,7 @@ ${NARRATION_CRAFT}`;
   // 身分那句擺 tail 最前面：先立身分，再談淵源。
   // ⚠ 絕不可移進 head——head 是全站共用的快取前綴，摻入隨用戶而異的東西就會分岔。
   const titleBlock = titleLine ? titleLine + "\n" : "";
-  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你記得這些（〔〕是事情那天）。相關時自然帶到，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
+  const tail = `${titleBlock}【你與此人的淵源】${daoName ? `此人道號「${daoName}」。` : ""}${memorySummary ? `\n你心裡記得這些（〔〕是事情那天）。這是你知道的事，不是要講的話：他這句沒聊到的就不要主動提、不要繞回去；他聊到了，自然接得上就好，不必念出來：\n${memorySummary}\n${MEMORY_TENSE}\n` : ""}${reminderLines ? `\n他託你記著幾件事，時機合適時用你的口吻提一句，像關心不像鬧鐘：\n${reminderLines}\n` : ""}${threadLines ? `\n他記進心跡、還放在心上的事。相關時、或應期過了還沒下文時，可以問一句後來怎樣；一次最多一件，別每句都提：\n${threadLines}\n` : ""}他在幾知觀問過的卦（最上面是最近的）：
 ${castLines || "（他還沒問過卦。）"}
 他提起自己的卦，你是知道的，照實接話；不要把卦說成宿命。
 【往事】你記得的就是上面這些。沒列在上面的往事，不確定就問他，別自己補細節（時間、人名、個股、他說過的話）。你批在卦紙上的卦理是你寫的——他引一句回來問，就認、就接著談；分不清是不是你寫的，就問他在哪張卦紙看到的，別一口否認。
@@ -1366,7 +1452,7 @@ export async function chat(db: SupabaseClient, p: {
   }
 
   const { data: ch } = await db.from("characters").select("persona_prompt").eq("id", p.characterId).single();
-  const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free");
+  const ctx = await buildContext(db, p.userId, p.characterId, p.plan ?? "free", p.message);
   const titleLine = [await titleVoiceHint(db, p.userId, p.characterId), await playerTitleHint(db, p.userId, p.characterId)]
     .filter(Boolean).join("\n");
   // 引述橋接：只有真的引到卦紙原文才會回傳內容，沒引到就是空字串（不多花一個 token）
@@ -1541,6 +1627,17 @@ export async function chat(db: SupabaseClient, p: {
   // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
   if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(condenseTask);
   else condenseTask.catch((e) => console.error("condense bg err", e));
+
+  // 被喚醒的短期筆記記上這次回了多少 token（每月升格看這個）。罐頭不算；非主力層照字數估。
+  if (ctx.wokenNoteIds.length && tier !== "canned") {
+    const tok = outTok > 0 ? outTok : Math.ceil(reply.length * 1.2);
+    const wakeTask = db.rpc("wake_memory_notes", { p_ids: ctx.wokenNoteIds, p_tokens: tok }).then(({ error }) => {
+      if (error) console.error("wake_memory_notes failed", error.message);
+    }, (e) => console.error("wake_memory_notes failed", e));
+    // 背景記帳，不拖慢回覆
+    // @ts-ignore EdgeRuntime 為 Supabase 提供的全域
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(wakeTask);
+  }
 
   // 好感：成功用 AI 回覆（非罐頭）才 +1，上限封頂；第六層惹角色生氣（[[SULK]]）反扣，掉回第五層就不再扣（favorAfter）。
   // 非罐頭必然「已記免費次數（每日至多 FREE_CHAT_PER_DAY）或已扣靈石」，故免費好感日增上限＝免費句數、付費每句 +1。
